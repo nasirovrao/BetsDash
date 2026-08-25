@@ -1,48 +1,50 @@
 /* ===========================================================
-   CyberValue App — тот же визуальный язык, что у лендинга
-   (тёмный терминал, золото + бирюза), но теперь это рабочий
-   инструмент, а не витрина: акцент на таблицах и формах.
+   EDGE — визуальный язык обновлён под современный SaaS-дэшборд
+   для бетторов: графитовый фон, электрик-индиго акцент, гротеск
+   вместо антиквы. Имена CSS-переменных оставлены прежними
+   (--gold/--teal/--rust), чтобы не трогать разметку в HTML —
+   меняются только их значения и типографика.
 =========================================================== */
 :root{
-  --bg: #100e0c;
-  --bg-raised: #18140f;
-  --bg-card: #1d1811;
-  --line: #33291c;
-  --line-soft: #241d15;
-  --ink: #f2ede0;
-  --ink-dim: #ab9f89;
-  --ink-faint: #746b58;
-  --gold: #dba848;
-  --gold-ink: #17120a;
-  --teal: #5da090;
-  --teal-soft: rgba(93,160,144,0.12);
-  --rust: #c9805f;
-  --rust-soft: rgba(201,128,95,0.12);
-  --shadow: 0 12px 30px rgba(0,0,0,0.35);
-  --radius: 4px;
+  --bg: #0a0b0f;
+  --bg-raised: #101218;
+  --bg-card: #14161f;
+  --line: #23262f;
+  --line-soft: #1a1c24;
+  --ink: #edeff4;
+  --ink-dim: #9599aa;
+  --ink-faint: #5a5f71;
+  --gold: #7c6cff;
+  --gold-ink: #ffffff;
+  --teal: #35d199;
+  --teal-soft: rgba(53,209,153,0.12);
+  --rust: #fb7189;
+  --rust-soft: rgba(251,113,137,0.12);
+  --shadow: 0 20px 44px rgba(0,0,0,0.5);
+  --radius: 10px;
 }
 *{ box-sizing: border-box; }
 html,body{ margin:0; padding:0; }
 body{
   background: var(--bg);
   color: var(--ink);
-  font-family: 'Manrope', -apple-system, "Segoe UI", sans-serif;
+  font-family: 'Inter', -apple-system, "Segoe UI", sans-serif;
   line-height: 1.5;
   -webkit-font-smoothing: antialiased;
 }
 a{ color: inherit; }
 .wrap{ max-width: 1080px; margin: 0 auto; padding: 0 24px; }
-h1,h2{ font-family: 'Newsreader', Georgia, serif; font-weight: 500; margin:0; letter-spacing:-0.01em; }
+h1,h2{ font-family: 'Space Grotesk', -apple-system, sans-serif; font-weight: 600; margin:0; letter-spacing:-0.015em; }
 .num, .mono{ font-family: 'JetBrains Mono', 'Courier New', monospace; font-variant-numeric: tabular-nums; }
 
 /* ---- topbar ---- */
 .topbar{ border-bottom: 1px solid var(--line-soft); }
 .topbar .wrap{ display:flex; align-items:center; justify-content:space-between; padding: 18px 24px; gap:16px; flex-wrap:wrap; }
-.brand{ font-family:'Newsreader', serif; font-weight:600; font-size:19px; }
+.brand{ font-family:'Space Grotesk', sans-serif; font-weight:700; font-size:19px; letter-spacing:-0.02em; }
 .brand span{ color: var(--gold); }
 .topbar-user{ display:flex; align-items:center; gap:14px; font-family:'JetBrains Mono', monospace; font-size:12.5px; color: var(--ink-dim); }
 .topbar-user button{
-  font-family:'IBM Plex Mono','JetBrains Mono', monospace; font-size:12px; text-transform:uppercase; letter-spacing:0.04em;
+  font-family:'JetBrains Mono', monospace; font-size:12px; text-transform:uppercase; letter-spacing:0.04em;
   background:none; border:1px solid var(--line); color: var(--ink-dim); padding:7px 12px; border-radius: var(--radius); cursor:pointer;
 }
 .topbar-user button:hover{ border-color: var(--ink-faint); color: var(--ink); }
@@ -58,16 +60,16 @@ h1,h2{ font-family: 'Newsreader', Georgia, serif; font-weight: 500; margin:0; le
 .field{ margin-bottom: 16px; display:flex; flex-direction:column; gap:6px; }
 .field label{ font-family:'JetBrains Mono', monospace; font-size:11px; text-transform:uppercase; letter-spacing:0.06em; color: var(--ink-faint); }
 .field input{
-  font-family:'Manrope', sans-serif; font-size:14.5px; padding:11px 13px; border:1px solid var(--line);
+  font-family:'Inter', sans-serif; font-size:14.5px; padding:11px 13px; border:1px solid var(--line);
   border-radius: var(--radius); background: var(--bg-raised); color: var(--ink);
 }
 .field input:focus{ outline:none; border-color: var(--gold); }
 .btn{
-  font-family:'Manrope', sans-serif; font-weight:700; font-size:14px; padding:12px 20px; border-radius: var(--radius);
+  font-family:'Inter', sans-serif; font-weight:600; font-size:14px; padding:12px 20px; border-radius: var(--radius);
   border:1px solid transparent; cursor:pointer; width:100%;
 }
 .btn-primary{ background: var(--gold); color: var(--gold-ink); }
-.btn-primary:hover{ opacity:0.92; }
+.btn-primary:hover{ opacity:0.9; }
 .btn-primary:disabled{ opacity:0.5; cursor:default; }
 .auth-toggle{ margin-top:18px; text-align:center; font-size:13px; color: var(--ink-faint); }
 .auth-toggle a{ color: var(--gold); text-decoration:none; cursor:pointer; }
@@ -82,7 +84,7 @@ h1,h2{ font-family: 'Newsreader', Georgia, serif; font-weight: 500; margin:0; le
 .nav-pill{
   flex: none; font-family:'JetBrains Mono', monospace; font-size:12px; text-transform:uppercase; letter-spacing:0.03em;
   color: var(--ink-faint); text-decoration:none; padding:8px 13px; border-radius: var(--radius); white-space:nowrap;
-  border:1px solid transparent;
+  border:1px solid transparent; transition: background 0.12s ease, color 0.12s ease, border-color 0.12s ease;
 }
 .nav-pill:hover{ color: var(--ink); border-color: var(--line); }
 .nav-pill.active{ color: var(--gold-ink); background: var(--gold); }
@@ -98,11 +100,11 @@ section{ padding: 40px 0; }
 .bet-form{
   background: var(--bg-card); border:1px solid var(--line); border-radius: var(--radius); padding: 22px 24px 24px; margin-bottom: 30px;
 }
-.bet-form h3{ font-family:'Manrope', sans-serif; font-weight:700; font-size:14px; text-transform:uppercase; letter-spacing:0.04em; color: var(--ink-dim); margin:0 0 16px; }
+.bet-form h3{ font-family:'Inter', sans-serif; font-weight:700; font-size:14px; text-transform:uppercase; letter-spacing:0.04em; color: var(--ink-dim); margin:0 0 16px; }
 .form-grid{ display:grid; grid-template-columns: repeat(4, 1fr); gap:14px; }
 .form-grid .field{ margin-bottom:0; }
 .form-grid select{
-  font-family:'Manrope', sans-serif; font-size:14px; padding:10px 11px; border:1px solid var(--line);
+  font-family:'Inter', sans-serif; font-size:14px; padding:10px 11px; border:1px solid var(--line);
   border-radius: var(--radius); background: var(--bg-raised); color: var(--ink); width:100%;
 }
 .form-actions{ margin-top:18px; display:flex; align-items:center; gap:14px; }
@@ -157,7 +159,7 @@ table.bets-table td.num{ color: var(--ink); }
 .setup-card{
   background: var(--bg-card); border:1px solid var(--gold); border-radius: var(--radius); padding:22px 24px; margin-bottom:30px;
 }
-.setup-card h3{ font-family:'Manrope', sans-serif; font-weight:700; font-size:14px; color: var(--gold); margin:0 0 6px; }
+.setup-card h3{ font-family:'Inter', sans-serif; font-weight:700; font-size:14px; color: var(--gold); margin:0 0 6px; }
 .setup-card p{ font-size:13px; color: var(--ink-dim); margin:0 0 16px; }
 .setup-row{ display:flex; gap:12px; align-items:flex-end; flex-wrap:wrap; }
 .setup-row .field{ margin-bottom:0; min-width:160px; }
