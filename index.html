@@ -71,9 +71,9 @@
     msgEl.className = 'auth-msg show ' + kind;
   }
 
-  // Если уже залогинен — сразу на страницу ставок.
+  // Если уже залогинен — сразу на дашборд.
   supabase.auth.getSession().then(({ data: { session } }) => {
-    if (session) window.location.href = 'app.html';
+    if (session) window.location.href = 'dashboard.html';
   });
 
   form.addEventListener('submit', async (e) => {
@@ -88,7 +88,7 @@
         showMsg(error.message, 'error');
         submitBtn.disabled = false;
       } else {
-        window.location.href = 'app.html';
+        window.location.href = 'dashboard.html';
       }
     } else {
       const { error } = await supabase.auth.signUp({ email, password });

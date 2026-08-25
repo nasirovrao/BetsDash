@@ -1,0 +1,142 @@
+<!doctype html>
+<html lang="ru">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>Дашборд — CyberValue</title>
+<link rel="preconnect" href="https://fonts.googleapis.com">
+<link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
+<link href="https://fonts.googleapis.com/css2?family=Newsreader:ital,opsz,wght@0,6..72,500;0,6..72,600&family=Manrope:wght@400;500;600;700&family=JetBrains+Mono:wght@400;500;600&display=swap" rel="stylesheet">
+<link rel="stylesheet" href="styles.css">
+</head>
+<body>
+
+<div class="topbar">
+  <div class="wrap">
+    <div class="brand">Cyber<span>Value</span></div>
+    <div class="topbar-user">
+      <span id="userEmail">…</span>
+      <button id="logoutBtn" type="button">Выйти</button>
+    </div>
+  </div>
+</div>
+
+<nav class="app-nav">
+  <div class="wrap">
+    <a class="nav-pill active" href="dashboard.html">Дашборд</a>
+    <a class="nav-pill" href="app.html">Ставки</a>
+    <a class="nav-pill" href="bank.html">Выводы и банк</a>
+    <a class="nav-pill soon" href="disciplines.html">По дисциплинам</a>
+    <a class="nav-pill soon" href="bookmakers.html">По букмекерам</a>
+    <a class="nav-pill soon" href="markets.html">Рынки</a>
+    <a class="nav-pill soon" href="teams.html">Команды</a>
+    <a class="nav-pill soon" href="segmentation.html">Сегментация</a>
+    <a class="nav-pill soon" href="edges.html">Найденные эджи</a>
+  </div>
+</nav>
+
+<section>
+  <div class="wrap">
+    <div class="section-head">
+      <h2>Дашборд</h2>
+      <div class="section-note" id="asOfNote"></div>
+    </div>
+
+    <div id="setupPrompt" class="setup-card" style="display:none;">
+      <h3>Укажи стартовый банк</h3>
+      <p>Один раз укажи, с какой суммы ты начал(а) вести журнал — от неё считаются «Банк» и «Прирост банка». Изменить позже можно на странице «Выводы и банк».</p>
+      <div class="setup-row">
+        <div class="field">
+          <label for="startBank">Стартовый банк ($)</label>
+          <input id="startBank" type="number" step="0.01" min="0" placeholder="5500">
+        </div>
+        <button class="btn btn-primary" type="button" id="saveStartBank">Сохранить</button>
+      </div>
+    </div>
+
+    <div class="stat-grid" id="statGrid"></div>
+
+    <div class="section-note" id="dashHint" style="margin-top:-14px; margin-bottom:26px;"></div>
+  </div>
+</section>
+
+<script type="module">
+  import { supabase, requireSession } from './supabase-client.js';
+  import { fmtMoney, computeStats } from './lib.js';
+
+  const session = await requireSession();
+  if (session) {
+    document.getElementById('userEmail').textContent = session.user.email;
+  }
+
+  document.getElementById('logoutBtn').addEventListener('click', async () => {
+    await supabase.auth.signOut();
+    window.location.href = 'index.html';
+  });
+
+  const statGrid = document.getElementById('statGrid');
+  const setupPrompt = document.getElementById('setupPrompt');
+  const dashHint = document.getElementById('dashHint');
+  const asOfNote = document.getElementById('asOfNote');
+
+  function renderStats(s) {
+    const cards = [
+      { label: 'Всего ставок', value: s.total, sub: s.pending ? `${s.pending} в ожидании` : '' },
+      { label: 'W / L / P', value: `${s.wins} / ${s.losses} / ${s.pushes}`, sub: '' },
+      { label: 'Винрейт', value: s.winrate == null ? '—' : s.winrate.toFixed(1) + '%', sub: (s.wins + s.losses) ? `${s.wins + s.losses} решённых` : '' },
+      { label: 'Профит', value: fmtMoney(s.totalProfit), cls: s.totalProfit > 0 ? 'pos' : s.totalProfit < 0 ? 'neg' : '', sub: '' },
+      { label: 'ROI', value: s.roi == null ? '—' : s.roi.toFixed(2) + '%', cls: s.roi > 0 ? 'pos' : s.roi < 0 ? 'neg' : '', sub: '' },
+      { label: 'Средний кэф', value: s.avgOdds == null ? '—' : s.avgOdds.toFixed(2), sub: '' },
+      { label: 'Банк', value: fmtMoney(s.currentBank), cls: s.currentBank > s.startingBankroll ? 'pos' : s.currentBank < s.startingBankroll ? 'neg' : '', sub: `старт $${s.startingBankroll}` },
+      { label: 'Прирост банка', value: s.bankGrowthPct == null ? '—' : s.bankGrowthPct.toFixed(1) + '%', cls: s.bankGrowthPct > 0 ? 'pos' : s.bankGrowthPct < 0 ? 'neg' : '', sub: fmtMoney(s.totalProfit) + ' по ставкам' },
+    ];
+    statGrid.innerHTML = cards.map(c => `
+      <div class="stat-card">
+        <div class="stat-label">${c.label}</div>
+        <div class="stat-value ${c.cls || ''}">${c.value}</div>
+        ${c.sub ? `<div class="stat-sub">${c.sub}</div>` : ''}
+      </div>
+    `).join('');
+  }
+
+  async function load() {
+    const [{ data: bets, error: betsErr }, { data: withdrawals, error: wErr }, { data: settings, error: sErr }] = await Promise.all([
+      supabase.from('bets').select('*'),
+      supabase.from('withdrawals').select('*'),
+      supabase.from('settings').select('*').maybeSingle(),
+    ]);
+
+    if (betsErr || wErr || sErr) {
+      dashHint.textContent = 'Ошибка загрузки: ' + (betsErr || wErr || sErr).message;
+      return;
+    }
+
+    if (!settings) {
+      setupPrompt.style.display = 'block';
+      renderStats(computeStats(bets || [], withdrawals || [], 0));
+      dashHint.textContent = '';
+      return;
+    }
+
+    setupPrompt.style.display = 'none';
+    renderStats(computeStats(bets || [], withdrawals || [], settings.starting_bankroll));
+    dashHint.textContent = (bets && bets.length) ? '' : 'Пока нет ни одной ставки — добавь их на странице «Ставки».';
+  }
+
+  document.getElementById('saveStartBank').addEventListener('click', async () => {
+    const val = Number(document.getElementById('startBank').value);
+    if (!val || val <= 0) return;
+    const { error } = await supabase.from('settings').insert({ user_id: session.user.id, starting_bankroll: val });
+    if (error) {
+      dashHint.textContent = 'Не удалось сохранить: ' + error.message;
+      return;
+    }
+    load();
+  });
+
+  asOfNote.textContent = new Date().toLocaleDateString('ru-RU', { day: '2-digit', month: '2-digit', year: 'numeric' });
+  load();
+</script>
+
+</body>
+</html>

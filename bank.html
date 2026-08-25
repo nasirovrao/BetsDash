@@ -1,0 +1,237 @@
+<!doctype html>
+<html lang="ru">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>Выводы и банк — CyberValue</title>
+<link rel="preconnect" href="https://fonts.googleapis.com">
+<link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
+<link href="https://fonts.googleapis.com/css2?family=Newsreader:ital,opsz,wght@0,6..72,500;0,6..72,600&family=Manrope:wght@400;500;600;700&family=JetBrains+Mono:wght@400;500;600&display=swap" rel="stylesheet">
+<link rel="stylesheet" href="styles.css">
+</head>
+<body>
+
+<div class="topbar">
+  <div class="wrap">
+    <div class="brand">Cyber<span>Value</span></div>
+    <div class="topbar-user">
+      <span id="userEmail">…</span>
+      <button id="logoutBtn" type="button">Выйти</button>
+    </div>
+  </div>
+</div>
+
+<nav class="app-nav">
+  <div class="wrap">
+    <a class="nav-pill" href="dashboard.html">Дашборд</a>
+    <a class="nav-pill" href="app.html">Ставки</a>
+    <a class="nav-pill active" href="bank.html">Выводы и банк</a>
+    <a class="nav-pill soon" href="disciplines.html">По дисциплинам</a>
+    <a class="nav-pill soon" href="bookmakers.html">По букмекерам</a>
+    <a class="nav-pill soon" href="markets.html">Рынки</a>
+    <a class="nav-pill soon" href="teams.html">Команды</a>
+    <a class="nav-pill soon" href="segmentation.html">Сегментация</a>
+    <a class="nav-pill soon" href="edges.html">Найденные эджи</a>
+  </div>
+</nav>
+
+<section>
+  <div class="wrap">
+    <div class="section-head">
+      <h2>Выводы и банк</h2>
+      <div class="section-note" id="countNote"></div>
+    </div>
+
+    <div class="stat-grid" id="bankStatGrid" style="grid-template-columns: repeat(3, 1fr);"></div>
+
+    <div class="bet-form">
+      <h3>Стартовый банк</h3>
+      <div class="setup-row">
+        <div class="field">
+          <label for="startBank">Сумма ($)</label>
+          <input id="startBank" type="number" step="0.01" min="0" placeholder="5500">
+        </div>
+        <button class="btn btn-primary" type="button" id="saveStartBank" style="width:auto;">Сохранить</button>
+        <span class="form-status" id="startBankStatus"></span>
+      </div>
+    </div>
+
+    <div class="bet-form">
+      <h3>Добавить вывод</h3>
+      <form id="withdrawForm">
+        <div class="form-grid" style="grid-template-columns: repeat(3, 1fr);">
+          <div class="field">
+            <label for="w_date">Дата</label>
+            <input id="w_date" type="date" required>
+          </div>
+          <div class="field">
+            <label for="w_amount">Сумма ($)</label>
+            <input id="w_amount" type="number" step="0.01" min="0.01" required>
+          </div>
+          <div class="field">
+            <label for="w_note">Комментарий</label>
+            <input id="w_note" type="text" placeholder="вывод на жизнь">
+          </div>
+        </div>
+        <div class="form-actions">
+          <button class="btn btn-primary" type="submit" id="addBtn" style="width:auto;">Добавить вывод</button>
+          <span class="form-status" id="formStatus"></span>
+        </div>
+      </form>
+    </div>
+
+    <div class="table-wrap">
+      <div class="table-scroll">
+        <table class="bets-table" id="wTable">
+          <thead>
+            <tr><th>Дата</th><th>Сумма</th><th>Комментарий</th><th></th></tr>
+          </thead>
+          <tbody id="wTbody"></tbody>
+        </table>
+      </div>
+      <div class="empty-state" id="emptyState" style="display:none;">Выводов пока не было.</div>
+    </div>
+  </div>
+</section>
+
+<script type="module">
+  import { supabase, requireSession } from './supabase-client.js';
+  import { fmtMoney, computeStats } from './lib.js';
+
+  const session = await requireSession();
+  if (session) {
+    document.getElementById('userEmail').textContent = session.user.email;
+  }
+  document.getElementById('logoutBtn').addEventListener('click', async () => {
+    await supabase.auth.signOut();
+    window.location.href = 'index.html';
+  });
+
+  const wTbody = document.getElementById('wTbody');
+  const emptyState = document.getElementById('emptyState');
+  const countNote = document.getElementById('countNote');
+  const formStatus = document.getElementById('formStatus');
+  const startBankStatus = document.getElementById('startBankStatus');
+  const bankStatGrid = document.getElementById('bankStatGrid');
+
+  function escapeHtml(s) {
+    return String(s ?? '').replace(/[&<>"']/g, c => ({ '&': '&amp;', '<': '&lt;', '>': '&gt;', '"': '&quot;', "'": '&#39;' }[c]));
+  }
+  function fmtDate(d) {
+    const [y, m, day] = d.split('-');
+    return `${day}.${m}.${y}`;
+  }
+
+  function renderBankStats(s) {
+    const cards = [
+      { label: 'Стартовый банк', value: fmtMoney(s.startingBankroll), sub: '' },
+      { label: 'Выведено всего', value: fmtMoney(s.totalWithdrawn), sub: '' },
+      { label: 'Текущий банк', value: fmtMoney(s.currentBank), cls: s.currentBank > s.startingBankroll ? 'pos' : s.currentBank < s.startingBankroll ? 'neg' : '', sub: `профит по ставкам ${fmtMoney(s.totalProfit)}` },
+    ];
+    bankStatGrid.innerHTML = cards.map(c => `
+      <div class="stat-card">
+        <div class="stat-label">${c.label}</div>
+        <div class="stat-value ${c.cls || ''}">${c.value}</div>
+        ${c.sub ? `<div class="stat-sub">${c.sub}</div>` : ''}
+      </div>
+    `).join('');
+  }
+
+  function renderRow(w) {
+    const tr = document.createElement('tr');
+    tr.innerHTML = `
+      <td class="num">${fmtDate(w.w_date)}</td>
+      <td class="num">${fmtMoney(Number(w.amount))}</td>
+      <td>${escapeHtml(w.note || '—')}</td>
+      <td><button class="row-del" data-id="${w.id}">Удалить</button></td>
+    `;
+    tr.querySelector('.row-del').addEventListener('click', () => deleteWithdrawal(w.id));
+    return tr;
+  }
+
+  let currentSettings = null;
+
+  async function load() {
+    const [{ data: bets, error: betsErr }, { data: withdrawals, error: wErr }, { data: settings, error: sErr }] = await Promise.all([
+      supabase.from('bets').select('*'),
+      supabase.from('withdrawals').select('*').order('w_date', { ascending: false }),
+      supabase.from('settings').select('*').maybeSingle(),
+    ]);
+
+    if (betsErr || wErr || sErr) {
+      formStatus.textContent = 'Ошибка загрузки: ' + (betsErr || wErr || sErr).message;
+      return;
+    }
+
+    currentSettings = settings;
+    document.getElementById('startBank').value = settings ? settings.starting_bankroll : '';
+
+    renderBankStats(computeStats(bets || [], withdrawals || [], settings ? settings.starting_bankroll : 0));
+
+    wTbody.innerHTML = '';
+    const list = withdrawals || [];
+    if (!list.length) {
+      emptyState.style.display = 'block';
+    } else {
+      emptyState.style.display = 'none';
+      list.forEach(w => wTbody.appendChild(renderRow(w)));
+    }
+    countNote.textContent = list.length + (list.length === 1 ? ' вывод' : ' выводов');
+  }
+
+  document.getElementById('saveStartBank').addEventListener('click', async () => {
+    const val = Number(document.getElementById('startBank').value);
+    if (!val || val < 0) return;
+    startBankStatus.textContent = 'Сохраняю…';
+    const { error } = currentSettings
+      ? await supabase.from('settings').update({ starting_bankroll: val }).eq('user_id', session.user.id)
+      : await supabase.from('settings').insert({ user_id: session.user.id, starting_bankroll: val });
+    if (error) {
+      startBankStatus.textContent = 'Ошибка: ' + error.message;
+      return;
+    }
+    startBankStatus.textContent = 'Сохранено.';
+    load();
+  });
+
+  async function deleteWithdrawal(id) {
+    const { error } = await supabase.from('withdrawals').delete().eq('id', id);
+    if (error) {
+      formStatus.textContent = 'Не удалось удалить: ' + error.message;
+      return;
+    }
+    load();
+  }
+
+  document.getElementById('withdrawForm').addEventListener('submit', async (e) => {
+    e.preventDefault();
+    const addBtn = document.getElementById('addBtn');
+    addBtn.disabled = true;
+    formStatus.textContent = 'Сохраняю…';
+
+    const payload = {
+      user_id: session.user.id,
+      w_date: document.getElementById('w_date').value,
+      amount: Number(document.getElementById('w_amount').value),
+      note: document.getElementById('w_note').value.trim() || null,
+    };
+
+    const { error } = await supabase.from('withdrawals').insert(payload);
+    addBtn.disabled = false;
+
+    if (error) {
+      formStatus.textContent = 'Ошибка: ' + error.message;
+      return;
+    }
+    formStatus.textContent = 'Добавлено.';
+    e.target.reset();
+    document.getElementById('w_date').valueAsDate = new Date();
+    load();
+  });
+
+  document.getElementById('w_date').valueAsDate = new Date();
+  load();
+</script>
+
+</body>
+</html>

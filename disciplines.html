@@ -1,0 +1,61 @@
+<!doctype html>
+<html lang="ru">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>По дисциплинам — CyberValue</title>
+<link rel="preconnect" href="https://fonts.googleapis.com">
+<link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
+<link href="https://fonts.googleapis.com/css2?family=Newsreader:ital,opsz,wght@0,6..72,500;0,6..72,600&family=Manrope:wght@400;500;600;700&family=JetBrains+Mono:wght@400;500;600&display=swap" rel="stylesheet">
+<link rel="stylesheet" href="styles.css">
+</head>
+<body>
+
+<div class="topbar">
+  <div class="wrap">
+    <div class="brand">Cyber<span>Value</span></div>
+    <div class="topbar-user">
+      <span id="userEmail">…</span>
+      <button id="logoutBtn" type="button">Выйти</button>
+    </div>
+  </div>
+</div>
+
+<nav class="app-nav">
+  <div class="wrap">
+    <a class="nav-pill" href="dashboard.html">Дашборд</a>
+    <a class="nav-pill" href="app.html">Ставки</a>
+    <a class="nav-pill" href="bank.html">Выводы и банк</a>
+    <a class="nav-pill active" href="disciplines.html">По дисциплинам</a>
+    <a class="nav-pill" href="bookmakers.html">По букмекерам</a>
+    <a class="nav-pill" href="markets.html">Рынки</a>
+    <a class="nav-pill" href="teams.html">Команды</a>
+    <a class="nav-pill" href="segmentation.html">Сегментация</a>
+    <a class="nav-pill" href="edges.html">Найденные эджи</a>
+  </div>
+</nav>
+
+<section>
+  <div class="wrap">
+    <div class="soon-card">
+      <div class="glyph">🚧</div>
+      <h2>По дисциплинам</h2>
+      <p>Эта страница ещё строится — доберёмся до неё на одном из следующих шагов. Данные уже копятся на странице «Ставки», так что здесь появится честная статистика, как только дойдут руки.</p>
+    </div>
+  </div>
+</section>
+
+<script type="module">
+  import { supabase, requireSession } from './supabase-client.js';
+  const session = await requireSession();
+  if (session) {
+    document.getElementById('userEmail').textContent = session.user.email;
+  }
+  document.getElementById('logoutBtn').addEventListener('click', async () => {
+    await supabase.auth.signOut();
+    window.location.href = 'index.html';
+  });
+</script>
+
+</body>
+</html>
