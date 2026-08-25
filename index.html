@@ -7,31 +7,55 @@
 <link rel="preconnect" href="https://fonts.googleapis.com">
 <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
 <link href="https://fonts.googleapis.com/css2?family=Space+Grotesk:wght@500;600;700&family=Inter:wght@400;500;600;700&family=JetBrains+Mono:wght@400;500;600&display=swap" rel="stylesheet">
-<link rel="stylesheet" href="styles.css?v=3">
+<link rel="stylesheet" href="styles.css?v=5">
 </head>
 <body>
 
 <div class="auth-shell">
-  <div class="auth-card">
-    <h1>EDGE<span style="color:var(--gold)">.</span></h1>
-    <p class="lede" id="authLede">Войдите, чтобы вести свой журнал ставок.</p>
-
-    <form id="authForm">
-      <div class="field">
-        <label for="email">Почта</label>
-        <input id="email" type="email" autocomplete="email" required>
+  <div class="auth-hero">
+    <div class="auth-hero-inner">
+      <svg class="brand-mark" viewBox="0 0 32 32" width="36" height="36" aria-hidden="true"><path d="M16 2L28 12L22 30H10L4 12Z" fill="var(--gold)" opacity="0.16"/><path d="M16 2L28 12L16 18L4 12Z" fill="var(--gold)"/><path d="M16 18L28 12L22 30H16Z" fill="var(--gold)" opacity="0.55"/><path d="M16 18L4 12L10 30H16Z" fill="var(--gold)" opacity="0.75"/></svg>
+      <h2>Управляй своим эджем, а не таблицей в Excel.</h2>
+      <p>Личный трекер ставок для тех, кто относится к беттингу как к делу: каждая ставка учтена, каждая цифра честная.</p>
+      <div class="auth-features">
+        <div class="auth-feature">
+          <span class="dot"></span>
+          <div class="auth-feature-text"><strong>Только твои данные</strong><span>У каждого — свой защищённый аккаунт, никто кроме тебя не увидит твои ставки.</span></div>
+        </div>
+        <div class="auth-feature">
+          <span class="dot"></span>
+          <div class="auth-feature-text"><strong>Честная статистика</strong><span>Винрейт, ROI и банк считаются автоматически по каждой ставке — без ручных формул.</span></div>
+        </div>
+        <div class="auth-feature">
+          <span class="dot"></span>
+          <div class="auth-feature-text"><strong>Быстрее, чем таблица</strong><span>Добавляй ставку формой за 10 секунд вместо ручной строки в Excel.</span></div>
+        </div>
       </div>
-      <div class="field">
-        <label for="password">Пароль</label>
-        <input id="password" type="password" autocomplete="current-password" required minlength="6">
+    </div>
+  </div>
+
+  <div class="auth-form-panel">
+    <div class="auth-card">
+      <h1 class="auth-brand mobile-only"><svg class="brand-mark" viewBox="0 0 32 32" width="20" height="20" aria-hidden="true"><path d="M16 2L28 12L22 30H10L4 12Z" fill="var(--gold)" opacity="0.16"/><path d="M16 2L28 12L16 18L4 12Z" fill="var(--gold)"/><path d="M16 18L28 12L22 30H16Z" fill="var(--gold)" opacity="0.55"/><path d="M16 18L4 12L10 30H16Z" fill="var(--gold)" opacity="0.75"/></svg>EDGE<span style="color:var(--gold)">.</span></h1>
+      <p class="lede" id="authLede">Войдите, чтобы вести свой журнал ставок.</p>
+
+      <form id="authForm">
+        <div class="field">
+          <label for="email">Почта</label>
+          <input id="email" type="email" autocomplete="email" required>
+        </div>
+        <div class="field">
+          <label for="password">Пароль</label>
+          <input id="password" type="password" autocomplete="current-password" required minlength="6">
+        </div>
+        <button class="btn btn-primary" type="submit" id="submitBtn">Войти</button>
+      </form>
+
+      <div class="auth-msg" id="authMsg"></div>
+
+      <div class="auth-toggle" id="authToggle">
+        Нет аккаунта? <a id="toggleLink">Зарегистрироваться</a>
       </div>
-      <button class="btn btn-primary" type="submit" id="submitBtn">Войти</button>
-    </form>
-
-    <div class="auth-msg" id="authMsg"></div>
-
-    <div class="auth-toggle" id="authToggle">
-      Нет аккаунта? <a id="toggleLink">Зарегистрироваться</a>
     </div>
   </div>
 </div>
