@@ -1,0 +1,108 @@
+<!doctype html>
+<html lang="ru">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>Вход — CyberValue</title>
+<link rel="preconnect" href="https://fonts.googleapis.com">
+<link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
+<link href="https://fonts.googleapis.com/css2?family=Newsreader:ital,opsz,wght@0,6..72,500;0,6..72,600&family=Manrope:wght@400;500;600;700&family=JetBrains+Mono:wght@400;500;600&display=swap" rel="stylesheet">
+<link rel="stylesheet" href="styles.css">
+</head>
+<body>
+
+<div class="auth-shell">
+  <div class="auth-card">
+    <h1>Cyber<span style="color:var(--gold)">Value</span></h1>
+    <p class="lede" id="authLede">Войдите, чтобы вести свой журнал ставок.</p>
+
+    <form id="authForm">
+      <div class="field">
+        <label for="email">Почта</label>
+        <input id="email" type="email" autocomplete="email" required>
+      </div>
+      <div class="field">
+        <label for="password">Пароль</label>
+        <input id="password" type="password" autocomplete="current-password" required minlength="6">
+      </div>
+      <button class="btn btn-primary" type="submit" id="submitBtn">Войти</button>
+    </form>
+
+    <div class="auth-msg" id="authMsg"></div>
+
+    <div class="auth-toggle" id="authToggle">
+      Нет аккаунта? <a id="toggleLink">Зарегистрироваться</a>
+    </div>
+  </div>
+</div>
+
+<script type="module">
+  import { supabase } from './supabase-client.js';
+
+  const form = document.getElementById('authForm');
+  const emailEl = document.getElementById('email');
+  const passEl = document.getElementById('password');
+  const submitBtn = document.getElementById('submitBtn');
+  const msgEl = document.getElementById('authMsg');
+  const toggleLink = document.getElementById('toggleLink');
+  const authToggle = document.getElementById('authToggle');
+  const authLede = document.getElementById('authLede');
+
+  let mode = 'signin'; // или 'signup'
+
+  function setMode(next){
+    mode = next;
+    if (mode === 'signin') {
+      submitBtn.textContent = 'Войти';
+      authLede.textContent = 'Войдите, чтобы вести свой журнал ставок.';
+      authToggle.innerHTML = 'Нет аккаунта? <a id="toggleLink">Зарегистрироваться</a>';
+    } else {
+      submitBtn.textContent = 'Зарегистрироваться';
+      authLede.textContent = 'Создайте аккаунт — данные будут видны только вам.';
+      authToggle.innerHTML = 'Уже есть аккаунт? <a id="toggleLink">Войти</a>';
+    }
+    document.getElementById('toggleLink').addEventListener('click', () => setMode(mode === 'signin' ? 'signup' : 'signin'));
+    msgEl.className = 'auth-msg';
+  }
+  toggleLink.addEventListener('click', () => setMode(mode === 'signin' ? 'signup' : 'signin'));
+
+  function showMsg(text, kind){
+    msgEl.textContent = text;
+    msgEl.className = 'auth-msg show ' + kind;
+  }
+
+  // Если уже залогинен — сразу на страницу ставок.
+  supabase.auth.getSession().then(({ data: { session } }) => {
+    if (session) window.location.href = 'app.html';
+  });
+
+  form.addEventListener('submit', async (e) => {
+    e.preventDefault();
+    submitBtn.disabled = true;
+    const email = emailEl.value.trim();
+    const password = passEl.value;
+
+    if (mode === 'signin') {
+      const { error } = await supabase.auth.signInWithPassword({ email, password });
+      if (error) {
+        showMsg(error.message, 'error');
+        submitBtn.disabled = false;
+      } else {
+        window.location.href = 'app.html';
+      }
+    } else {
+      const { error } = await supabase.auth.signUp({ email, password });
+      if (error) {
+        showMsg(error.message, 'error');
+        submitBtn.disabled = false;
+      } else {
+        showMsg('Готово. Если в проекте включено подтверждение почты — проверьте письмо, иначе можно сразу входить.', 'ok');
+        setMode('signin');
+        submitBtn.disabled = false;
+      }
+    }
+  });
+</script>
+
+</body>
+</html>

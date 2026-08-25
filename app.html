@@ -1,0 +1,253 @@
+<!doctype html>
+<html lang="ru">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>Ставки — CyberValue</title>
+<link rel="preconnect" href="https://fonts.googleapis.com">
+<link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
+<link href="https://fonts.googleapis.com/css2?family=Newsreader:ital,opsz,wght@0,6..72,500;0,6..72,600&family=Manrope:wght@400;500;600;700&family=JetBrains+Mono:wght@400;500;600&display=swap" rel="stylesheet">
+<link rel="stylesheet" href="styles.css">
+</head>
+<body>
+
+<div class="topbar">
+  <div class="wrap">
+    <div class="brand">Cyber<span>Value</span></div>
+    <div class="topbar-user">
+      <span id="userEmail">…</span>
+      <button id="logoutBtn" type="button">Выйти</button>
+    </div>
+  </div>
+</div>
+
+<section>
+  <div class="wrap">
+    <div class="section-head">
+      <h2>Ставки</h2>
+      <div class="section-note" id="countNote"></div>
+    </div>
+
+    <div class="bet-form">
+      <h3>Добавить ставку</h3>
+      <form id="betForm">
+        <div class="form-grid">
+          <div class="field">
+            <label for="f_date">Дата</label>
+            <input id="f_date" type="date" required>
+          </div>
+          <div class="field">
+            <label for="f_discipline">Дисциплина</label>
+            <select id="f_discipline" required>
+              <option value="Dota2">Dota2</option>
+              <option value="CS2">CS2</option>
+              <option value="Hockey">Hockey</option>
+              <option value="Other">Другое</option>
+            </select>
+          </div>
+          <div class="field">
+            <label for="f_bookmaker">Букмекер</label>
+            <input id="f_bookmaker" type="text" placeholder="Pinnacle" required>
+          </div>
+          <div class="field">
+            <label for="f_tournament">Турнир</label>
+            <input id="f_tournament" type="text" placeholder="Esports World Cup">
+          </div>
+          <div class="field">
+            <label for="f_match">Матч</label>
+            <input id="f_match" type="text" placeholder="Spirit vs MOUZ">
+          </div>
+          <div class="field">
+            <label for="f_pick">Пик</label>
+            <input id="f_pick" type="text" placeholder="Spirit 1x2 — Map 1" required>
+          </div>
+          <div class="field">
+            <label for="f_odds">Кэф</label>
+            <input id="f_odds" type="number" step="0.001" min="1.01" required>
+          </div>
+          <div class="field">
+            <label for="f_flat">Флет (×)</label>
+            <input id="f_flat" type="number" step="0.01" min="0.01" value="1" required>
+          </div>
+          <div class="field">
+            <label for="f_stake">Сумма ($)</label>
+            <input id="f_stake" type="number" step="0.01" min="0.01" required>
+          </div>
+          <div class="field">
+            <label for="f_result">Результат</label>
+            <select id="f_result">
+              <option value="Pending">Pending</option>
+              <option value="Win">Win</option>
+              <option value="Loss">Loss</option>
+              <option value="Push">Push</option>
+            </select>
+          </div>
+          <div class="field">
+            <label for="f_type">Тип ставки</label>
+            <select id="f_type">
+              <option value="">—</option>
+              <option value="Pre-value">Pre-value</option>
+              <option value="Live value">Live value</option>
+              <option value="Хедж">Хедж</option>
+              <option value="Попанская">Попанская</option>
+            </select>
+          </div>
+          <div class="field">
+            <label for="f_conviction">Уверенность</label>
+            <select id="f_conviction">
+              <option value="">—</option>
+              <option value="1">★</option>
+              <option value="2">★★</option>
+              <option value="3">★★★</option>
+            </select>
+          </div>
+          <div class="field">
+            <label for="f_edge">Эдж-паттерн (метка)</label>
+            <input id="f_edge" type="text" placeholder="например: closing-value-cs2">
+          </div>
+        </div>
+        <div class="form-actions">
+          <button class="btn btn-primary" type="submit" id="addBtn" style="width:auto;">Добавить ставку</button>
+          <span class="form-status" id="formStatus"></span>
+        </div>
+      </form>
+    </div>
+
+    <div class="table-wrap">
+      <div class="table-scroll">
+        <table class="bets-table" id="betsTable">
+          <thead>
+            <tr>
+              <th>Дата</th><th>Дисциплина</th><th>Букмекер</th><th>Турнир</th><th>Матч / Пик</th>
+              <th>Кэф</th><th>Флет</th><th>Сумма</th><th>Результат</th><th>Метка</th><th></th>
+            </tr>
+          </thead>
+          <tbody id="betsTbody"></tbody>
+        </table>
+      </div>
+      <div class="empty-state" id="emptyState" style="display:none;">Пока нет ни одной ставки — добавь первую формой выше.</div>
+    </div>
+  </div>
+</section>
+
+<script type="module">
+  import { supabase, requireSession } from './supabase-client.js';
+
+  const session = await requireSession();
+  if (session) {
+    document.getElementById('userEmail').textContent = session.user.email;
+  }
+
+  document.getElementById('logoutBtn').addEventListener('click', async () => {
+    await supabase.auth.signOut();
+    window.location.href = 'index.html';
+  });
+
+  const tbody = document.getElementById('betsTbody');
+  const emptyState = document.getElementById('emptyState');
+  const countNote = document.getElementById('countNote');
+  const formStatus = document.getElementById('formStatus');
+
+  function escapeHtml(s){
+    return String(s ?? '').replace(/[&<>"']/g, c => ({'&':'&amp;','<':'&lt;','>':'&gt;','"':'&quot;',"'":'&#39;'}[c]));
+  }
+  function fmtDate(d){
+    const [y,m,day] = d.split('-');
+    return `${day}.${m}.${y}`;
+  }
+  function resPillClass(r){
+    return { Win:'win', Loss:'loss', Push:'push', Pending:'pending' }[r] || 'pending';
+  }
+
+  function renderRow(bet){
+    const tr = document.createElement('tr');
+    tr.innerHTML = `
+      <td class="num">${fmtDate(bet.bet_date)}</td>
+      <td>${escapeHtml(bet.discipline)}</td>
+      <td>${escapeHtml(bet.bookmaker)}</td>
+      <td>${escapeHtml(bet.tournament || '—')}</td>
+      <td>${escapeHtml(bet.match || '—')} ${bet.match ? '—' : ''} ${escapeHtml(bet.pick)}</td>
+      <td class="num">${Number(bet.odds).toFixed(2)}</td>
+      <td class="num">${Number(bet.flat_mult).toFixed(2)}×</td>
+      <td class="num">$${Number(bet.stake).toFixed(2)}</td>
+      <td><span class="res-pill ${resPillClass(bet.result)}">${bet.result}</span></td>
+      <td>${bet.edge_tag ? `<span class="tag-chip">${escapeHtml(bet.edge_tag)}</span>` : ''}</td>
+      <td><button class="row-del" data-id="${bet.id}">Удалить</button></td>
+    `;
+    tr.querySelector('.row-del').addEventListener('click', () => deleteBet(bet.id));
+    return tr;
+  }
+
+  async function loadBets(){
+    const { data, error } = await supabase
+      .from('bets')
+      .select('*')
+      .order('bet_date', { ascending: false })
+      .order('created_at', { ascending: false });
+
+    if (error) {
+      formStatus.textContent = 'Ошибка загрузки: ' + error.message;
+      return;
+    }
+    tbody.innerHTML = '';
+    if (!data.length) {
+      emptyState.style.display = 'block';
+    } else {
+      emptyState.style.display = 'none';
+      data.forEach(bet => tbody.appendChild(renderRow(bet)));
+    }
+    countNote.textContent = data.length + (data.length === 1 ? ' ставка' : ' ставок');
+  }
+
+  async function deleteBet(id){
+    const { error } = await supabase.from('bets').delete().eq('id', id);
+    if (error) {
+      formStatus.textContent = 'Не удалось удалить: ' + error.message;
+      return;
+    }
+    loadBets();
+  }
+
+  document.getElementById('betForm').addEventListener('submit', async (e) => {
+    e.preventDefault();
+    const addBtn = document.getElementById('addBtn');
+    addBtn.disabled = true;
+    formStatus.textContent = 'Сохраняю…';
+
+    const payload = {
+      user_id: session.user.id,
+      bet_date: document.getElementById('f_date').value,
+      discipline: document.getElementById('f_discipline').value,
+      bookmaker: document.getElementById('f_bookmaker').value.trim(),
+      tournament: document.getElementById('f_tournament').value.trim() || null,
+      match: document.getElementById('f_match').value.trim() || null,
+      pick: document.getElementById('f_pick').value.trim(),
+      odds: Number(document.getElementById('f_odds').value),
+      flat_mult: Number(document.getElementById('f_flat').value),
+      stake: Number(document.getElementById('f_stake').value),
+      result: document.getElementById('f_result').value,
+      bet_type: document.getElementById('f_type').value || null,
+      conviction: document.getElementById('f_conviction').value ? Number(document.getElementById('f_conviction').value) : null,
+      edge_tag: document.getElementById('f_edge').value.trim() || null,
+    };
+
+    const { error } = await supabase.from('bets').insert(payload);
+    addBtn.disabled = false;
+
+    if (error) {
+      formStatus.textContent = 'Ошибка: ' + error.message;
+      return;
+    }
+    formStatus.textContent = 'Добавлено.';
+    e.target.reset();
+    document.getElementById('f_flat').value = 1;
+    document.getElementById('f_date').valueAsDate = new Date();
+    loadBets();
+  });
+
+  document.getElementById('f_date').valueAsDate = new Date();
+  loadBets();
+</script>
+
+</body>
+</html>
