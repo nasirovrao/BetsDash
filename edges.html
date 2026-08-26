@@ -7,7 +7,7 @@
 <link rel="preconnect" href="https://fonts.googleapis.com">
 <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
 <link href="https://fonts.googleapis.com/css2?family=Space+Grotesk:wght@500;600;700&family=Inter:wght@400;500;600;700&family=JetBrains+Mono:wght@400;500;600&display=swap" rel="stylesheet">
-<link rel="stylesheet" href="styles.css?v=19">
+<link rel="stylesheet" href="styles.css?v=20">
 </head>
 <body>
 
@@ -40,15 +40,36 @@
   <div class="wrap">
     <div class="section-head">
       <h2>Найденные эджи</h2>
-      <div class="section-note">Статистика по меткам эдж-паттернов из формы «Ставки». Клик по карточке — полная статистика и список ставок.</div>
+      <div class="section-note">Заведи эдж по имени сам — или он появится тут же, как только используешь такую метку в форме «Ставки». Клик по карточке — полная статистика и список ставок.</div>
     </div>
+
+    <div class="bet-form">
+      <h3>Новый эдж</h3>
+      <form id="newEdgeForm">
+        <div class="form-grid form-grid-2">
+          <div class="field">
+            <label for="ne_name">Название</label>
+            <input id="ne_name" type="text" placeholder="например: closing-value-cs2" required autocomplete="off">
+          </div>
+          <div class="field">
+            <label for="ne_desc">Описание (необязательно)</label>
+            <input id="ne_desc" type="text" placeholder="в чём суть паттерна" autocomplete="off">
+          </div>
+        </div>
+        <div class="form-actions">
+          <button class="btn btn-primary" type="submit" id="addEdgeBtn" style="width:auto;">+ Добавить эдж</button>
+          <span class="form-status" id="newEdgeStatus"></span>
+        </div>
+      </form>
+    </div>
+
     <div id="breakdownRoot"><div class="empty-state">Загружаю…</div></div>
   </div>
 </section>
 
 <script type="module">
   import { supabase, requireSession, isClvEnabled } from './supabase-client.js';
-  import { groupBets, renderGroupCards, renderBreakdownDetail } from './lib.js';
+  import { groupBets, renderGroupCards, renderBreakdownDetail, mergeEdgeGroups } from './lib.js';
 
   const session = await requireSession();
   if (session) {
@@ -62,12 +83,27 @@
 
   const root = document.getElementById('breakdownRoot');
   const keyParam = new URLSearchParams(location.search).get('key');
+  const newEdgeForm = document.getElementById('newEdgeForm');
+  const newEdgeStatus = document.getElementById('newEdgeStatus');
+  const addEdgeBtn = document.getElementById('addEdgeBtn');
 
-  const { data, error } = await supabase.from('bets').select('*');
-  if (error) {
-    root.innerHTML = `<div class="empty-state">Ошибка загрузки: ${error.message}</div>`;
-  } else {
-    const groups = groupBets(data, b => b.edge_tag);
+  // Таблица edges — отдельный реестр названий/описаний эджей, независимый от
+  // самих ставок (можно завести эдж заранее, до первой ставки по нему).
+  // Если пользователь ещё не выполнил schema_milestone6.sql, запрос вернёт
+  // ошибку — это не должно ломать страницу: просто работаем без реестра,
+  // как раньше (эджи только из тегов ставок).
+  async function loadAndRender() {
+    const [{ data: bets, error: betsErr }, edgesRes] = await Promise.all([
+      supabase.from('bets').select('*'),
+      supabase.from('edges').select('*').order('created_at', { ascending: false }),
+    ]);
+    if (betsErr) {
+      root.innerHTML = `<div class="empty-state">Ошибка загрузки: ${betsErr.message}</div>`;
+      return;
+    }
+    const edgeDefs = edgesRes && !edgesRes.error ? (edgesRes.data || []) : [];
+    const betGroups = groupBets(bets, b => b.edge_tag);
+    const groups = mergeEdgeGroups(edgeDefs, betGroups);
     if (keyParam) {
       const group = groups.find(g => g.key === keyParam);
       root.innerHTML = renderBreakdownDetail('Эдж-паттерн', keyParam, group, 'edges.html');
@@ -75,6 +111,33 @@
       root.innerHTML = renderGroupCards(groups, 'Эдж-паттерн', 'edges.html');
     }
   }
+
+  await loadAndRender();
+
+  newEdgeForm.addEventListener('submit', async (e) => {
+    e.preventDefault();
+    const name = document.getElementById('ne_name').value.trim();
+    if (!name) return;
+    const description = document.getElementById('ne_desc').value.trim() || null;
+    addEdgeBtn.disabled = true;
+    newEdgeStatus.textContent = 'Сохраняю…';
+    const { error } = await supabase.from('edges').insert({ name, description });
+    addEdgeBtn.disabled = false;
+    if (error) {
+      if (error.code === '23505') {
+        newEdgeStatus.textContent = 'Такой эдж уже есть.';
+      } else if (error.code === '42P01') {
+        newEdgeStatus.textContent = 'Сначала нужно создать таблицу edges — выполни schema_milestone6.sql в Supabase.';
+      } else {
+        newEdgeStatus.textContent = 'Ошибка: ' + error.message;
+      }
+      return;
+    }
+    newEdgeForm.reset();
+    newEdgeStatus.textContent = 'Добавлено ✓';
+    setTimeout(() => { newEdgeStatus.textContent = ''; }, 2500);
+    await loadAndRender();
+  });
 </script>
 
 </body>

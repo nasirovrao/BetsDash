@@ -7,7 +7,7 @@
 <link rel="preconnect" href="https://fonts.googleapis.com">
 <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
 <link href="https://fonts.googleapis.com/css2?family=Space+Grotesk:wght@500;600;700&family=Inter:wght@400;500;600;700&family=JetBrains+Mono:wght@400;500;600&display=swap" rel="stylesheet">
-<link rel="stylesheet" href="styles.css?v=19">
+<link rel="stylesheet" href="styles.css?v=20">
 </head>
 <body>
 
@@ -108,10 +108,9 @@
             <label for="f_type">Тип ставки</label>
             <select id="f_type">
               <option value="">—</option>
-              <option value="Pre-value">Pre-value</option>
-              <option value="Live value">Live value</option>
+              <option value="Pre">Pre</option>
+              <option value="Live">Live</option>
               <option value="Хедж">Хедж</option>
-              <option value="Попанская">Попанская</option>
             </select>
           </div>
           <div class="field">
@@ -605,11 +604,14 @@
   clearFiltersLink.addEventListener('click', (e) => { e.preventDefault(); resetFilters(); });
 
   async function loadBets(){
-    const { data, error } = await supabase
-      .from('bets')
-      .select('*')
-      .order('bet_date', { ascending: false })
-      .order('created_at', { ascending: false });
+    const [{ data, error }, edgesRes] = await Promise.all([
+      supabase
+        .from('bets')
+        .select('*')
+        .order('bet_date', { ascending: false })
+        .order('created_at', { ascending: false }),
+      supabase.from('edges').select('name'),
+    ]);
 
     if (error) {
       formStatus.textContent = 'Ошибка загрузки: ' + error.message;
@@ -618,7 +620,11 @@
     allBets = data || [];
     countNote.textContent = allBets.length + (allBets.length === 1 ? ' ставка' : ' ставок');
     updateBookmakerList(allBets);
-    updateEdgeList(allBets);
+    // Реестр edges может ещё не существовать (пока не выполнена
+    // schema_milestone6.sql) — тогда просто используем только теги из ставок,
+    // как и раньше.
+    const registeredEdges = edgesRes && !edgesRes.error ? (edgesRes.data || []) : [];
+    updateEdgeList(allBets, registeredEdges);
     populateFilterOptions(allBets);
     applyFilters();
   }
@@ -636,8 +642,10 @@
   // разъезжалась по написанию (например "closing-value" vs "Closing Value")
   // и статистика на странице "Найденные эджи" считалась по-настоящему по
   // одному и тому же паттерну.
-  function updateEdgeList(data){
-    const tags = Array.from(new Set(data.map(b => (b.edge_tag || '').trim()).filter(Boolean))).sort();
+  function updateEdgeList(data, registeredEdges){
+    const fromBets = data.map(b => (b.edge_tag || '').trim()).filter(Boolean);
+    const fromRegistry = (registeredEdges || []).map(e => (e.name || '').trim()).filter(Boolean);
+    const tags = Array.from(new Set([...fromBets, ...fromRegistry])).sort();
     edgeList.innerHTML = tags.map(t => `<option value="${escapeHtml(t)}"></option>`).join('');
   }
 

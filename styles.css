@@ -178,6 +178,7 @@ section{ padding: 40px 0; }
 }
 .form-grid{ display:grid; grid-template-columns: repeat(4, 1fr); gap:14px; }
 .form-grid-3{ grid-template-columns: repeat(3, 1fr); }
+.form-grid-2{ grid-template-columns: repeat(2, 1fr); }
 .form-grid .field{ margin-bottom:0; }
 .form-grid select{
   font-family:'Inter', sans-serif; font-size:14px; padding:10px 11px; border:1px solid var(--line);
@@ -189,13 +190,26 @@ section{ padding: 40px 0; }
 
 /* ---- bets table ---- */
 .table-wrap{ border:1px solid var(--line); border-radius: var(--radius); overflow:hidden; background: var(--bg-raised); }
-.table-scroll{ overflow-x:auto; }
-table.bets-table{ width:100%; border-collapse:collapse; font-size:13px; min-width:900px; }
+.table-scroll{
+  overflow-x:auto;
+  scrollbar-width: thin; scrollbar-color: var(--line) transparent; /* тонкий, в цвет темы, вместо жирного нативного бара */
+}
+.table-scroll::-webkit-scrollbar{ height:6px; }
+.table-scroll::-webkit-scrollbar-track{ background:transparent; }
+.table-scroll::-webkit-scrollbar-thumb{ background: var(--line); border-radius:3px; }
+.table-scroll::-webkit-scrollbar-thumb:hover{ background: var(--ink-faint); }
+/* Раньше здесь стоял min-width:900px — таблица всегда была шире контейнера
+   и вечно требовала горизонтальный скролл. Теперь min-width убран, а текстовые
+   ячейки (матч/пик, дисциплина, букмекер) переносятся по словам — таблица
+   сжимается по ширине контейнера, скролл появляется, только если ему
+   реально некуда деться (узкий экран + длинный текст). */
+table.bets-table{ width:100%; border-collapse:collapse; font-size:13px; table-layout:auto; }
 table.bets-table th{
   text-align:left; padding:11px 14px; font-family:'JetBrains Mono', monospace; font-size:10.5px; text-transform:uppercase;
   letter-spacing:0.05em; color: var(--ink-faint); border-bottom:1px solid var(--line); white-space:nowrap; background: var(--bg-card);
 }
-table.bets-table td{ padding:11px 14px; border-bottom:1px solid var(--line-soft); white-space:nowrap; color: var(--ink-dim); }
+table.bets-table td{ padding:11px 14px; border-bottom:1px solid var(--line-soft); white-space:normal; word-break:break-word; color: var(--ink-dim); }
+table.bets-table td.num, table.bets-table td.no-wrap{ white-space:nowrap; }
 table.bets-table tr:last-child td{ border-bottom:none; }
 table.bets-table td.num{ color: var(--ink); }
 table.bets-table tbody tr{ transition: background 0.12s ease; }
@@ -417,6 +431,7 @@ table.bets-table tbody tr:hover td.num{ color: var(--gold); }
 .bd-card-head{ display:flex; align-items:flex-start; justify-content:space-between; gap:10px; margin-bottom:12px; }
 .bd-card-name{ font-family:'Space Grotesk', sans-serif; font-weight:600; font-size:16px; color: var(--ink); line-height:1.3; }
 .bd-card-count{ font-family:'JetBrains Mono', monospace; font-size:10.5px; text-transform:uppercase; letter-spacing:0.04em; color: var(--ink-faint); white-space:nowrap; flex:none; margin-top:2px; }
+.bd-card-desc{ font-size:12.5px; color: var(--ink-faint); line-height:1.4; margin:-6px 0 14px; }
 .bd-card-bar{ height:5px; border-radius:4px; background: var(--line-soft); overflow:hidden; margin-bottom:16px; }
 .bd-card-bar-fill{ height:100%; border-radius:4px; transition: width 0.2s ease; }
 .bd-card-bar-fill.pos{ background: var(--teal); }
@@ -438,6 +453,7 @@ table.bets-table tbody tr:hover td.num{ color: var(--gold); }
 .bd-detail-head{ margin-bottom:20px; }
 .bd-detail-label{ font-family:'JetBrains Mono', monospace; font-size:11px; text-transform:uppercase; letter-spacing:0.05em; color: var(--ink-faint); margin-bottom:4px; }
 .bd-detail-name{ font-size:26px; }
+.bd-detail-desc{ margin-top:8px; font-size:13.5px; color: var(--ink-dim); max-width:560px; line-height:1.5; }
 
 /* ---- дашборд: текущая серия ---- */
 .streak-block{

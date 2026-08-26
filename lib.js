@@ -115,6 +115,32 @@ export function groupBetsMulti(bets, keysFn) {
     .sort((a, b) => b.total - a.total);
 }
 
+// Объединяет ЗАРЕГИСТРИРОВАННЫЕ эджи (таблица edges — можно завести название
+// и описание заранее, ещё до первой ставки) со статистикой, посчитанной по
+// факту тегирования ставок полем edge_tag. Эдж без единой ставки просто
+// получает нулевую карточку (0 ставок, профит $0) — так видно, что он
+// заведён и ждёт своих ставок, а не потерян где-то в форме.
+export function mergeEdgeGroups(edgeDefs, betGroups) {
+  const byKey = new Map(betGroups.map(g => [g.key, g]));
+  const seen = new Set();
+  const merged = [];
+  (edgeDefs || []).forEach(e => {
+    const key = (e && e.name || '').trim();
+    if (!key || seen.has(key)) return;
+    seen.add(key);
+    const existing = byKey.get(key);
+    merged.push(existing
+      ? { ...existing, description: e.description || '' }
+      : { key, list: [], description: e.description || '', ...computeStats([], [], 0) });
+  });
+  betGroups.forEach(g => {
+    if (seen.has(g.key)) return;
+    seen.add(g.key);
+    merged.push(g);
+  });
+  return merged.sort((a, b) => b.total - a.total);
+}
+
 // ---- Классификация рынка по тексту пика ----
 // Портировано из старого журнала как есть — эвристики уже проверены на реальной
 // истории ставок (666 записей), переизобретать не нужно.
@@ -275,6 +301,7 @@ export function renderGroupCards(groups, labelHeader, pageFile) {
         <div class="bd-card-name">${escapeHtml(g.key)}</div>
         <div class="bd-card-count">${g.total} ${g.total === 1 ? 'ставка' : 'ставок'}</div>
       </div>
+      ${g.description ? `<div class="bd-card-desc">${escapeHtml(g.description)}</div>` : ''}
       <div class="bd-card-bar"><div class="bd-card-bar-fill ${barCls}" style="width:${barPct.toFixed(1)}%;"></div></div>
       <div class="bd-card-stats">
         <div class="bd-card-stat"><span class="bd-card-stat-label">Винрейт</span><span class="bd-card-stat-value">${g.winrate == null ? '—' : g.winrate.toFixed(1) + '%'}</span></div>
@@ -294,7 +321,7 @@ export function renderGroupCards(groups, labelHeader, pageFile) {
 
 // Полная статистика по одной сущности (клик по карточке из renderGroupCards) —
 // повторяет вид дашборда (сетка stat-card) + список конкретных ставок ниже.
-export function renderBreakdownDetail(labelHeader, keyLabel, group, backHref) {
+export function renderBreakdownDetail(labelHeader, keyLabel, group, backHref, hideBookmakerCol) {
   if (!group) {
     return `
       <a class="bd-back" href="${backHref}">← Назад к списку</a>
@@ -320,19 +347,23 @@ export function renderBreakdownDetail(labelHeader, keyLabel, group, backHref) {
     <div class="bd-detail-head">
       <div class="bd-detail-label">${labelHeader}</div>
       <h3 class="bd-detail-name">${escapeHtml(keyLabel)}</h3>
+      ${group.description ? `<div class="bd-detail-desc">${escapeHtml(group.description)}</div>` : ''}
     </div>
     <div class="stat-grid stat-grid-3">${statHtml}</div>
-    ${renderBetsFlatTable(group.list)}
+    ${renderBetsFlatTable(group.list, { hideBookmaker: !!hideBookmakerCol })}
   `;
 }
 
 // Плоская таблица ставок (без группировки по месяцам) — используется в
 // детальном виде разбивок (renderBreakdownDetail) и может пригодиться где-то
-// ещё, где нужен просто список ставок с ключевыми полями.
-export function renderBetsFlatTable(bets) {
+// ещё, где нужен просто список ставок с ключевыми полями. opts.hideBookmaker
+// прячет колонку «Букмекер», когда сама разбивка уже идёт по букмекеру
+// (там она была бы одинаковой в каждой строке и просто дублировала бы шапку).
+export function renderBetsFlatTable(bets, opts) {
   if (!bets || !bets.length) {
     return '<div class="empty-state">Ставок не найдено.</div>';
   }
+  const hideBookmaker = !!(opts && opts.hideBookmaker);
   const sorted = bets.slice().sort((a, b) => (b.bet_date || '').localeCompare(a.bet_date || '') || (b.id - a.id));
   const rows = sorted.map(b => {
     const profit = computeProfit(b);
@@ -343,6 +374,7 @@ export function renderBetsFlatTable(bets) {
         <td class="num">${b.bet_date ? b.bet_date.split('-').reverse().join('.') : '—'}</td>
         <td>${escapeHtml(title)}</td>
         <td>${escapeHtml(b.discipline || '—')}</td>
+        ${hideBookmaker ? '' : `<td>${escapeHtml(b.bookmaker || '—')}</td>`}
         <td class="num">${b.odds != null ? Number(b.odds).toFixed(2) : '—'}</td>
         <td><span class="res-pill ${{ Win: 'win', Loss: 'loss', Push: 'push', Pending: 'pending', Sold: 'sold' }[b.result] || 'pending'}">${escapeHtml(b.result)}</span></td>
         <td class="num ${profitCls}">${profit == null ? '—' : fmtMoney(profit)}</td>
@@ -352,7 +384,7 @@ export function renderBetsFlatTable(bets) {
     <div class="table-wrap" style="margin-top:22px;">
       <div class="table-scroll">
         <table class="bets-table">
-          <thead><tr><th>Дата</th><th>Матч / Пик</th><th>Дисциплина</th><th>Кэф</th><th>Результат</th><th>Профит</th></tr></thead>
+          <thead><tr><th>Дата</th><th>Матч / Пик</th><th>Дисциплина</th>${hideBookmaker ? '' : '<th>Букмекер</th>'}<th>Кэф</th><th>Результат</th><th>Профит</th></tr></thead>
           <tbody>${rows}</tbody>
         </table>
       </div>
