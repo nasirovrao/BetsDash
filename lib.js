@@ -141,6 +141,33 @@ export function mergeEdgeGroups(edgeDefs, betGroups) {
   return merged.sort((a, b) => b.total - a.total);
 }
 
+// ---- Разбивка по месяцу ставки (мини-дашборд "По месяцам") ----
+const MONTH_NAMES_RU = ['Январь','Февраль','Март','Апрель','Май','Июнь','Июль','Август','Сентябрь','Октябрь','Ноябрь','Декабрь'];
+
+// "2026-07-15" -> "2026-07" — ключ месяца, используется в URL (?key=2026-07)
+// и для сортировки, потому что YYYY-MM сравнивается как строка правильно.
+export function monthKeyOf(dateStr) {
+  return dateStr ? String(dateStr).slice(0, 7) : null;
+}
+
+// "2026-07" (или полная дата) -> "Июль 2026" — человекочитаемая подпись.
+export function monthLabelOf(monthKey) {
+  if (!monthKey) return '—';
+  const [y, m] = String(monthKey).slice(0, 7).split('-');
+  return `${MONTH_NAMES_RU[Number(m) - 1] || m} ${y}`;
+}
+
+// Как groupBets, но: 1) группирует по месяцу bet_date, 2) сортирует по
+// хронологии (свежий месяц сверху), а не по числу ставок — для "по месяцам"
+// это понятнее, чем прыгающий порядок по активности, 3) у каждой группы есть
+// человекочитаемый label ("Июль 2026") отдельно от key ("2026-07"), который
+// остаётся в URL и используется для точного поиска группы.
+export function groupBetsByMonth(bets) {
+  const groups = groupBets(bets, b => monthKeyOf(b.bet_date));
+  groups.forEach(g => { g.label = monthLabelOf(g.key); });
+  return groups.sort((a, b) => b.key.localeCompare(a.key));
+}
+
 // ---- Классификация рынка по тексту пика ----
 // Портировано из старого журнала как есть — эвристики уже проверены на реальной
 // истории ставок (666 записей), переизобретать не нужно.
@@ -298,7 +325,7 @@ export function renderGroupCards(groups, labelHeader, pageFile) {
     const barPct = Math.min(100, Math.abs(g.totalProfit) / maxAbsProfit * 100);
     const inner = `
       <div class="bd-card-head">
-        <div class="bd-card-name">${escapeHtml(g.key)}</div>
+        <div class="bd-card-name">${escapeHtml(g.label || g.key)}</div>
         <div class="bd-card-count">${g.total} ${g.total === 1 ? 'ставка' : 'ставок'}</div>
       </div>
       ${g.description ? `<div class="bd-card-desc">${escapeHtml(g.description)}</div>` : ''}

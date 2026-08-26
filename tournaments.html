@@ -3,7 +3,7 @@
 <head>
 <meta charset="utf-8">
 <meta name="viewport" content="width=device-width, initial-scale=1">
-<title>По букмекерам — EDGE</title>
+<title>Турниры — EDGE</title>
 <link rel="preconnect" href="https://fonts.googleapis.com">
 <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
 <link href="https://fonts.googleapis.com/css2?family=Space+Grotesk:wght@500;600;700&family=Inter:wght@400;500;600;700&family=JetBrains+Mono:wght@400;500;600&display=swap" rel="stylesheet">
@@ -27,10 +27,10 @@
     <a class="nav-pill" href="app.html">Ставки</a>
     <a class="nav-pill" href="bank.html">Выводы и банк</a>
     <a class="nav-pill" href="disciplines.html">По дисциплинам</a>
-    <a class="nav-pill active" href="bookmakers.html">По букмекерам</a>
+    <a class="nav-pill" href="bookmakers.html">По букмекерам</a>
     <a class="nav-pill" href="markets.html">Рынки</a>
     <a class="nav-pill" href="teams.html">Команды</a>
-    <a class="nav-pill" href="tournaments.html">Турниры</a>
+    <a class="nav-pill active" href="tournaments.html">Турниры</a>
     <a class="nav-pill" href="months.html">Месяцы</a>
     <a class="nav-pill" href="segmentation.html">Сегментация</a>
     <a class="nav-pill" href="edges.html">Найденные эджи</a>
@@ -41,8 +41,8 @@
 <section>
   <div class="wrap">
     <div class="section-head">
-      <h2>По букмекерам</h2>
-      <div class="section-note">Кто из букмекеров реально приносит профит. Клик по карточке — полная статистика и список ставок.</div>
+      <h2>Турниры</h2>
+      <div class="section-note">Мини-дашборд по каждому турниру из поля «Турнир». Клик по карточке — полная статистика и список ставок.</div>
     </div>
     <div id="breakdownRoot"><div class="empty-state">Загружаю…</div></div>
   </div>
@@ -69,12 +69,12 @@
   if (error) {
     root.innerHTML = `<div class="empty-state">Ошибка загрузки: ${error.message}</div>`;
   } else {
-    const groups = groupBets(data, b => b.bookmaker);
+    const groups = groupBets(data, b => b.tournament);
     if (keyParam) {
       const group = groups.find(g => g.key === keyParam);
-      root.innerHTML = renderBreakdownDetail('Букмекер', keyParam, group, 'bookmakers.html', true);
+      root.innerHTML = renderBreakdownDetail('Турнир', keyParam, group, 'tournaments.html');
     } else {
-      root.innerHTML = renderGroupCards(groups, 'Букмекер', 'bookmakers.html');
+      root.innerHTML = renderGroupCards(groups, 'Турнир', 'tournaments.html');
     }
   }
 </script>
