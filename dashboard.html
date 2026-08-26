@@ -30,8 +30,6 @@
     <a class="nav-pill" href="bookmakers.html">По букмекерам</a>
     <a class="nav-pill" href="markets.html">Рынки</a>
     <a class="nav-pill" href="teams.html">Команды</a>
-    <a class="nav-pill" href="tournaments.html">Турниры</a>
-    <a class="nav-pill" href="months.html">Месяцы</a>
     <a class="nav-pill" href="segmentation.html">Сегментация</a>
     <a class="nav-pill" href="edges.html">Найденные эджи</a>
     <a class="nav-pill" id="navClvPill" href="clv.html" style="display:none;">CLV Tracker</a>
@@ -57,6 +55,13 @@
       </div>
     </div>
 
+    <div class="feed-filters">
+      <select id="filterTournament"><option value="">Все турниры</option></select>
+      <select id="filterMonth"><option value="">Все месяцы</option></select>
+      <button type="button" class="filter-reset" id="filterResetBtn" style="display:none;">Сбросить</button>
+      <span class="filter-count" id="filterCount"></span>
+    </div>
+
     <div class="stat-grid" id="statGrid"></div>
 
     <div class="streak-block" id="streakBlock" style="display:none;"></div>
@@ -67,7 +72,7 @@
 
 <script type="module">
   import { supabase, requireSession, isClvEnabled } from './supabase-client.js';
-  import { fmtMoney, computeStats, computeStreak } from './lib.js';
+  import { fmtMoney, computeStats, computeStreak, escapeHtml, monthKeyOf, monthLabelOf } from './lib.js';
 
   const session = await requireSession();
   if (session) {
@@ -85,6 +90,16 @@
   const dashHint = document.getElementById('dashHint');
   const asOfNote = document.getElementById('asOfNote');
   const streakBlock = document.getElementById('streakBlock');
+  const filterTournamentSel = document.getElementById('filterTournament');
+  const filterMonthSel = document.getElementById('filterMonth');
+  const filterResetBtn = document.getElementById('filterResetBtn');
+  const filterCount = document.getElementById('filterCount');
+
+  // Данные последней загрузки — фильтры пересчитывают вид без повторного
+  // похода в Supabase.
+  let allBets = [];
+  let allWithdrawals = [];
+  let startingBankroll = 0;
 
   // "победа/победы/побед" — русское склонение числительных: 1 → ед.число,
   // 2-4 → форма "few", 5+ (и 11-14) → форма "many".
@@ -123,7 +138,12 @@
     `;
   }
 
-  function renderStats(s) {
+  // hideBankCards — при активном фильтре по турниру/месяцу «Банк» и
+  // «Прирост банка» перестают быть осмысленными (баланс банка не считается
+  // «за один турнир»), поэтому на фильтрованном виде эти 2 карточки просто
+  // не показываем — остальные показатели (ставки, винрейт, профит, ROI,
+  // кэф) по-прежнему пересчитаны именно под фильтр.
+  function renderStats(s, hideBankCards) {
     const cards = [
       { label: 'Всего ставок', value: s.total, sub: s.pending ? `${s.pending} в ожидании` : '' },
       { label: 'W / L / P', value: `${s.wins} / ${s.losses} / ${s.pushes}`, sub: '' },
@@ -131,9 +151,13 @@
       { label: 'Профит', value: fmtMoney(s.totalProfit), cls: s.totalProfit > 0 ? 'pos' : s.totalProfit < 0 ? 'neg' : '', sub: '' },
       { label: 'ROI', value: s.roi == null ? '—' : s.roi.toFixed(2) + '%', cls: s.roi > 0 ? 'pos' : s.roi < 0 ? 'neg' : '', sub: '' },
       { label: 'Средний кэф', value: s.avgOdds == null ? '—' : s.avgOdds.toFixed(2), sub: '' },
-      { label: 'Банк', value: fmtMoney(s.currentBank), cls: s.currentBank > s.startingBankroll ? 'pos' : s.currentBank < s.startingBankroll ? 'neg' : '', sub: `старт $${s.startingBankroll}` },
-      { label: 'Прирост банка', value: s.bankGrowthPct == null ? '—' : s.bankGrowthPct.toFixed(1) + '%', cls: s.bankGrowthPct > 0 ? 'pos' : s.bankGrowthPct < 0 ? 'neg' : '', sub: fmtMoney(s.totalProfit) + ' по ставкам' },
     ];
+    if (!hideBankCards) {
+      cards.push(
+        { label: 'Банк', value: fmtMoney(s.currentBank), cls: s.currentBank > s.startingBankroll ? 'pos' : s.currentBank < s.startingBankroll ? 'neg' : '', sub: `старт $${s.startingBankroll}` },
+        { label: 'Прирост банка', value: s.bankGrowthPct == null ? '—' : s.bankGrowthPct.toFixed(1) + '%', cls: s.bankGrowthPct > 0 ? 'pos' : s.bankGrowthPct < 0 ? 'neg' : '', sub: fmtMoney(s.totalProfit) + ' по ставкам' },
+      );
+    }
     statGrid.innerHTML = cards.map(c => `
       <div class="stat-card">
         <div class="stat-label">${c.label}</div>
@@ -142,6 +166,42 @@
       </div>
     `).join('');
   }
+
+  // Турниры/месяцы — не отдельные страницы, а фильтры прямо здесь: выбрал
+  // значение в любом из двух селектов — вся остальная стата на дашборде
+  // (серия, ставки, винрейт, профит, ROI, кэф) пересчитывается под срез.
+  function populateDashFilters(bets) {
+    const prevT = filterTournamentSel.value, prevM = filterMonthSel.value;
+    const tournaments = Array.from(new Set(bets.map(b => (b.tournament || '').trim()).filter(Boolean))).sort();
+    filterTournamentSel.innerHTML = '<option value="">Все турниры</option>' +
+      tournaments.map(t => `<option value="${escapeHtml(t)}">${escapeHtml(t)}</option>`).join('');
+    const monthKeys = Array.from(new Set(bets.map(b => monthKeyOf(b.bet_date)).filter(Boolean))).sort().reverse();
+    filterMonthSel.innerHTML = '<option value="">Все месяцы</option>' +
+      monthKeys.map(m => `<option value="${escapeHtml(m)}">${escapeHtml(monthLabelOf(m))}</option>`).join('');
+    if (tournaments.includes(prevT)) filterTournamentSel.value = prevT;
+    if (monthKeys.includes(prevM)) filterMonthSel.value = prevM;
+  }
+
+  function applyDashFilters() {
+    const trn = filterTournamentSel.value;
+    const mon = filterMonthSel.value;
+    const isFiltered = !!(trn || mon);
+    const filtered = allBets.filter(b =>
+      (!trn || b.tournament === trn) && (!mon || monthKeyOf(b.bet_date) === mon)
+    );
+    renderStreak(filtered);
+    renderStats(computeStats(filtered, allWithdrawals, startingBankroll), isFiltered);
+    filterResetBtn.style.display = isFiltered ? '' : 'none';
+    filterCount.textContent = isFiltered ? `${filtered.length} из ${allBets.length} ставок` : '';
+  }
+
+  filterTournamentSel.addEventListener('change', applyDashFilters);
+  filterMonthSel.addEventListener('change', applyDashFilters);
+  filterResetBtn.addEventListener('click', () => {
+    filterTournamentSel.value = '';
+    filterMonthSel.value = '';
+    applyDashFilters();
+  });
 
   async function load() {
     const [{ data: bets, error: betsErr }, { data: withdrawals, error: wErr }, { data: settings, error: sErr }] = await Promise.all([
@@ -155,18 +215,21 @@
       return;
     }
 
-    renderStreak(bets || []);
+    allBets = bets || [];
+    allWithdrawals = withdrawals || [];
+    startingBankroll = settings ? settings.starting_bankroll : 0;
+    populateDashFilters(allBets);
 
     if (!settings) {
       setupPrompt.style.display = 'block';
-      renderStats(computeStats(bets || [], withdrawals || [], 0));
-      dashHint.innerHTML = (bets && bets.length) ? '' : 'Пусто? Есть история из старого журнала — можно <a href="import.html" style="color:var(--gold);">импортировать её сюда</a>.';
+      applyDashFilters();
+      dashHint.innerHTML = allBets.length ? '' : 'Пусто? Есть история из старого журнала — можно <a href="import.html" style="color:var(--gold);">импортировать её сюда</a>.';
       return;
     }
 
     setupPrompt.style.display = 'none';
-    renderStats(computeStats(bets || [], withdrawals || [], settings.starting_bankroll));
-    dashHint.innerHTML = (bets && bets.length) ? '' : 'Пока нет ни одной ставки — добавь их на странице «Ставки», либо <a href="import.html" style="color:var(--gold);">импортируй историю из старого журнала</a>.';
+    applyDashFilters();
+    dashHint.innerHTML = allBets.length ? '' : 'Пока нет ни одной ставки — добавь их на странице «Ставки», либо <a href="import.html" style="color:var(--gold);">импортируй историю из старого журнала</a>.';
   }
 
   document.getElementById('saveStartBank').addEventListener('click', async () => {
