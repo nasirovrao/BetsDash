@@ -347,7 +347,7 @@
       <td>${escapeHtml(w.note || '—')}</td>
       <td><button class="row-del" data-id="${w.id}">Удалить</button></td>
     `;
-    tr.querySelector('.row-del').addEventListener('click', () => deleteWithdrawal(w.id));
+    tr.querySelector('.row-del').addEventListener('click', () => deleteWithdrawal(w.id, w));
     return tr;
   }
 
@@ -397,7 +397,12 @@
     load();
   });
 
-  async function deleteWithdrawal(id) {
+  // Подтверждение перед удалением — так же, как для ставок: случайный клик
+  // не должен безвозвратно стирать запись о выводе средств.
+  async function deleteWithdrawal(id, w) {
+    const label = w ? `${fmtMoney(Number(w.amount))} от ${fmtDate(w.w_date)}` : '';
+    const ok = window.confirm(label ? `Удалить вывод «${label}»? Это необратимо.` : 'Удалить этот вывод? Это необратимо.');
+    if (!ok) return;
     const { error } = await supabase.from('withdrawals').delete().eq('id', id);
     if (error) {
       formStatus.textContent = 'Не удалось удалить: ' + error.message;
