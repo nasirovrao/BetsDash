@@ -132,6 +132,7 @@ section{ padding: 40px 0; }
 }
 .bet-form h3{ font-family:'Inter', sans-serif; font-weight:700; font-size:14px; text-transform:uppercase; letter-spacing:0.04em; color: var(--ink-dim); margin:0 0 16px; }
 .form-grid{ display:grid; grid-template-columns: repeat(4, 1fr); gap:14px; }
+.form-grid-3{ grid-template-columns: repeat(3, 1fr); }
 .form-grid .field{ margin-bottom:0; }
 .form-grid select{
   font-family:'Inter', sans-serif; font-size:14px; padding:10px 11px; border:1px solid var(--line);
@@ -188,8 +189,32 @@ table.bets-table tbody tr:hover td.num{ color: var(--gold); }
 }
 .bet-card:hover{ background: var(--bg-card); }
 .bet-card-main{ flex: 1 1 260px; min-width:0; }
+.bet-card-title-wrap{ margin-bottom:3px; }
+.bet-card-title-wrap .bet-card-title{ margin-bottom:0; }
 .bet-card-title{ font-family:'Space Grotesk', sans-serif; font-weight:600; font-size:15px; color: var(--ink); margin-bottom:3px; }
 .bet-card-sub{ font-size:13px; color: var(--ink-dim); margin-bottom:9px; }
+.match-add-btn{
+  font-family:'JetBrains Mono', monospace; font-size:10.5px; text-transform:uppercase; letter-spacing:0.03em;
+  background:none; border:1px dashed var(--line); color: var(--ink-faint); padding:2px 8px; border-radius:20px; cursor:pointer;
+  transition: all 0.15s ease;
+}
+.match-add-btn:hover{ border-color: var(--gold); color: var(--gold); }
+.match-edit-row{ display:flex; align-items:center; gap:6px; }
+.match-input{
+  font-family:'Space Grotesk', sans-serif; font-size:14px; color: var(--ink); background: var(--bg-card);
+  border:1px solid var(--line); border-radius:6px; padding:5px 9px; flex:1 1 auto; min-width:0; max-width:280px;
+}
+.match-input:focus{ outline:none; border-color: var(--gold); }
+.match-save-btn{
+  background: var(--teal-soft); color: var(--teal); border:1px solid transparent; border-radius:6px;
+  width:26px; height:26px; cursor:pointer; font-size:13px; line-height:1; flex:none;
+}
+.match-save-btn:hover{ background: var(--teal); color: var(--bg); }
+.match-cancel-btn{
+  background:none; border:none; color: var(--ink-faint); border-radius:6px;
+  width:26px; height:26px; cursor:pointer; font-size:13px; line-height:1; flex:none;
+}
+.match-cancel-btn:hover{ color: var(--rust); }
 .bet-card-meta{ display:flex; align-items:center; gap:8px; flex-wrap:wrap; }
 .meta-chip{
   font-family:'JetBrains Mono', monospace; font-size:10.5px; text-transform:uppercase; letter-spacing:0.03em;
@@ -197,7 +222,37 @@ table.bets-table tbody tr:hover td.num{ color: var(--gold); }
 }
 .bet-card:hover .meta-chip{ border-color: var(--line); color: var(--ink-dim); }
 .meta-date{ font-family:'JetBrains Mono', monospace; font-size:11px; color: var(--ink-faint); }
-.bet-card-note{ font-size:12px; color: var(--ink-faint); font-style:italic; margin-top:7px; max-width:520px; }
+.bet-leg{
+  font-size:13px; color: var(--ink-dim); padding-left:14px; position:relative; margin-bottom:4px; line-height:1.4;
+}
+.bet-leg:before{ content:"–"; position:absolute; left:0; color: var(--ink-faint); }
+.bet-leg:last-child{ margin-bottom:9px; }
+.note-toggle{
+  font-family:'JetBrains Mono', monospace; font-size:10.5px; text-transform:uppercase; letter-spacing:0.03em;
+  background:none; border:1px dashed var(--line); color: var(--ink-faint); padding:2px 8px; border-radius:20px; cursor:pointer;
+  transition: all 0.15s ease;
+}
+.note-toggle:hover{ border-color: var(--gold); color: var(--gold); }
+.note-toggle.add{ opacity:0.6; }
+.bet-card-note-wrap{ margin-top:10px; max-width:560px; }
+.bet-card-note{ font-size:13px; color: var(--ink-dim); font-style:italic; line-height:1.5; margin-bottom:8px; white-space:pre-wrap; }
+.note-edit-btn{
+  background:none; border:none; color: var(--ink-faint); font-size:11px; cursor:pointer; padding:0; text-decoration:underline;
+}
+.note-edit-btn:hover{ color: var(--gold); }
+.note-textarea{
+  width:100%; min-height:64px; resize:vertical; font-family:'Inter', sans-serif; font-size:13px; color: var(--ink);
+  background: var(--bg-card); border:1px solid var(--line); border-radius:8px; padding:9px 11px;
+}
+.note-textarea:focus{ outline:none; border-color: var(--gold); }
+.note-actions{ display:flex; gap:8px; margin-top:8px; }
+.note-save-btn, .note-cancel-btn{
+  font-family:'JetBrains Mono', monospace; font-size:11px; padding:5px 12px; border-radius:6px; cursor:pointer; border:1px solid transparent;
+}
+.note-save-btn{ background: var(--gold); color: var(--gold-ink); }
+.note-save-btn:hover{ opacity:0.88; }
+.note-cancel-btn{ background:none; border-color: var(--line); color: var(--ink-faint); }
+.note-cancel-btn:hover{ border-color: var(--rust); color: var(--rust); }
 .bet-card-stats{ display:flex; align-items:center; gap:26px; flex-wrap:wrap; }
 .bet-stat{ display:flex; flex-direction:column; gap:3px; min-width:56px; }
 .bet-stat-label{ font-family:'JetBrains Mono', monospace; font-size:9.5px; text-transform:uppercase; letter-spacing:0.05em; color: var(--ink-faint); }
@@ -247,8 +302,9 @@ table.bets-table tbody tr:hover td.num{ color: var(--gold); }
 
 /* ---- stat grid (dashboard) ---- */
 .stat-grid{ display:grid; grid-template-columns: repeat(4, 1fr); gap:1px; background: var(--line); border:1px solid var(--line); border-radius: var(--radius); overflow:hidden; margin-bottom:30px; }
-.stat-card{ background: var(--bg-card); padding:20px 20px 18px; transition: background 0.15s ease; }
+.stat-card{ background: var(--bg-card); padding:20px 20px 18px; transition: background 0.15s ease; min-width:0; }
 .stat-card:hover{ background: var(--bg-raised); }
+.stat-grid-3{ grid-template-columns: repeat(3, 1fr); }
 .stat-label{ font-family:'JetBrains Mono', monospace; font-size:10.5px; text-transform:uppercase; letter-spacing:0.05em; color: var(--ink-faint); margin-bottom:8px; }
 .stat-value{ font-family:'JetBrains Mono', monospace; font-size:26px; font-weight:600; color: var(--ink); }
 .stat-value.pos{ color: var(--teal); }

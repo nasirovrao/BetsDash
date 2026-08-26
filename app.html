@@ -7,7 +7,7 @@
 <link rel="preconnect" href="https://fonts.googleapis.com">
 <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
 <link href="https://fonts.googleapis.com/css2?family=Space+Grotesk:wght@500;600;700&family=Inter:wght@400;500;600;700&family=JetBrains+Mono:wght@400;500;600&display=swap" rel="stylesheet">
-<link rel="stylesheet" href="styles.css?v=11">
+<link rel="stylesheet" href="styles.css?v=13">
 </head>
 <body>
 
@@ -178,10 +178,35 @@
     return { Win:'win', Loss:'loss', Push:'push', Pending:'pending', Sold:'sold' }[r] || 'pending';
   }
 
-  // Заголовок карточки: используем "Матч", а если его нет (экспрессы, ставки без
-  // указанного матча) — падаем на текст пика, чтобы карточка не осталась пустой.
-  function cardTitle(bet){
-    return bet.match ? escapeHtml(bet.match) : escapeHtml(bet.pick);
+  // Экспресс из нескольких событий: "Экспресс (2 события): нога1 + нога2" —
+  // разбиваем на отдельные ноги вместо одной длинной нечитаемой строки.
+  function parseExpressLegs(pick){
+    const m = String(pick || '').match(/^Экспресс\s*\(([^)]+)\)\s*:\s*([\s\S]*)$/i);
+    if (!m) return null;
+    const legs = m[2].split(/\s*\+\s*/).map(s => s.trim()).filter(Boolean);
+    return { count: m[1], legs };
+  }
+
+  // Заголовок + тело карточки: используем "Матч" когда он указан; для экспрессов —
+  // короткий заголовок с разбивкой по ногам. Если "Матч" не указан — заголовком
+  // НЕ становятся имена из "(Дуэль X vs Y, ...)" в тексте пика: это игроки внутри
+  // конкретной карты/дуэли, а не сам матч, и раньше это приводило к неверным
+  // заголовкам (например "r1nkle vs Lake" вместо настоящего матча "G2 - M80").
+  // Вместо этого показываем пик как есть и даём кнопку "+ добавить матч",
+  // чтобы вписать правильное название вручную прямо в карточке.
+  function cardTitleAndBody(bet){
+    const express = parseExpressLegs(bet.pick);
+    if (express) {
+      return {
+        title: `Экспресс (${escapeHtml(express.count)})`,
+        bodyHtml: express.legs.map(l => `<div class="bet-leg">${escapeHtml(l)}</div>`).join(''),
+        hasMatch: true,
+      };
+    }
+    if (bet.match) {
+      return { title: escapeHtml(bet.match), bodyHtml: `<div class="bet-card-sub">${escapeHtml(bet.pick)}</div>`, hasMatch: true };
+    }
+    return { title: null, bodyHtml: `<div class="bet-card-sub">${escapeHtml(bet.pick)}</div>`, hasMatch: false };
   }
 
   // Для Pending-ставок вместо статичного пилла — выпадающий список, чтобы можно
@@ -256,18 +281,20 @@
     div.className = 'bet-card';
     const profit = computeProfit(bet);
     const profitCls = profit == null ? '' : profit > 0 ? 'pos-text' : profit < 0 ? 'neg-text' : '';
+    const { title, bodyHtml, hasMatch } = cardTitleAndBody(bet);
     div.innerHTML = `
       <div class="bet-card-main">
-        <div class="bet-card-title">${cardTitle(bet)}</div>
-        <div class="bet-card-sub">${escapeHtml(bet.pick)}</div>
+        <div class="bet-card-title-wrap">${hasMatch ? `<div class="bet-card-title">${title}</div>` : `<button type="button" class="match-add-btn">+ добавить матч</button>`}</div>
+        ${bodyHtml}
         <div class="bet-card-meta">
           <span class="meta-chip">${escapeHtml(bet.discipline)}</span>
           <span class="meta-chip">${escapeHtml(bet.bookmaker)}</span>
           ${bet.tournament ? `<span class="meta-chip">${escapeHtml(bet.tournament)}</span>` : ''}
           ${bet.edge_tag ? `<span class="tag-chip">${escapeHtml(bet.edge_tag)}</span>` : ''}
           <span class="meta-date">${fmtDate(bet.bet_date)}</span>
+          <button type="button" class="note-toggle${bet.notes ? '' : ' add'}">${bet.notes ? '📝 заметка' : '+ заметка'}</button>
         </div>
-        ${bet.notes ? `<div class="bet-card-note">${escapeHtml(bet.notes)}</div>` : ''}
+        <div class="bet-card-note-wrap" style="display:none;"></div>
       </div>
       <div class="bet-card-stats">
         <div class="bet-stat"><span class="bet-stat-label">Кэф</span><span class="bet-stat-value">${Number(bet.odds).toFixed(2)}</span></div>
@@ -280,7 +307,115 @@
     `;
     div.querySelector('.bet-card-del').addEventListener('click', () => deleteBet(bet.id));
     if (bet.result === 'Pending') wirePendingControl(div, bet);
+    wireNoteControl(div, bet);
+    if (!hasMatch) wireMatchControl(div, bet);
     return div;
+  }
+
+  // Для ставок без "Матч" в данных — клик по "+ добавить матч" открывает
+  // текстовое поле прямо в карточке; сохраняем в bets.match без перезагрузки.
+  function wireMatchControl(cardEl, bet){
+    const wrap = cardEl.querySelector('.bet-card-title-wrap');
+    if (!wrap) return;
+
+    function showButton(){
+      wrap.innerHTML = `<button type="button" class="match-add-btn">+ добавить матч</button>`;
+      wrap.querySelector('.match-add-btn').addEventListener('click', showEdit);
+    }
+
+    function showTitle(val){
+      wrap.innerHTML = `<div class="bet-card-title">${escapeHtml(val)}</div>`;
+    }
+
+    function showEdit(){
+      wrap.innerHTML = `
+        <div class="match-edit-row">
+          <input type="text" class="match-input" placeholder="например: G2 Esports vs M80" value="${escapeHtml(bet.match || '')}">
+          <button type="button" class="match-save-btn" title="Сохранить">✓</button>
+          <button type="button" class="match-cancel-btn" title="Отмена">✕</button>
+        </div>
+      `;
+      const input = wrap.querySelector('.match-input');
+      input.focus();
+
+      async function save(){
+        const val = input.value.trim();
+        if (!val) { input.focus(); return; }
+        const { error } = await supabase.from('bets').update({ match: val }).eq('id', bet.id);
+        if (error) { formStatus.textContent = 'Не удалось сохранить матч: ' + error.message; return; }
+        bet.match = val;
+        showTitle(val);
+      }
+
+      wrap.querySelector('.match-save-btn').addEventListener('click', save);
+      wrap.querySelector('.match-cancel-btn').addEventListener('click', () => {
+        bet.match ? showTitle(bet.match) : showButton();
+      });
+      input.addEventListener('keydown', (e) => {
+        if (e.key === 'Enter') { e.preventDefault(); save(); }
+      });
+    }
+
+    wrap.querySelector('.match-add-btn').addEventListener('click', showEdit);
+  }
+
+  // Заметка скрыта по умолчанию (карточки не растягиваются длинным текстом),
+  // разворачивается по клику на чип и редактируется прямо там же —
+  // без отдельной страницы и без пересоздания ставки.
+  function wireNoteControl(cardEl, bet){
+    const toggleBtn = cardEl.querySelector('.note-toggle');
+    const wrap = cardEl.querySelector('.bet-card-note-wrap');
+    if (!toggleBtn || !wrap) return;
+
+    function setToggleLabel(){
+      toggleBtn.classList.toggle('add', !bet.notes);
+      toggleBtn.textContent = bet.notes ? '📝 заметка' : '+ заметка';
+    }
+
+    function showRead(){
+      wrap.innerHTML = `
+        <div class="bet-card-note">${escapeHtml(bet.notes)}</div>
+        <button type="button" class="note-edit-btn">Изменить</button>
+      `;
+      wrap.querySelector('.note-edit-btn').addEventListener('click', showEdit);
+    }
+
+    function collapse(){
+      wrap.style.display = 'none';
+      wrap.innerHTML = '';
+      expanded = false;
+    }
+
+    function showEdit(){
+      wrap.innerHTML = `
+        <textarea class="note-textarea" placeholder="контекст, который стоит запомнить об этой ставке">${escapeHtml(bet.notes || '')}</textarea>
+        <div class="note-actions">
+          <button type="button" class="note-save-btn">Сохранить</button>
+          <button type="button" class="note-cancel-btn">Отмена</button>
+        </div>
+      `;
+      const textarea = wrap.querySelector('.note-textarea');
+      textarea.focus();
+      wrap.querySelector('.note-save-btn').addEventListener('click', async () => {
+        const val = textarea.value.trim();
+        const { error } = await supabase.from('bets').update({ notes: val || null }).eq('id', bet.id);
+        if (error) { formStatus.textContent = 'Не удалось сохранить заметку: ' + error.message; return; }
+        bet.notes = val || null;
+        setToggleLabel();
+        if (bet.notes) showRead(); else collapse();
+      });
+      wrap.querySelector('.note-cancel-btn').addEventListener('click', () => {
+        if (bet.notes) showRead(); else collapse();
+      });
+    }
+
+    let expanded = false;
+    toggleBtn.addEventListener('click', () => {
+      expanded = !expanded;
+      if (!expanded) { wrap.style.display = 'none'; return; }
+      wrap.style.display = 'block';
+      if (bet.notes) showRead(); else showEdit();
+    });
   }
 
   // Ставки уже приходят отсортированными по дате (свежие сверху) — просто
