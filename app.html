@@ -7,7 +7,7 @@
 <link rel="preconnect" href="https://fonts.googleapis.com">
 <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
 <link href="https://fonts.googleapis.com/css2?family=Space+Grotesk:wght@500;600;700&family=Inter:wght@400;500;600;700&family=JetBrains+Mono:wght@400;500;600&display=swap" rel="stylesheet">
-<link rel="stylesheet" href="styles.css?v=22">
+<link rel="stylesheet" href="styles.css?v=23">
 </head>
 <body>
 
@@ -47,6 +47,12 @@
       <h3 id="betFormHeading">Добавить ставку</h3>
       <form id="betForm">
         <input type="hidden" id="f_editId" value="">
+        <div class="express-toggle-row">
+          <label class="express-toggle">
+            <input type="checkbox" id="f_isExpress">
+            <span>Это экспресс — несколько событий одной ставкой</span>
+          </label>
+        </div>
         <div class="form-grid">
           <div class="field">
             <label for="f_date">Дата</label>
@@ -70,13 +76,18 @@
             <label for="f_tournament">Турнир</label>
             <input id="f_tournament" type="text" placeholder="Esports World Cup">
           </div>
-          <div class="field">
+          <div class="field" id="f_matchField">
             <label for="f_match">Матч</label>
             <input id="f_match" type="text" placeholder="Spirit vs MOUZ">
           </div>
-          <div class="field">
+          <div class="field" id="f_pickField">
             <label for="f_pick">Пик</label>
             <input id="f_pick" type="text" placeholder="Spirit 1x2 — Map 1" required>
+          </div>
+          <div class="field" id="expressLegsBlock" style="grid-column: 1 / -1; display:none;">
+            <label>Ноги экспресса</label>
+            <div id="expressLegsList" class="express-legs-list"></div>
+            <button type="button" class="btn btn-ghost" id="addLegBtn" style="width:auto; margin-top:10px;">+ Добавить ногу</button>
           </div>
           <div class="field">
             <label for="f_odds">Кэф</label>
@@ -202,6 +213,14 @@
   const filterCount = document.getElementById('filterCount');
   const filterEmptyState = document.getElementById('filterEmptyState');
   const clearFiltersLink = document.getElementById('clearFiltersLink');
+  const isExpressCheckbox = document.getElementById('f_isExpress');
+  const matchField = document.getElementById('f_matchField');
+  const pickField = document.getElementById('f_pickField');
+  const pickInput = document.getElementById('f_pick');
+  const oddsInput = document.getElementById('f_odds');
+  const expressLegsBlock = document.getElementById('expressLegsBlock');
+  const expressLegsList = document.getElementById('expressLegsList');
+  const addLegBtn = document.getElementById('addLegBtn');
 
   function escapeHtml(s){
     return String(s ?? '').replace(/[&<>"']/g, c => ({'&':'&amp;','<':'&lt;','>':'&gt;','"':'&quot;',"'":'&#39;'}[c]));
@@ -237,6 +256,103 @@
     if (!m) return null;
     const legs = m[2].split(/\s*\+\s*/).map(s => s.trim()).filter(Boolean);
     return { count: m[1], legs };
+  }
+
+  // "победа/победы/побед" — русское склонение числительных для подписи "N событий".
+  function ruCount(n, one, few, many){
+    const mod10 = n % 10, mod100 = n % 100;
+    if (mod10 === 1 && mod100 !== 11) return one;
+    if (mod10 >= 2 && mod10 <= 4 && !(mod100 >= 12 && mod100 <= 14)) return few;
+    return many;
+  }
+
+  // Конструктор ног экспресса в форме ставки. Каждая нога — своё описание и
+  // свой кэф; итоговый кэф (#f_odds) считается автоматически как произведение
+  // кэфов ног и не редактируется руками, пока включён режим "Экспресс".
+  // При сохранении ноги собираются обратно в один текст в поле "Пик" в формате
+  // "Экспресс (N событий): нога1 @1.85 + нога2 @1.42 + ..." — том же, что уже
+  // умеет показывать cardTitleAndBody() построчно.
+  function makeLegRow(text, odds){
+    const row = document.createElement('div');
+    row.className = 'express-leg-row';
+    row.innerHTML = `
+      <input type="text" class="leg-input leg-text-input" placeholder="например: Spirit — победа (карта 1)" required>
+      <input type="number" class="leg-input leg-odds-input" step="0.001" min="1.01" placeholder="Кэф" required>
+      <button type="button" class="leg-remove-btn" title="Убрать ногу">✕</button>
+    `;
+    row.querySelector('.leg-text-input').value = text || '';
+    row.querySelector('.leg-odds-input').value = odds != null ? odds : '';
+    row.querySelector('.leg-odds-input').addEventListener('input', recomputeExpressOdds);
+    row.querySelector('.leg-remove-btn').addEventListener('click', () => {
+      if (expressLegsList.children.length <= 2) return; // минимум 2 ноги в экспрессе
+      row.remove();
+      updateLegRemoveButtons();
+      recomputeExpressOdds();
+    });
+    return row;
+  }
+
+  function updateLegRemoveButtons(){
+    const rows = expressLegsList.querySelectorAll('.express-leg-row');
+    rows.forEach(r => { r.querySelector('.leg-remove-btn').disabled = rows.length <= 2; });
+  }
+
+  function addLegRow(text, odds){
+    expressLegsList.appendChild(makeLegRow(text, odds));
+    updateLegRemoveButtons();
+  }
+
+  function clearExpressLegs(){
+    expressLegsList.innerHTML = '';
+  }
+
+  function populateExpressLegs(legs){
+    clearExpressLegs();
+    (legs.length ? legs : [{}, {}]).forEach(l => addLegRow(l.text, l.odds));
+    if (expressLegsList.children.length < 2) addLegRow();
+    recomputeExpressOdds();
+  }
+
+  // Итоговый кэф = произведение кэфов всех ног. Пока не заполнены ХОТЯ БЫ
+  // 2 ноги валидным кэфом (>1) — поле остаётся пустым, чтобы не сохранить
+  // случайно неполный экспресс с неверным итоговым кэфом.
+  function recomputeExpressOdds(){
+    const values = Array.from(expressLegsList.querySelectorAll('.leg-odds-input')).map(i => Number(i.value));
+    const allValid = values.length >= 2 && values.every(v => v > 1);
+    oddsInput.value = allValid ? values.reduce((a, b) => a * b, 1).toFixed(3).replace(/0+$/, '').replace(/\.$/, '') : '';
+  }
+
+  function setExpressMode(on){
+    isExpressCheckbox.checked = on;
+    matchField.style.display = on ? 'none' : '';
+    pickField.style.display = on ? 'none' : '';
+    expressLegsBlock.style.display = on ? '' : 'none';
+    pickInput.required = !on;
+    oddsInput.readOnly = on;
+  }
+
+  addLegBtn.addEventListener('click', () => addLegRow());
+
+  isExpressCheckbox.addEventListener('change', () => {
+    const on = isExpressCheckbox.checked;
+    setExpressMode(on);
+    if (on) {
+      populateExpressLegs([]);
+    } else {
+      clearExpressLegs();
+      oddsInput.value = '';
+    }
+  });
+
+  // Разбирает одну ногу вида "текст @1.85" обратно на {text, odds} — нужно,
+  // чтобы при редактировании уже сохранённого экспресса заново заполнить
+  // конструктор. Если "@кэф" в тексте не найдено (старая запись, где ноги
+  // вписаны вручную без явного кэфа) — просто оставляем кэф пустым, пользователь
+  // впишет его сам; поле обязательное, так что сохранить с пустым кэфом не выйдет.
+  function splitLegTextOdds(raw){
+    const m = String(raw).match(/^(.*?)\s*@\s*([\d.]+)\s*$/);
+    if (m) return { text: m[1].trim(), odds: Number(m[2]) };
+    return { text: String(raw).trim(), odds: null };
   }
 
   // Заголовок + тело карточки: используем "Матч" когда он указан; для экспрессов —
@@ -677,6 +793,16 @@
     document.getElementById('f_match').value = bet.match || '';
     document.getElementById('f_pick').value = bet.pick || '';
     document.getElementById('f_odds').value = bet.odds;
+
+    const express = parseExpressLegs(bet.pick);
+    if (express) {
+      setExpressMode(true);
+      populateExpressLegs(express.legs.map(splitLegTextOdds));
+    } else {
+      setExpressMode(false);
+      clearExpressLegs();
+    }
+
     document.getElementById('f_flat').value = bet.flat_mult;
     document.getElementById('f_stake').value = bet.stake;
     resultSelect.value = bet.result;
@@ -704,6 +830,8 @@
     document.getElementById('f_date').value = todayLocalStr();
     manualProfitField.style.display = 'none';
     manualProfitInput.required = false;
+    clearExpressLegs();
+    setExpressMode(false);
     betFormHeading.textContent = 'Добавить ставку';
     addBtn.textContent = 'Добавить ставку';
     cancelEditBtn.style.display = 'none';
@@ -718,6 +846,27 @@
   betForm.addEventListener('submit', async (e) => {
     e.preventDefault();
     const editId = editIdField.value;
+
+    let matchVal, pickVal, oddsVal;
+    if (isExpressCheckbox.checked) {
+      const legs = Array.from(expressLegsList.querySelectorAll('.express-leg-row')).map(row => ({
+        text: row.querySelector('.leg-text-input').value.trim(),
+        odds: Number(row.querySelector('.leg-odds-input').value),
+      })).filter(l => l.text && l.odds > 1);
+      if (legs.length < 2) {
+        formStatus.textContent = 'В экспрессе должно быть минимум 2 ноги с текстом и кэфом.';
+        return;
+      }
+      const countLabel = `${legs.length} ${ruCount(legs.length, 'событие', 'события', 'событий')}`;
+      matchVal = null;
+      pickVal = `Экспресс (${countLabel}): ${legs.map(l => `${l.text} @${l.odds.toFixed(2)}`).join(' + ')}`;
+      oddsVal = legs.reduce((a, l) => a * l.odds, 1);
+    } else {
+      matchVal = document.getElementById('f_match').value.trim() || null;
+      pickVal = document.getElementById('f_pick').value.trim();
+      oddsVal = Number(document.getElementById('f_odds').value);
+    }
+
     addBtn.disabled = true;
     formStatus.textContent = 'Сохраняю…';
 
@@ -727,9 +876,9 @@
       discipline: document.getElementById('f_discipline').value,
       bookmaker: document.getElementById('f_bookmaker').value.trim(),
       tournament: document.getElementById('f_tournament').value.trim() || null,
-      match: document.getElementById('f_match').value.trim() || null,
-      pick: document.getElementById('f_pick').value.trim(),
-      odds: Number(document.getElementById('f_odds').value),
+      match: matchVal,
+      pick: pickVal,
+      odds: oddsVal,
       flat_mult: Number(document.getElementById('f_flat').value),
       stake: Number(document.getElementById('f_stake').value),
       result: document.getElementById('f_result').value,
