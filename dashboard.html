@@ -158,6 +158,10 @@
         { label: 'Прирост банка', value: s.bankGrowthPct == null ? '—' : s.bankGrowthPct.toFixed(1) + '%', cls: s.bankGrowthPct > 0 ? 'pos' : s.bankGrowthPct < 0 ? 'neg' : '', sub: fmtMoney(s.totalProfit) + ' по ставкам' },
       );
     }
+    // 6 карточек (без банка) ровно делятся на 3 колонки — без этого в
+    // стандартной 4-колоночной сетке снизу справа висел пустой серый
+    // прямоугольник (фон контейнера, проступающий через недостающие ячейки).
+    statGrid.className = hideBankCards ? 'stat-grid stat-grid-3' : 'stat-grid';
     statGrid.innerHTML = cards.map(c => `
       <div class="stat-card">
         <div class="stat-label">${c.label}</div>
