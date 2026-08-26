@@ -17,6 +17,33 @@ export function computeProfit(bet) {
   return null;
 }
 
+// Точки кривой банка по дням: старт → каждый день с решённой ставкой и/или
+// выводом → накопительный банк на этот момент. Используется для графика
+// "Динамика банка" на странице bank.html. Pending-ставки в кривую не входят
+// (у них ещё нет результата). withdrawn — вывод в этот день, отдельно от
+// профита по ставкам (это не поражение, а факт того что деньги сняли).
+export function computeBankPoints(bets, withdrawals, startingBankroll) {
+  const start = Number(startingBankroll || 0);
+  const settledSorted = (bets || [])
+    .filter(b => b.result !== 'Pending')
+    .slice()
+    .sort((a, b) => (a.bet_date || '').localeCompare(b.bet_date || '') || (a.id - b.id));
+  if (!settledSorted.length) return null;
+  const dates = Array.from(new Set([
+    ...settledSorted.map(b => b.bet_date),
+    ...(withdrawals || []).map(w => w.w_date),
+  ])).sort();
+  let cum = start;
+  const points = [{ label: 'Старт', bank: start, delta: null, withdrawn: 0 }];
+  dates.forEach(d => {
+    const dayProfit = settledSorted.filter(b => b.bet_date === d).reduce((s, b) => s + (computeProfit(b) || 0), 0);
+    const dayWithdrawn = (withdrawals || []).filter(w => w.w_date === d).reduce((s, w) => s + Number(w.amount || 0), 0);
+    cum += dayProfit - dayWithdrawn;
+    points.push({ label: d, bank: cum, delta: dayProfit, withdrawn: dayWithdrawn });
+  });
+  return points;
+}
+
 // Сводная статистика по массиву ставок + выводов + стартовому банку.
 export function computeStats(bets, withdrawals, startingBankroll) {
   const settled = bets.filter(b => b.result !== 'Pending');

@@ -7,7 +7,7 @@
 <link rel="preconnect" href="https://fonts.googleapis.com">
 <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
 <link href="https://fonts.googleapis.com/css2?family=Space+Grotesk:wght@500;600;700&family=Inter:wght@400;500;600;700&family=JetBrains+Mono:wght@400;500;600&display=swap" rel="stylesheet">
-<link rel="stylesheet" href="styles.css?v=13">
+<link rel="stylesheet" href="styles.css?v=15">
 </head>
 <body>
 
@@ -44,7 +44,7 @@
           <label for="email">Почта</label>
           <input id="email" type="email" autocomplete="email" required>
         </div>
-        <div class="field">
+        <div class="field" id="passwordField">
           <label for="password">Пароль</label>
           <input id="password" type="password" autocomplete="current-password" required minlength="6">
         </div>
@@ -52,6 +52,10 @@
       </form>
 
       <div class="auth-msg" id="authMsg"></div>
+
+      <div class="auth-toggle" id="forgotToggle">
+        <a id="forgotLink">Забыли пароль?</a>
+      </div>
 
       <div class="auth-toggle" id="authToggle">
         Нет аккаунта? <a id="toggleLink">Зарегистрироваться</a>
@@ -66,29 +70,40 @@
   const form = document.getElementById('authForm');
   const emailEl = document.getElementById('email');
   const passEl = document.getElementById('password');
+  const passwordField = document.getElementById('passwordField');
   const submitBtn = document.getElementById('submitBtn');
   const msgEl = document.getElementById('authMsg');
   const toggleLink = document.getElementById('toggleLink');
   const authToggle = document.getElementById('authToggle');
+  const forgotToggle = document.getElementById('forgotToggle');
+  const forgotLink = document.getElementById('forgotLink');
   const authLede = document.getElementById('authLede');
 
-  let mode = 'signin'; // или 'signup'
+  let mode = 'signin'; // 'signin' | 'signup' | 'reset'
 
   function setMode(next){
     mode = next;
+    passEl.required = mode !== 'reset';
+    passwordField.style.display = mode === 'reset' ? 'none' : '';
+    forgotToggle.style.display = mode === 'signin' ? '' : 'none';
+    authToggle.style.display = mode === 'reset' ? 'none' : '';
     if (mode === 'signin') {
       submitBtn.textContent = 'Войти';
       authLede.textContent = 'Войдите, чтобы вести свой журнал ставок.';
       authToggle.innerHTML = 'Нет аккаунта? <a id="toggleLink">Зарегистрироваться</a>';
-    } else {
+    } else if (mode === 'signup') {
       submitBtn.textContent = 'Зарегистрироваться';
       authLede.textContent = 'Создайте аккаунт — данные будут видны только вам.';
       authToggle.innerHTML = 'Уже есть аккаунт? <a id="toggleLink">Войти</a>';
+    } else {
+      submitBtn.textContent = 'Отправить ссылку для сброса';
+      authLede.textContent = 'Укажите почту — пришлём ссылку для восстановления пароля.';
     }
-    document.getElementById('toggleLink').addEventListener('click', () => setMode(mode === 'signin' ? 'signup' : 'signin'));
+    document.getElementById('toggleLink')?.addEventListener('click', () => setMode(mode === 'signin' ? 'signup' : 'signin'));
     msgEl.className = 'auth-msg';
   }
   toggleLink.addEventListener('click', () => setMode(mode === 'signin' ? 'signup' : 'signin'));
+  forgotLink.addEventListener('click', () => setMode('reset'));
 
   function showMsg(text, kind){
     msgEl.textContent = text;
@@ -114,7 +129,7 @@
       } else {
         window.location.href = 'dashboard.html';
       }
-    } else {
+    } else if (mode === 'signup') {
       const { error } = await supabase.auth.signUp({ email, password });
       if (error) {
         showMsg(error.message, 'error');
@@ -123,6 +138,15 @@
         showMsg('Готово. Если в проекте включено подтверждение почты — проверьте письмо, иначе можно сразу входить.', 'ok');
         setMode('signin');
         submitBtn.disabled = false;
+      }
+    } else {
+      const redirectTo = new URL('reset-password.html', window.location.href).toString();
+      const { error } = await supabase.auth.resetPasswordForEmail(email, { redirectTo });
+      submitBtn.disabled = false;
+      if (error) {
+        showMsg(error.message, 'error');
+      } else {
+        showMsg('Если такая почта зарегистрирована — на неё придёт ссылка для сброса пароля.', 'ok');
       }
     }
   });

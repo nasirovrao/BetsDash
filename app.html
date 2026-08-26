@@ -7,7 +7,7 @@
 <link rel="preconnect" href="https://fonts.googleapis.com">
 <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
 <link href="https://fonts.googleapis.com/css2?family=Space+Grotesk:wght@500;600;700&family=Inter:wght@400;500;600;700&family=JetBrains+Mono:wght@400;500;600&display=swap" rel="stylesheet">
-<link rel="stylesheet" href="styles.css?v=13">
+<link rel="stylesheet" href="styles.css?v=15">
 </head>
 <body>
 
@@ -42,9 +42,10 @@
       <div class="section-note" id="countNote"></div>
     </div>
 
-    <div class="bet-form">
-      <h3>Добавить ставку</h3>
+    <div class="bet-form" id="betFormBlock">
+      <h3 id="betFormHeading">Добавить ставку</h3>
       <form id="betForm">
+        <input type="hidden" id="f_editId" value="">
         <div class="form-grid">
           <div class="field">
             <label for="f_date">Дата</label>
@@ -132,13 +133,32 @@
         </div>
         <div class="form-actions">
           <button class="btn btn-primary" type="submit" id="addBtn" style="width:auto;">Добавить ставку</button>
+          <button class="btn btn-ghost" type="button" id="cancelEditBtn" style="width:auto; display:none;">Отмена</button>
           <span class="form-status" id="formStatus"></span>
         </div>
       </form>
     </div>
 
+    <div class="feed-filters" id="feedFilters">
+      <input type="text" id="filterSearch" class="filter-search" placeholder="Поиск по матчу или пику…" autocomplete="off">
+      <select id="filterDiscipline"><option value="">Все дисциплины</option></select>
+      <select id="filterBookmaker"><option value="">Все букмекеры</option></select>
+      <select id="filterTournament"><option value="">Все турниры</option></select>
+      <select id="filterResult">
+        <option value="">Любой результат</option>
+        <option value="Win">Win</option>
+        <option value="Loss">Loss</option>
+        <option value="Push">Push</option>
+        <option value="Pending">Pending</option>
+        <option value="Sold">Продана</option>
+      </select>
+      <button type="button" class="filter-reset" id="filterResetBtn" style="display:none;">Сбросить</button>
+      <span class="filter-count" id="filterCount"></span>
+    </div>
+
     <div id="betFeed" class="bet-feed"></div>
     <div class="empty-state" id="emptyState" style="display:none;">Пока нет ни одной ставки — добавь первую формой выше.</div>
+    <div class="empty-state" id="filterEmptyState" style="display:none;">Под такие фильтры ставок не нашлось. <a id="clearFiltersLink" href="#">Сбросить фильтры</a></div>
   </div>
 </section>
 
@@ -161,6 +181,24 @@
   const countNote = document.getElementById('countNote');
   const formStatus = document.getElementById('formStatus');
   const bookmakerList = document.getElementById('bookmakerList');
+  const betForm = document.getElementById('betForm');
+  const betFormBlock = document.getElementById('betFormBlock');
+  const betFormHeading = document.getElementById('betFormHeading');
+  const addBtn = document.getElementById('addBtn');
+  const cancelEditBtn = document.getElementById('cancelEditBtn');
+  const editIdField = document.getElementById('f_editId');
+  const resultSelect = document.getElementById('f_result');
+  const manualProfitField = document.getElementById('f_manualProfitField');
+  const manualProfitInput = document.getElementById('f_manualProfit');
+  const filterSearch = document.getElementById('filterSearch');
+  const filterDiscipline = document.getElementById('filterDiscipline');
+  const filterBookmaker = document.getElementById('filterBookmaker');
+  const filterTournament = document.getElementById('filterTournament');
+  const filterResult = document.getElementById('filterResult');
+  const filterResetBtn = document.getElementById('filterResetBtn');
+  const filterCount = document.getElementById('filterCount');
+  const filterEmptyState = document.getElementById('filterEmptyState');
+  const clearFiltersLink = document.getElementById('clearFiltersLink');
 
   function escapeHtml(s){
     return String(s ?? '').replace(/[&<>"']/g, c => ({'&':'&amp;','<':'&lt;','>':'&gt;','"':'&quot;',"'":'&#39;'}[c]));
@@ -303,9 +341,13 @@
         <div class="bet-stat pending-result-stat">${resultCellHtml(bet)}</div>
         <div class="bet-stat"><span class="bet-stat-label">Профит</span><span class="bet-stat-value ${profitCls}">${profit == null ? '—' : fmtMoney(profit)}</span></div>
       </div>
-      <button class="bet-card-del" data-id="${bet.id}" title="Удалить ставку">✕</button>
+      <div class="bet-card-actions">
+        <button class="bet-card-edit" data-id="${bet.id}" title="Редактировать ставку">✎</button>
+        <button class="bet-card-del" data-id="${bet.id}" title="Удалить ставку">✕</button>
+      </div>
     `;
-    div.querySelector('.bet-card-del').addEventListener('click', () => deleteBet(bet.id));
+    div.querySelector('.bet-card-edit').addEventListener('click', () => enterEditMode(bet));
+    div.querySelector('.bet-card-del').addEventListener('click', () => deleteBet(bet.id, bet.match || bet.pick));
     if (bet.result === 'Pending') wirePendingControl(div, bet);
     wireNoteControl(div, bet);
     if (!hasMatch) wireMatchControl(div, bet);
@@ -418,25 +460,134 @@
     });
   }
 
-  // Ставки уже приходят отсортированными по дате (свежие сверху) — просто
-  // разбиваем их на секции по месяцу, сохраняя порядок.
+  // Ставки уже приходят отсортированными по дате (свежие сверху) — разбиваем
+  // на секции по месяцу. Каждый месяц можно свернуть/развернуть — по умолчанию
+  // открыт только самый свежий, остальные свёрнуты, чтобы при большом числе
+  // ставок (а у нескольких пользователей их будет много) лента не превращалась
+  // в бесконечный скролл. Ручной выбор пользователя (что он сам свернул или
+  // развернул) запоминается на время сессии и переживает смену фильтров.
+  const monthToggleState = new Map(); // label -> true (развёрнут) | false (свёрнут)
+  function isMonthExpanded(label, index){
+    if (monthToggleState.has(label)) return monthToggleState.get(label);
+    return index === 0;
+  }
+
   function renderFeed(data){
     betFeed.innerHTML = '';
-    let currentMonth = null;
-    let monthEl = null;
+    const groups = [];
+    let currentMonth = null, currentList = null;
     data.forEach(bet => {
       const label = monthLabel(bet.bet_date);
       if (label !== currentMonth) {
         currentMonth = label;
-        const group = document.createElement('div');
-        group.className = 'month-group';
-        group.innerHTML = `<div class="month-header">${label.toUpperCase()}</div>`;
-        betFeed.appendChild(group);
-        monthEl = group;
+        currentList = [];
+        groups.push({ label, list: currentList });
       }
-      monthEl.appendChild(renderCard(bet));
+      currentList.push(bet);
+    });
+
+    groups.forEach((g, i) => {
+      const expanded = isMonthExpanded(g.label, i);
+      const group = document.createElement('div');
+      group.className = 'month-group';
+      group.innerHTML = `
+        <button type="button" class="month-header${expanded ? '' : ' collapsed'}">
+          <span class="month-header-label">${g.label.toUpperCase()}</span>
+          <span class="month-header-count">${g.list.length}</span>
+          <span class="month-header-chevron">›</span>
+        </button>
+        <div class="month-cards" style="${expanded ? '' : 'display:none;'}"></div>
+      `;
+      const cardsWrap = group.querySelector('.month-cards');
+      g.list.forEach(bet => cardsWrap.appendChild(renderCard(bet)));
+      const headerBtn = group.querySelector('.month-header');
+      headerBtn.addEventListener('click', () => {
+        const nowExpanded = cardsWrap.style.display === 'none';
+        cardsWrap.style.display = nowExpanded ? '' : 'none';
+        headerBtn.classList.toggle('collapsed', !nowExpanded);
+        monthToggleState.set(g.label, nowExpanded);
+      });
+      betFeed.appendChild(group);
     });
   }
+
+  // Все ставки пользователя держим в памяти и фильтруем на клиенте — датасет
+  // одного человека не настолько большой, чтобы гонять запрос на каждый чих,
+  // а фильтры при этом ощущаются мгновенными.
+  let allBets = [];
+
+  function fillFilterSelect(selectEl, values){
+    const current = selectEl.value;
+    const firstOption = selectEl.querySelector('option');
+    selectEl.innerHTML = '';
+    selectEl.appendChild(firstOption);
+    values.forEach(v => {
+      const opt = document.createElement('option');
+      opt.value = v;
+      opt.textContent = v;
+      selectEl.appendChild(opt);
+    });
+    if (values.includes(current)) selectEl.value = current;
+  }
+
+  function populateFilterOptions(data){
+    fillFilterSelect(filterDiscipline, Array.from(new Set(data.map(b => b.discipline).filter(Boolean))).sort());
+    fillFilterSelect(filterBookmaker, Array.from(new Set(data.map(b => b.bookmaker).filter(Boolean))).sort());
+    fillFilterSelect(filterTournament, Array.from(new Set(data.map(b => b.tournament).filter(Boolean))).sort());
+  }
+
+  function applyFilters(){
+    const q = filterSearch.value.trim().toLowerCase();
+    const disc = filterDiscipline.value;
+    const bk = filterBookmaker.value;
+    const trn = filterTournament.value;
+    const res = filterResult.value;
+
+    const filtered = allBets.filter(b => {
+      if (disc && b.discipline !== disc) return false;
+      if (bk && b.bookmaker !== bk) return false;
+      if (trn && b.tournament !== trn) return false;
+      if (res && b.result !== res) return false;
+      if (q) {
+        const hay = `${b.match || ''} ${b.pick || ''}`.toLowerCase();
+        if (!hay.includes(q)) return false;
+      }
+      return true;
+    });
+
+    const anyActive = !!(q || disc || bk || trn || res);
+    filterResetBtn.style.display = anyActive ? '' : 'none';
+    filterCount.textContent = anyActive ? `${filtered.length} из ${allBets.length}` : '';
+
+    if (!allBets.length) {
+      betFeed.innerHTML = '';
+      emptyState.style.display = 'block';
+      filterEmptyState.style.display = 'none';
+      return;
+    }
+    emptyState.style.display = 'none';
+    if (!filtered.length) {
+      betFeed.innerHTML = '';
+      filterEmptyState.style.display = 'block';
+      return;
+    }
+    filterEmptyState.style.display = 'none';
+    renderFeed(filtered);
+  }
+
+  function resetFilters(){
+    filterSearch.value = '';
+    filterDiscipline.value = '';
+    filterBookmaker.value = '';
+    filterTournament.value = '';
+    filterResult.value = '';
+    applyFilters();
+  }
+
+  filterSearch.addEventListener('input', applyFilters);
+  [filterDiscipline, filterBookmaker, filterTournament, filterResult].forEach(el => el.addEventListener('change', applyFilters));
+  filterResetBtn.addEventListener('click', resetFilters);
+  clearFiltersLink.addEventListener('click', (e) => { e.preventDefault(); resetFilters(); });
 
   async function loadBets(){
     const { data, error } = await supabase
@@ -449,15 +600,11 @@
       formStatus.textContent = 'Ошибка загрузки: ' + error.message;
       return;
     }
-    if (!data.length) {
-      betFeed.innerHTML = '';
-      emptyState.style.display = 'block';
-    } else {
-      emptyState.style.display = 'none';
-      renderFeed(data);
-    }
-    countNote.textContent = data.length + (data.length === 1 ? ' ставка' : ' ставок');
-    updateBookmakerList(data);
+    allBets = data || [];
+    countNote.textContent = allBets.length + (allBets.length === 1 ? ' ставка' : ' ставок');
+    updateBookmakerList(allBets);
+    populateFilterOptions(allBets);
+    applyFilters();
   }
 
   // Букмекеры, которые пользователь уже вводил, — предлагаются подсказкой
@@ -468,18 +615,75 @@
     bookmakerList.innerHTML = names.map(n => `<option value="${escapeHtml(n)}"></option>`).join('');
   }
 
-  async function deleteBet(id){
+  // Подтверждение перед удалением — без него случайный тап по ✕ безвозвратно
+  // уничтожает ставку, а восстановить её нечем.
+  async function deleteBet(id, label){
+    const ok = window.confirm(label ? `Удалить ставку «${label}»? Это необратимо.` : 'Удалить эту ставку? Это необратимо.');
+    if (!ok) return;
     const { error } = await supabase.from('bets').delete().eq('id', id);
     if (error) {
       formStatus.textContent = 'Не удалось удалить: ' + error.message;
       return;
     }
+    if (editIdField.value === String(id)) exitEditMode();
     loadBets();
   }
 
-  document.getElementById('betForm').addEventListener('submit', async (e) => {
+  // Форма "Добавить ставку" работает в двух режимах: добавление новой и
+  // редактирование существующей (когда f_editId заполнен клавишей "✎ Изменить"
+  // на карточке). Это позволяет поправить любое поле ставки без удаления
+  // и пересоздания — важно, когда доступ уже дан нескольким людям и опечатки
+  // при вводе неизбежны.
+  function enterEditMode(bet){
+    editIdField.value = bet.id;
+    document.getElementById('f_date').value = bet.bet_date;
+    document.getElementById('f_discipline').value = bet.discipline;
+    document.getElementById('f_bookmaker').value = bet.bookmaker || '';
+    document.getElementById('f_tournament').value = bet.tournament || '';
+    document.getElementById('f_match').value = bet.match || '';
+    document.getElementById('f_pick').value = bet.pick || '';
+    document.getElementById('f_odds').value = bet.odds;
+    document.getElementById('f_flat').value = bet.flat_mult;
+    document.getElementById('f_stake').value = bet.stake;
+    resultSelect.value = bet.result;
+    document.getElementById('f_type').value = bet.bet_type || '';
+    document.getElementById('f_conviction').value = bet.conviction ? String(bet.conviction) : '';
+    document.getElementById('f_edge').value = bet.edge_tag || '';
+    document.getElementById('f_notes').value = bet.notes || '';
+
+    const isSold = bet.result === 'Sold';
+    manualProfitField.style.display = isSold ? '' : 'none';
+    manualProfitInput.required = isSold;
+    manualProfitInput.value = bet.manual_profit != null ? bet.manual_profit : '';
+
+    betFormHeading.textContent = 'Редактировать ставку';
+    addBtn.textContent = 'Сохранить изменения';
+    cancelEditBtn.style.display = '';
+    betFormBlock.classList.add('editing');
+    betFormBlock.scrollIntoView({ behavior: 'smooth', block: 'start' });
+  }
+
+  function exitEditMode(){
+    betForm.reset();
+    editIdField.value = '';
+    document.getElementById('f_flat').value = 1;
+    document.getElementById('f_date').valueAsDate = new Date();
+    manualProfitField.style.display = 'none';
+    manualProfitInput.required = false;
+    betFormHeading.textContent = 'Добавить ставку';
+    addBtn.textContent = 'Добавить ставку';
+    cancelEditBtn.style.display = 'none';
+    betFormBlock.classList.remove('editing');
+  }
+
+  cancelEditBtn.addEventListener('click', () => {
+    exitEditMode();
+    formStatus.textContent = '';
+  });
+
+  betForm.addEventListener('submit', async (e) => {
     e.preventDefault();
-    const addBtn = document.getElementById('addBtn');
+    const editId = editIdField.value;
     addBtn.disabled = true;
     formStatus.textContent = 'Сохраняю…';
 
@@ -503,26 +707,21 @@
         ? Number(document.getElementById('f_manualProfit').value) : null,
     };
 
-    const { error } = await supabase.from('bets').insert(payload);
+    const { error } = editId
+      ? await supabase.from('bets').update(payload).eq('id', editId)
+      : await supabase.from('bets').insert(payload);
     addBtn.disabled = false;
 
     if (error) {
       formStatus.textContent = 'Ошибка: ' + error.message;
       return;
     }
-    formStatus.textContent = 'Добавлено.';
-    e.target.reset();
-    document.getElementById('f_flat').value = 1;
-    document.getElementById('f_date').valueAsDate = new Date();
-    manualProfitField.style.display = 'none';
-    manualProfitInput.required = false;
+    formStatus.textContent = editId ? 'Изменения сохранены.' : 'Добавлено.';
+    exitEditMode();
     loadBets();
   });
 
   // Поле "Профит от продажи" нужно только когда результат — досрочная продажа.
-  const resultSelect = document.getElementById('f_result');
-  const manualProfitField = document.getElementById('f_manualProfitField');
-  const manualProfitInput = document.getElementById('f_manualProfit');
   resultSelect.addEventListener('change', () => {
     const isSold = resultSelect.value === 'Sold';
     manualProfitField.style.display = isSold ? '' : 'none';

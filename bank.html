@@ -7,7 +7,7 @@
 <link rel="preconnect" href="https://fonts.googleapis.com">
 <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
 <link href="https://fonts.googleapis.com/css2?family=Space+Grotesk:wght@500;600;700&family=Inter:wght@400;500;600;700&family=JetBrains+Mono:wght@400;500;600&display=swap" rel="stylesheet">
-<link rel="stylesheet" href="styles.css?v=13">
+<link rel="stylesheet" href="styles.css?v=15">
 </head>
 <body>
 
@@ -43,6 +43,14 @@
     </div>
 
     <div class="stat-grid stat-grid-3" id="bankStatGrid"></div>
+
+    <div class="chart-block">
+      <h3>Динамика банка</h3>
+      <div class="chart-wrap">
+        <svg id="bankChartSvg" viewBox="0 0 1000 240" preserveAspectRatio="none"></svg>
+        <div class="chart-tooltip" id="bankChartTooltip"></div>
+      </div>
+    </div>
 
     <div class="bet-form">
       <h3>Стартовый банк</h3>
@@ -96,7 +104,7 @@
 
 <script type="module">
   import { supabase, requireSession } from './supabase-client.js';
-  import { fmtMoney, computeStats } from './lib.js';
+  import { fmtMoney, computeStats, computeBankPoints } from './lib.js';
 
   const session = await requireSession();
   if (session) {
@@ -137,6 +145,200 @@
     `).join('');
   }
 
+  // График банка во времени: сглаженная линия (Catmull-Rom → Безье) с заливкой
+  // и наведением — показывает дату, банк на этот день, профит/убыток за день
+  // и вывод, если он был. Просадки/CLV — вне скоупа.
+  function renderBankChart(bets, withdrawals, startingBankroll) {
+    const svg = document.getElementById('bankChartSvg');
+    const tooltip = document.getElementById('bankChartTooltip');
+    const points = computeBankPoints(bets, withdrawals, startingBankroll);
+    const start = Number(startingBankroll || 0);
+
+    if (!points) {
+      svg.innerHTML = `<text x="500" y="120" text-anchor="middle" fill="var(--ink-faint)" font-size="13">Пока нет решённых ставок для графика</text>`;
+      if (tooltip) tooltip.classList.remove('visible');
+      return;
+    }
+
+    const W = 1000, H = 240, padL = 60, padR = 16, padT = 20, padB = 30;
+    const plotW = W - padL - padR, plotH = H - padT - padB;
+    const xStep = points.length > 1 ? plotW / (points.length - 1) : 0;
+    const banks = points.map(p => p.bank);
+    let minBank = Math.min(...banks, start);
+    let maxBank = Math.max(...banks, start);
+    if (minBank === maxBank) { minBank -= 1; maxBank += 1; }
+    const range = maxBank - minBank;
+    const yPad = range * 0.12;
+    minBank -= yPad; maxBank += yPad;
+    const fullRange = maxBank - minBank;
+
+    const xOf = i => padL + i * xStep;
+    const yOf = bank => padT + plotH - ((bank - minBank) / fullRange) * plotH;
+    const xs = points.map((p, i) => xOf(i));
+    const ys = points.map(p => yOf(p.bank));
+
+    const finalBank = points[points.length - 1].bank;
+    const lineColor = finalBank >= start ? 'var(--teal)' : 'var(--rust)';
+    const fmtAxis = n => (n < 0 ? '−' : '') + '$' + Math.round(Math.abs(n));
+    const fmtLabel = s => {
+      if (s === 'Старт') return s;
+      const parts = String(s).split('-');
+      return parts.length === 3 ? `${parts[2]}.${parts[1]}` : s;
+    };
+
+    // Более "пластичная" кривая: чуть сильнее сглаживаем контрольные точки
+    // Catmull-Rom (делитель 5 вместо 6 — линия мягче огибает пики и не выглядит
+    // ломаной "по клеточкам").
+    let linePath = `M ${xs[0].toFixed(2)},${ys[0].toFixed(2)}`;
+    for (let i = 0; i < points.length - 1; i++) {
+      const x0 = xs[i - 1] !== undefined ? xs[i - 1] : xs[i], y0 = ys[i - 1] !== undefined ? ys[i - 1] : ys[i];
+      const x1 = xs[i], y1 = ys[i];
+      const x2 = xs[i + 1], y2 = ys[i + 1];
+      const x3 = xs[i + 2] !== undefined ? xs[i + 2] : x2, y3 = ys[i + 2] !== undefined ? ys[i + 2] : y2;
+      const cp1x = x1 + (x2 - x0) / 5, cp1y = y1 + (y2 - y0) / 5;
+      const cp2x = x2 - (x3 - x1) / 5, cp2y = y2 - (y3 - y1) / 5;
+      linePath += ` C ${cp1x.toFixed(2)},${cp1y.toFixed(2)} ${cp2x.toFixed(2)},${cp2y.toFixed(2)} ${x2.toFixed(2)},${y2.toFixed(2)}`;
+    }
+    const areaPath = `${linePath} L ${xs[xs.length - 1].toFixed(2)},${(padT + plotH).toFixed(2)} L ${xs[0].toFixed(2)},${(padT + plotH).toFixed(2)} Z`;
+
+    // Сетка — только 3 еле заметные пунктирные линии вместо частой "разлиновки",
+    // чтобы не спорить с плавной кривой за внимание.
+    const GRID_LINES = 2;
+    let gridHtml = '';
+    for (let g = 0; g <= GRID_LINES; g++) {
+      const val = minBank + (fullRange * g / GRID_LINES);
+      const y = yOf(val).toFixed(1);
+      gridHtml += `<line x1="${padL}" y1="${y}" x2="${W - padR}" y2="${y}" stroke="var(--line-soft)" stroke-width="1" stroke-dasharray="1,5" stroke-linecap="round"/>`;
+      gridHtml += `<text x="${(padL - 10).toFixed(1)}" y="${(Number(y) + 3.5).toFixed(1)}" text-anchor="end" fill="var(--ink-faint)" font-size="10.5">${fmtAxis(val)}</text>`;
+    }
+
+    const startY = yOf(start).toFixed(1);
+
+    const maxLabels = 6;
+    const step = Math.max(1, Math.ceil((points.length - 1) / (maxLabels - 1)));
+    const labelIdxs = [];
+    for (let i = 0; i < points.length; i += step) labelIdxs.push(i);
+    if (labelIdxs[labelIdxs.length - 1] !== points.length - 1) labelIdxs.push(points.length - 1);
+    const labels = labelIdxs.map(i => {
+      const anchor = i === 0 ? 'start' : (i === points.length - 1 ? 'end' : 'middle');
+      return `<text x="${xs[i].toFixed(1)}" y="${H - 8}" text-anchor="${anchor}" fill="var(--ink-faint)" font-size="11">${fmtLabel(points[i].label)}</text>`;
+    }).join('');
+
+    // Никаких точек на каждой дате (это и делало график "старым" — как ряд
+    // гвоздиков вдоль линии). Вместо этого — мягкое свечение под самой линией
+    // (blur-копия того же пути) и объёмная многоступенчатая заливка снизу;
+    // единственная точка появляется только под курсором при наведении.
+    svg.innerHTML = `
+      <defs>
+        <linearGradient id="bankGrad" x1="0" y1="0" x2="0" y2="1">
+          <stop offset="0%" stop-color="${lineColor}" stop-opacity="0.32"/>
+          <stop offset="55%" stop-color="${lineColor}" stop-opacity="0.09"/>
+          <stop offset="100%" stop-color="${lineColor}" stop-opacity="0"/>
+        </linearGradient>
+        <radialGradient id="bankHoverGlow" cx="50%" cy="50%" r="50%">
+          <stop offset="0%" stop-color="${lineColor}" stop-opacity="0.55"/>
+          <stop offset="100%" stop-color="${lineColor}" stop-opacity="0"/>
+        </radialGradient>
+        <filter id="bankGlow" x="-40%" y="-40%" width="180%" height="180%">
+          <feGaussianBlur stdDeviation="5" result="blur"/>
+          <feMerge>
+            <feMergeNode in="blur"/>
+            <feMergeNode in="SourceGraphic"/>
+          </feMerge>
+        </filter>
+      </defs>
+      ${gridHtml}
+      <line x1="${padL}" y1="${startY}" x2="${W - padR}" y2="${startY}" stroke="var(--ink-faint)" stroke-dasharray="1,5" stroke-width="1" stroke-linecap="round" opacity="0.7"/>
+      <text x="${W - padR}" y="${Number(startY) - 6}" text-anchor="end" fill="var(--ink-faint)" font-size="10">старт ${fmtMoney(start)}</text>
+      <path d="${areaPath}" fill="url(#bankGrad)" stroke="none"/>
+      <path class="bank-line-glow" d="${linePath}" fill="none" stroke="${lineColor}" stroke-width="3.5" stroke-linecap="round" stroke-linejoin="round" opacity="0.35" filter="url(#bankGlow)"/>
+      <path id="bankLinePath" d="${linePath}" fill="none" stroke="${lineColor}" stroke-width="3" stroke-linecap="round" stroke-linejoin="round"/>
+      ${labels}
+      <circle id="bankHoverGlowDot" r="16" fill="url(#bankHoverGlow)" opacity="0"/>
+      <line id="bankHoverLine" x1="0" y1="${padT}" x2="0" y2="${padT + plotH}" stroke="${lineColor}" stroke-width="1" stroke-dasharray="2,4" opacity="0"/>
+      <circle id="bankHoverDot" r="5.5" fill="${lineColor}" stroke="var(--bg-raised)" stroke-width="2.5" opacity="0"/>
+      <rect id="bankHoverHit" class="chart-hit" x="${padL}" y="${padT}" width="${plotW}" height="${plotH}" fill="transparent"/>
+    `;
+
+    // Лёгкая анимация прорисовки при загрузке — линия "вытягивается" слева
+    // направо, а не появляется вся сразу целиком.
+    const linePathEl = document.getElementById('bankLinePath');
+    if (linePathEl && !window.matchMedia('(prefers-reduced-motion: reduce)').matches) {
+      const len = linePathEl.getTotalLength();
+      linePathEl.style.strokeDasharray = `${len}`;
+      linePathEl.style.strokeDashoffset = `${len}`;
+      linePathEl.getBoundingClientRect(); // force reflow
+      linePathEl.style.transition = 'stroke-dashoffset 0.9s cubic-bezier(0.22, 1, 0.36, 1)';
+      requestAnimationFrame(() => { linePathEl.style.strokeDashoffset = '0'; });
+    }
+
+    const hoverLine = document.getElementById('bankHoverLine');
+    const hoverDot = document.getElementById('bankHoverDot');
+    const hoverGlowDot = document.getElementById('bankHoverGlowDot');
+    const hitRect = document.getElementById('bankHoverHit');
+
+    const showTooltip = (i) => {
+      const p = points[i];
+      hoverLine.setAttribute('x1', xs[i].toFixed(2));
+      hoverLine.setAttribute('x2', xs[i].toFixed(2));
+      hoverLine.setAttribute('opacity', '1');
+      hoverGlowDot.setAttribute('cx', xs[i].toFixed(2));
+      hoverGlowDot.setAttribute('cy', ys[i].toFixed(2));
+      hoverGlowDot.setAttribute('opacity', '1');
+      hoverDot.setAttribute('cx', xs[i].toFixed(2));
+      hoverDot.setAttribute('cy', ys[i].toFixed(2));
+      hoverDot.setAttribute('opacity', '1');
+
+      let deltaHtml;
+      if (p.delta === null) {
+        deltaHtml = `<div class="tt-delta zero">начало отсчёта</div>`;
+      } else {
+        const cls = p.delta > 0 ? 'pos' : (p.delta < 0 ? 'neg' : 'zero');
+        const sign = p.delta > 0 ? '+' : '';
+        deltaHtml = `<div class="tt-delta ${cls}">${sign}${fmtMoney(p.delta)} за день</div>`;
+      }
+      const withdrawnHtml = p.withdrawn ? `<div class="tt-delta zero" style="opacity:0.85">↓ вывод ${fmtMoney(p.withdrawn)}</div>` : '';
+      if (tooltip) {
+        tooltip.innerHTML = `<div class="tt-date">${fmtLabel(p.label)}</div><div class="tt-bank">${fmtMoney(p.bank)}</div>${deltaHtml}${withdrawnHtml}`;
+        const wrapEl = svg.closest('.chart-wrap');
+        const wrapRect = wrapEl.getBoundingClientRect();
+        const svgRect = svg.getBoundingClientRect();
+        const px = svgRect.left - wrapRect.left + (xs[i] / W) * svgRect.width;
+        const py = svgRect.top - wrapRect.top + (ys[i] / H) * svgRect.height;
+        tooltip.style.left = px + 'px';
+        tooltip.style.top = Math.max(py, 46) + 'px';
+        tooltip.classList.add('visible');
+      }
+    };
+
+    const hideTooltip = () => {
+      hoverLine.setAttribute('opacity', '0');
+      hoverGlowDot.setAttribute('opacity', '0');
+      hoverDot.setAttribute('opacity', '0');
+      if (tooltip) tooltip.classList.remove('visible');
+    };
+
+    const nearestIdx = clientX => {
+      const rect = svg.getBoundingClientRect();
+      const relX = (clientX - rect.left) / rect.width * W;
+      let nearest = 0, best = Infinity;
+      xs.forEach((x, i) => {
+        const d = Math.abs(x - relX);
+        if (d < best) { best = d; nearest = i; }
+      });
+      return nearest;
+    };
+
+    hitRect.onmousemove = evt => showTooltip(nearestIdx(evt.clientX));
+    hitRect.onmouseleave = hideTooltip;
+    hitRect.ontouchstart = evt => {
+      const touch = evt.touches[0];
+      if (!touch) return;
+      showTooltip(nearestIdx(touch.clientX));
+    };
+    hitRect.ontouchend = hideTooltip;
+  }
+
   function renderRow(w) {
     const tr = document.createElement('tr');
     tr.innerHTML = `
@@ -167,6 +369,7 @@
     document.getElementById('startBank').value = settings ? settings.starting_bankroll : '';
 
     renderBankStats(computeStats(bets || [], withdrawals || [], settings ? settings.starting_bankroll : 0));
+    renderBankChart(bets || [], withdrawals || [], settings ? settings.starting_bankroll : 0);
 
     wTbody.innerHTML = '';
     const list = withdrawals || [];

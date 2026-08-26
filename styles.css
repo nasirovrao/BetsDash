@@ -101,6 +101,9 @@ h1,h2{ font-family: 'Space Grotesk', -apple-system, sans-serif; font-weight: 600
 .btn-primary{ background: var(--gold); color: var(--gold-ink); }
 .btn-primary:hover{ opacity:0.9; }
 .btn-primary:disabled{ opacity:0.5; cursor:default; }
+.btn-ghost{ background:none; border:1px solid var(--line); color: var(--ink-dim); }
+.btn-ghost:hover{ border-color: var(--ink-faint); color: var(--ink); }
+.bet-form.editing{ border-color: var(--gold); }
 .auth-toggle{ margin-top:18px; text-align:center; font-size:13px; color: var(--ink-faint); }
 .auth-toggle a{ color: var(--gold); text-decoration:none; cursor:pointer; }
 .auth-msg{ margin-top:14px; font-size:13px; padding:10px 12px; border-radius: var(--radius); display:none; }
@@ -131,6 +134,37 @@ section{ padding: 40px 0; }
   background: var(--bg-card); border:1px solid var(--line); border-radius: var(--radius); padding: 22px 24px 24px; margin-bottom: 30px;
 }
 .bet-form h3{ font-family:'Inter', sans-serif; font-weight:700; font-size:14px; text-transform:uppercase; letter-spacing:0.04em; color: var(--ink-dim); margin:0 0 16px; }
+
+/* ---- bank equity chart ---- */
+.chart-block{
+  background: var(--bg-card); border:1px solid var(--line); border-radius: 18px; padding: 24px 26px 18px; margin-bottom: 30px;
+}
+.chart-block h3{ font-family:'Inter', sans-serif; font-weight:700; font-size:14px; text-transform:uppercase; letter-spacing:0.04em; color: var(--ink-dim); margin:0 0 16px; }
+.chart-wrap{ position:relative; }
+.chart-wrap svg{ width:100%; height:240px; display:block; overflow:visible; }
+.chart-wrap svg .chart-hit{ cursor:crosshair; }
+.chart-wrap svg #bankHoverLine,
+.chart-wrap svg #bankHoverDot,
+.chart-wrap svg #bankHoverGlowDot{ transition: opacity 0.15s ease; }
+.chart-tooltip{
+  position:absolute; pointer-events:none; z-index:5; left:0; top:0;
+  background: var(--bg-raised); border:1px solid var(--line);
+  border-radius:8px; padding:8px 11px; font-size:12px;
+  box-shadow: var(--shadow);
+  opacity:0; transform: translate(-50%, calc(-100% - 14px));
+  transition: opacity 0.1s ease;
+  white-space:nowrap;
+}
+.chart-tooltip.visible{ opacity:1; }
+.chart-tooltip .tt-date{ color: var(--ink-faint); font-size:11px; margin-bottom:3px; font-family:'JetBrains Mono', monospace; }
+.chart-tooltip .tt-bank{ color: var(--ink); font-weight:700; font-size:13.5px; font-family:'JetBrains Mono', monospace; font-variant-numeric: tabular-nums; }
+.chart-tooltip .tt-delta{ margin-top:3px; font-weight:600; font-size:11.5px; font-family:'JetBrains Mono', monospace; }
+.chart-tooltip .tt-delta.pos{ color: var(--teal); }
+.chart-tooltip .tt-delta.neg{ color: var(--rust); }
+.chart-tooltip .tt-delta.zero{ color: var(--ink-dim); font-weight:500; }
+@media (max-width: 560px){
+  .chart-wrap svg{ height:200px; }
+}
 .form-grid{ display:grid; grid-template-columns: repeat(4, 1fr); gap:14px; }
 .form-grid-3{ grid-template-columns: repeat(3, 1fr); }
 .form-grid .field{ margin-bottom:0; }
@@ -172,16 +206,47 @@ table.bets-table tbody tr:hover td.num{ color: var(--gold); }
 }
 .row-del:hover{ border-color: var(--rust); color: var(--rust); }
 .empty-state{ padding: 40px 24px; text-align:center; color: var(--ink-faint); font-size:14px; }
+.empty-state a{ color: var(--gold); }
 .pos-text{ color: var(--teal); }
 .neg-text{ color: var(--rust); }
 
-/* ---- лента ставок (карточки, сгруппированные по месяцу) ---- */
+/* ---- фильтры и поиск над лентой ---- */
+.feed-filters{
+  display:flex; align-items:center; gap:10px; flex-wrap:wrap; margin-bottom:18px;
+}
+.filter-search{
+  font-family:'Inter', sans-serif; font-size:13.5px; color: var(--ink); background: var(--bg-card);
+  border:1px solid var(--line); border-radius: var(--radius); padding:9px 13px; flex:1 1 220px; min-width:160px;
+}
+.filter-search:focus{ outline:none; border-color: var(--gold); }
+.feed-filters select{
+  font-family:'Inter', sans-serif; font-size:13px; color: var(--ink); background: var(--bg-card);
+  border:1px solid var(--line); border-radius: var(--radius); padding:9px 10px; cursor:pointer; flex:none;
+}
+.feed-filters select:focus{ outline:none; border-color: var(--gold); }
+.filter-reset{
+  font-family:'JetBrains Mono', monospace; font-size:11px; text-transform:uppercase; letter-spacing:0.03em;
+  background:none; border:1px dashed var(--line); color: var(--ink-faint); padding:7px 12px; border-radius:20px; cursor:pointer;
+  transition: all 0.15s ease; flex:none;
+}
+.filter-reset:hover{ border-color: var(--rust); color: var(--rust); }
+.filter-count{ font-family:'JetBrains Mono', monospace; font-size:11.5px; color: var(--ink-faint); flex:none; margin-left:auto; }
+
+/* ---- лента ставок (карточки, сгруппированные по месяцу, сворачиваемые) ---- */
 .bet-feed{ display:flex; flex-direction:column; gap:28px; }
 .month-group{ display:flex; flex-direction:column; gap:1px; border:1px solid var(--line); border-radius: var(--radius); overflow:hidden; background: var(--line-soft); }
 .month-header{
+  width:100%; display:flex; align-items:center; gap:10px;
   font-family:'JetBrains Mono', monospace; font-size:11px; font-weight:600; text-transform:uppercase; letter-spacing:0.08em;
-  color: var(--ink-faint); background: var(--bg-card); padding:10px 18px;
+  color: var(--ink-faint); background: var(--bg-card); padding:10px 18px; border:none; cursor:pointer; text-align:left;
+  transition: color 0.15s ease;
 }
+.month-header:hover{ color: var(--ink-dim); }
+.month-header-label{ flex:1 1 auto; }
+.month-header-count{ font-size:10.5px; opacity:0.75; }
+.month-header-chevron{ display:inline-block; transition: transform 0.15s ease; transform: rotate(90deg); font-size:13px; }
+.month-header.collapsed .month-header-chevron{ transform: rotate(0deg); }
+.month-cards{ display:flex; flex-direction:column; gap:1px; }
 .bet-card{
   display:flex; align-items:center; justify-content:space-between; gap:20px; flex-wrap:wrap;
   background: var(--bg-raised); padding:16px 18px; transition: background 0.15s ease;
@@ -257,10 +322,14 @@ table.bets-table tbody tr:hover td.num{ color: var(--gold); }
 .bet-stat{ display:flex; flex-direction:column; gap:3px; min-width:56px; }
 .bet-stat-label{ font-family:'JetBrains Mono', monospace; font-size:9.5px; text-transform:uppercase; letter-spacing:0.05em; color: var(--ink-faint); }
 .bet-stat-value{ font-family:'JetBrains Mono', monospace; font-size:14px; color: var(--ink); font-variant-numeric: tabular-nums; }
+.bet-card-actions{ display:flex; align-items:center; gap:2px; flex:none; }
+.bet-card-edit,
 .bet-card-del{
-  background:none; border:none; color: var(--ink-faint); cursor:pointer; font-size:16px; line-height:1;
-  padding:4px 6px; border-radius:6px; opacity:0.5; transition: all 0.15s ease;
+  background:none; border:none; color: var(--ink-faint); cursor:pointer; font-size:14px; line-height:1;
+  padding:6px 7px; border-radius:6px; opacity:0.5; transition: all 0.15s ease;
 }
+.bet-card-edit:hover{ opacity:1; color: var(--gold); background: rgba(124,108,255,0.12); }
+.bet-card-del{ font-size:16px; }
 .bet-card-del:hover{ opacity:1; color: var(--rust); background: var(--rust-soft); }
 
 /* ---- Pending: проставить результат руками ---- */
@@ -286,7 +355,7 @@ table.bets-table tbody tr:hover td.num{ color: var(--gold); }
   .bet-card{ flex-direction:column; align-items:stretch; justify-content:flex-start; gap:14px; }
   .bet-card-main{ flex:none; }
   .bet-card-stats{ justify-content:flex-start; gap:18px 22px; border-top:1px solid var(--line-soft); padding-top:12px; }
-  .bet-card-del{ position:absolute; top:12px; right:14px; }
+  .bet-card-actions{ position:absolute; top:8px; right:10px; }
 }
 
 /* ---- breakdown pages (по дисциплинам / букмекерам / сегментация / эджи) ---- */
