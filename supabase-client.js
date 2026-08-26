@@ -21,3 +21,12 @@ export async function requireSession() {
   }
   return session;
 }
+
+// CLV Tracker включается точечно, по конкретному пользователю — через
+// settings.clv_tracker_enabled (флаг ставит администратор вручную в Supabase
+// Table Editor). Используется, чтобы показать/скрыть пункт "CLV Tracker" в
+// навигации на всех страницах, а также на самой clv.html.
+export async function isClvEnabled() {
+  const { data } = await supabase.from('settings').select('clv_tracker_enabled').maybeSingle();
+  return !!(data && data.clv_tracker_enabled);
+}

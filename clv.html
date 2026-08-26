@@ -1,0 +1,470 @@
+<!doctype html>
+<html lang="ru">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>CLV Tracker — EDGE</title>
+<link rel="preconnect" href="https://fonts.googleapis.com">
+<link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
+<link href="https://fonts.googleapis.com/css2?family=Space+Grotesk:wght@500;600;700&family=Inter:wght@400;500;600;700&family=JetBrains+Mono:wght@400;500;600&display=swap" rel="stylesheet">
+<link rel="stylesheet" href="styles.css?v=17">
+</head>
+<body>
+
+<div class="topbar">
+  <div class="wrap">
+    <div class="brand"><svg class="brand-mark" viewBox="0 0 32 32" width="20" height="20" aria-hidden="true"><path d="M16 2L28 12L22 30H10L4 12Z" fill="var(--gold)" opacity="0.16"/><path d="M16 2L28 12L16 18L4 12Z" fill="var(--gold)"/><path d="M16 18L28 12L22 30H16Z" fill="var(--gold)" opacity="0.55"/><path d="M16 18L4 12L10 30H16Z" fill="var(--gold)" opacity="0.75"/></svg>EDGE<span>.</span></div>
+    <div class="topbar-user">
+      <span id="userEmail">…</span>
+      <button id="logoutBtn" type="button">Выйти</button>
+    </div>
+  </div>
+</div>
+
+<nav class="app-nav">
+  <div class="wrap">
+    <a class="nav-pill" href="dashboard.html">Дашборд</a>
+    <a class="nav-pill" href="app.html">Ставки</a>
+    <a class="nav-pill" href="bank.html">Выводы и банк</a>
+    <a class="nav-pill" href="disciplines.html">По дисциплинам</a>
+    <a class="nav-pill" href="bookmakers.html">По букмекерам</a>
+    <a class="nav-pill" href="markets.html">Рынки</a>
+    <a class="nav-pill" href="teams.html">Команды</a>
+    <a class="nav-pill" href="segmentation.html">Сегментация</a>
+    <a class="nav-pill" href="edges.html">Найденные эджи</a>
+    <a class="nav-pill active" href="clv.html">CLV Tracker</a>
+  </div>
+</nav>
+
+<section>
+  <div class="wrap">
+    <div id="clvRoot"><div class="empty-state">Загружаю…</div></div>
+  </div>
+</section>
+
+<script type="module">
+  import { supabase, requireSession, isClvEnabled } from './supabase-client.js';
+  import { fmtMoney, computeClv, computeClvProfit, computeClvStats, escapeHtml } from './lib.js';
+
+  const session = await requireSession();
+  if (session) {
+    document.getElementById('userEmail').textContent = session.user.email;
+  }
+  document.getElementById('logoutBtn').addEventListener('click', async () => {
+    await supabase.auth.signOut();
+    window.location.href = 'index.html';
+  });
+
+  const root = document.getElementById('clvRoot');
+
+  const enabled = await isClvEnabled();
+  if (!enabled) {
+    root.innerHTML = `
+      <div class="clv-disabled-card">
+        <h2>CLV Tracker пока недоступен</h2>
+        <p>Эта вкладка включается администратором точечно, по запросу. Если она нужна — напиши тому, кто выдал тебе доступ к EDGE.</p>
+      </div>`;
+  } else {
+    initClvTracker();
+  }
+
+  function todayLocalStr(){
+    const d = new Date();
+    return `${d.getFullYear()}-${String(d.getMonth() + 1).padStart(2, '0')}-${String(d.getDate()).padStart(2, '0')}`;
+  }
+  function fmtDate(d){
+    if (!d) return '—';
+    const [y,m,day] = d.split('-');
+    return `${day}.${m}.${y}`;
+  }
+  const MONTH_NAMES = ['Январь','Февраль','Март','Апрель','Май','Июнь','Июль','Август','Сентябрь','Октябрь','Ноябрь','Декабрь'];
+  function monthKey(d){ return d ? d.slice(0, 7) : ''; }
+  function monthLabel(d){
+    const [y, m] = d.split('-');
+    return `${MONTH_NAMES[Number(m) - 1]} ${y}`;
+  }
+  function resPillClass(r){
+    return { Pending:'pending', Hedged:'hedged', Sold:'sold' }[r] || 'pending';
+  }
+  function resultLabel(r){
+    return { Pending:'В игре', Hedged:'Хедж', Sold:'Продана' }[r] || r;
+  }
+
+  function initClvTracker(){
+    root.innerHTML = `
+      <div class="clv-card">
+        <div class="clv-card-head">
+          <div>
+            <h2 class="clv-card-title">CLV Tracker</h2>
+            <div class="clv-card-sub">Closing Line Value трекер</div>
+          </div>
+          <button class="btn btn-primary" type="button" id="clvAddBtn" style="width:auto;">+ Новая запись</button>
+        </div>
+
+        <div class="bet-form" id="clvFormBlock" style="display:none; margin-bottom:24px;">
+          <h3 id="clvFormHeading">Новая запись</h3>
+          <form id="clvForm">
+            <input type="hidden" id="c_editId" value="">
+            <div class="form-grid">
+              <div class="field">
+                <label for="c_date">Дата</label>
+                <input id="c_date" type="date" required>
+              </div>
+              <div class="field">
+                <label for="c_match">Матч</label>
+                <input id="c_match" type="text" placeholder="G2 Esports vs M80" required>
+              </div>
+              <div class="field">
+                <label for="c_pick">Пик</label>
+                <input id="c_pick" type="text" placeholder="Победа G2 (П1)">
+              </div>
+              <div class="field">
+                <label for="c_tournament">Турнир</label>
+                <input id="c_tournament" type="text" placeholder="EWC Dota 2026">
+              </div>
+              <div class="field">
+                <label for="c_discipline">Дисциплина</label>
+                <input id="c_discipline" type="text" placeholder="Dota2" list="clvDiscList" autocomplete="off">
+                <datalist id="clvDiscList"></datalist>
+              </div>
+              <div class="field">
+                <label for="c_entry">Вход (кэф)</label>
+                <input id="c_entry" type="number" step="0.001" min="1.01" required>
+              </div>
+              <div class="field">
+                <label for="c_closing">Закрытие (кэф)</label>
+                <input id="c_closing" type="number" step="0.001" min="1.01" placeholder="необязательно">
+              </div>
+              <div class="field">
+                <label for="c_hedge">Хедж @ (кэф)</label>
+                <input id="c_hedge" type="number" step="0.001" min="1.01" placeholder="необязательно">
+              </div>
+              <div class="field">
+                <label for="c_stake">Сумма ($)</label>
+                <input id="c_stake" type="number" step="0.01" min="0.01" required>
+              </div>
+              <div class="field">
+                <label for="c_result">Статус</label>
+                <select id="c_result">
+                  <option value="Pending">В игре</option>
+                  <option value="Hedged">Захеджирована (перекрыта)</option>
+                  <option value="Sold">Продана (кэшаут)</option>
+                </select>
+              </div>
+              <div class="field" id="c_manualProfitField" style="display:none;">
+                <label for="c_manualProfit">Итоговый профит ($)</label>
+                <input id="c_manualProfit" type="number" step="0.01" placeholder="можно отрицательный — реальный итог хеджа/продажи">
+              </div>
+              <div class="field" style="grid-column: 1 / -1;">
+                <label for="c_notes">Заметка (необязательно)</label>
+                <input id="c_notes" type="text" placeholder="контекст записи">
+              </div>
+            </div>
+            <div class="form-actions">
+              <button class="btn btn-primary" type="submit" id="clvSaveBtn" style="width:auto;">Сохранить запись</button>
+              <button class="btn btn-ghost" type="button" id="clvCancelBtn" style="width:auto;">Отмена</button>
+              <span class="form-status" id="clvFormStatus"></span>
+            </div>
+          </form>
+        </div>
+
+        <div class="stat-grid stat-grid-5" id="clvStatGrid"></div>
+        <div class="clv-month-tabs" id="clvMonthTabs"></div>
+        <div id="clvTableRoot"></div>
+      </div>
+    `;
+
+    const formBlock = document.getElementById('clvFormBlock');
+    const formHeading = document.getElementById('clvFormHeading');
+    const form = document.getElementById('clvForm');
+    const editIdField = document.getElementById('c_editId');
+    const addBtn = document.getElementById('clvAddBtn');
+    const saveBtn = document.getElementById('clvSaveBtn');
+    const cancelBtn = document.getElementById('clvCancelBtn');
+    const formStatus = document.getElementById('clvFormStatus');
+    const resultSelect = document.getElementById('c_result');
+    const manualProfitField = document.getElementById('c_manualProfitField');
+    const manualProfitInput = document.getElementById('c_manualProfit');
+    const statGrid = document.getElementById('clvStatGrid');
+    const monthTabsEl = document.getElementById('clvMonthTabs');
+    const tableRoot = document.getElementById('clvTableRoot');
+    const discList = document.getElementById('clvDiscList');
+
+    let allEntries = [];
+    let activeMonth = '';
+
+    function openForm(){
+      formBlock.style.display = '';
+      formBlock.scrollIntoView({ behavior: 'smooth', block: 'start' });
+    }
+    function resetForm(){
+      form.reset();
+      editIdField.value = '';
+      document.getElementById('c_date').value = todayLocalStr();
+      manualProfitField.style.display = 'none';
+      manualProfitInput.required = false;
+      formHeading.textContent = 'Новая запись';
+      saveBtn.textContent = 'Сохранить запись';
+    }
+    function enterEdit(entry){
+      editIdField.value = entry.id;
+      document.getElementById('c_date').value = entry.entry_date;
+      document.getElementById('c_match').value = entry.match || '';
+      document.getElementById('c_pick').value = entry.pick || '';
+      document.getElementById('c_tournament').value = entry.tournament || '';
+      document.getElementById('c_discipline').value = entry.discipline || '';
+      document.getElementById('c_entry').value = entry.entry_odds;
+      document.getElementById('c_closing').value = entry.closing_odds != null ? entry.closing_odds : '';
+      document.getElementById('c_hedge').value = entry.hedge_odds != null ? entry.hedge_odds : '';
+      document.getElementById('c_stake').value = entry.stake;
+      resultSelect.value = entry.result;
+      document.getElementById('c_notes').value = entry.notes || '';
+      const needsProfit = entry.result === 'Hedged' || entry.result === 'Sold';
+      manualProfitField.style.display = needsProfit ? '' : 'none';
+      manualProfitInput.required = needsProfit;
+      manualProfitInput.value = entry.manual_profit != null ? entry.manual_profit : '';
+      formHeading.textContent = 'Редактировать запись';
+      saveBtn.textContent = 'Сохранить изменения';
+      openForm();
+    }
+
+    addBtn.addEventListener('click', () => {
+      resetForm();
+      openForm();
+    });
+    cancelBtn.addEventListener('click', () => {
+      resetForm();
+      formBlock.style.display = 'none';
+      formStatus.textContent = '';
+    });
+    resultSelect.addEventListener('change', () => {
+      const needsProfit = resultSelect.value === 'Hedged' || resultSelect.value === 'Sold';
+      manualProfitField.style.display = needsProfit ? '' : 'none';
+      manualProfitInput.required = needsProfit;
+    });
+
+    form.addEventListener('submit', async (e) => {
+      e.preventDefault();
+      const editId = editIdField.value;
+      saveBtn.disabled = true;
+      formStatus.textContent = 'Сохраняю…';
+
+      const payload = {
+        user_id: session.user.id,
+        entry_date: document.getElementById('c_date').value,
+        match: document.getElementById('c_match').value.trim(),
+        pick: document.getElementById('c_pick').value.trim() || null,
+        tournament: document.getElementById('c_tournament').value.trim() || null,
+        discipline: document.getElementById('c_discipline').value.trim() || null,
+        entry_odds: Number(document.getElementById('c_entry').value),
+        closing_odds: document.getElementById('c_closing').value ? Number(document.getElementById('c_closing').value) : null,
+        hedge_odds: document.getElementById('c_hedge').value ? Number(document.getElementById('c_hedge').value) : null,
+        stake: Number(document.getElementById('c_stake').value),
+        result: resultSelect.value,
+        notes: document.getElementById('c_notes').value.trim() || null,
+        manual_profit: (resultSelect.value === 'Hedged' || resultSelect.value === 'Sold') && manualProfitInput.value ? Number(manualProfitInput.value) : null,
+      };
+
+      const { error } = editId
+        ? await supabase.from('clv_entries').update(payload).eq('id', editId)
+        : await supabase.from('clv_entries').insert(payload);
+      saveBtn.disabled = false;
+
+      if (error) {
+        formStatus.textContent = 'Ошибка: ' + error.message;
+        return;
+      }
+      formStatus.textContent = '';
+      resetForm();
+      formBlock.style.display = 'none';
+      load();
+    });
+
+    async function deleteEntry(id, label){
+      const ok = window.confirm(label ? `Удалить запись «${label}»? Это необратимо.` : 'Удалить эту запись? Это необратимо.');
+      if (!ok) return;
+      const { error } = await supabase.from('clv_entries').delete().eq('id', id);
+      if (error) { formStatus.textContent = 'Не удалось удалить: ' + error.message; return; }
+      if (editIdField.value === String(id)) { resetForm(); formBlock.style.display = 'none'; }
+      load();
+    }
+
+    function renderStatTiles(entries){
+      const s = computeClvStats(entries);
+      const cards = [
+        { label: 'Ставок', value: s.total, sub: '' },
+        { label: 'В игре', value: fmtMoney(s.inPlay), sub: '' },
+        { label: 'Профит', value: fmtMoney(s.totalProfit), cls: s.totalProfit > 0 ? 'pos' : s.totalProfit < 0 ? 'neg' : '', sub: '' },
+        { label: 'Ср. CLV%', value: s.avgClv == null ? '—' : (s.avgClv >= 0 ? '+' : '') + s.avgClv.toFixed(1) + '%', cls: s.avgClv > 0 ? 'pos' : s.avgClv < 0 ? 'neg' : '', sub: '' },
+        { label: 'ROI', value: s.roi == null ? '—' : s.roi.toFixed(1) + '%', cls: s.roi > 0 ? 'pos' : s.roi < 0 ? 'neg' : '', sub: '' },
+      ];
+      statGrid.innerHTML = cards.map(c => `
+        <div class="stat-card">
+          <div class="stat-label">${c.label}</div>
+          <div class="stat-value ${c.cls || ''}">${c.value}</div>
+          ${c.sub ? `<div class="stat-sub">${c.sub}</div>` : ''}
+        </div>
+      `).join('');
+    }
+
+    function renderMonthTabs(entries){
+      const months = Array.from(new Set(entries.map(e => monthKey(e.entry_date)).filter(Boolean))).sort().reverse();
+      const tabs = [{ key: '', label: 'Все' }, ...months.map(m => ({ key: m, label: monthLabel(m + '-01').split(' ')[0] }))];
+      monthTabsEl.innerHTML = tabs.map(t => `<button type="button" class="clv-month-tab${t.key === activeMonth ? ' active' : ''}" data-key="${t.key}">${t.label}</button>`).join('');
+      monthTabsEl.querySelectorAll('.clv-month-tab').forEach(btn => {
+        btn.addEventListener('click', () => {
+          activeMonth = btn.dataset.key;
+          renderAll();
+        });
+      });
+    }
+
+    function clvCellsHtml(entry){
+      const closing = entry.closing_odds;
+      const hedge = entry.hedge_odds;
+      const pending = entry.result === 'Pending';
+      const closingHtml = closing == null ? '—' : `<span class="clv-num${pending ? ' pending' : ''}">${pending ? '~' : ''}${Number(closing).toFixed(2)}</span>`;
+      let clvHtml = '—';
+      if (closing != null) {
+        const clv = computeClv(entry.entry_odds, closing);
+        if (pending) {
+          clvHtml = `<span class="clv-num pending">~${clv.toFixed(1)}%<span class="clv-num-sub">ожид.</span></span>`;
+        } else {
+          const sign = clv >= 0 ? '+' : '';
+          clvHtml = `<span class="clv-num ${clv >= 0 ? 'pos' : 'neg'}">${sign}${clv.toFixed(1)}%</span>`;
+        }
+      }
+      let hedgeHtml = '—';
+      if (hedge != null) {
+        hedgeHtml = pending
+          ? `<span class="clv-num pending">~${Number(hedge).toFixed(2)}<span class="clv-num-sub">ожид.</span></span>`
+          : `<span class="clv-num">@ ${Number(hedge).toFixed(2)}</span>`;
+      }
+      return { closingHtml, clvHtml, hedgeHtml };
+    }
+
+    function renderTable(entries){
+      if (!entries.length) {
+        tableRoot.innerHTML = '<div class="empty-state">Пока нет записей CLV Tracker — добавь первую кнопкой «+ Новая запись».</div>';
+        return;
+      }
+      const sorted = entries.slice().sort((a, b) => (b.entry_date || '').localeCompare(a.entry_date || '') || (b.id - a.id));
+      const groups = [];
+      let currentMonth = null, currentList = null;
+      sorted.forEach(e => {
+        const label = monthLabel(e.entry_date);
+        if (label !== currentMonth) { currentMonth = label; currentList = []; groups.push({ label, list: currentList }); }
+        currentList.push(e);
+      });
+
+      const html = groups.map(g => {
+        const rows = g.list.map(entry => {
+          const profit = entry.result === 'Pending' ? null : computeClvProfit(entry);
+          const profitHtml = profit == null
+            ? '<span class="clv-num pending">—</span>'
+            : `<span class="clv-num ${profit > 0 ? 'pos' : profit < 0 ? 'neg' : ''}">${fmtMoney(profit)}</span>`;
+          const { closingHtml, clvHtml, hedgeHtml } = clvCellsHtml(entry);
+          return `
+            <tr class="clv-row" data-id="${entry.id}" tabindex="0" title="Открыть для редактирования">
+              <td>
+                <div class="clv-match">${escapeHtml(entry.match)}</div>
+                ${entry.pick ? `<div class="clv-pick">${escapeHtml(entry.pick)}</div>` : ''}
+                <div class="clv-meta">
+                  ${entry.tournament ? `<span class="meta-chip">${escapeHtml(entry.tournament)}</span>` : ''}
+                  <span class="meta-date">${fmtDate(entry.entry_date)}</span>
+                  <span class="res-pill ${resPillClass(entry.result)}">${escapeHtml(resultLabel(entry.result))}</span>
+                </div>
+              </td>
+              <td class="num"><span class="clv-num">${Number(entry.entry_odds).toFixed(2)}</span></td>
+              <td class="num">${closingHtml}</td>
+              <td class="num">${clvHtml}</td>
+              <td class="num">${hedgeHtml}</td>
+              <td class="num"><span class="clv-num">${fmtMoney(entry.stake)}</span></td>
+              <td class="num">${profitHtml}</td>
+              <td>
+                <div class="clv-actions">
+                  <button class="bet-card-edit" data-id="${entry.id}" title="Редактировать">✎</button>
+                  <button class="bet-card-del" data-id="${entry.id}" title="Удалить">✕</button>
+                </div>
+              </td>
+            </tr>`;
+        }).join('');
+        return `
+          <div class="clv-month-group">
+            <div class="clv-month-title">📅 ${g.label.toUpperCase()}</div>
+            <div class="table-wrap" style="border-top:none; border-radius:0 0 var(--radius) var(--radius); margin-bottom:22px;">
+              <div class="table-scroll">
+                <table class="clv-table">
+                  <thead><tr><th>Матч</th><th>Вход</th><th>Закрытие</th><th>CLV%</th><th>Хедж @</th><th>Сумма</th><th>Профит</th><th></th></tr></thead>
+                  <tbody>${rows}</tbody>
+                </table>
+              </div>
+            </div>
+          </div>`;
+      }).join('');
+      tableRoot.innerHTML = html;
+
+      // Вся строка кликабельна и открывает редактирование записи — не нужно
+      // целиться точно в маленький значок ✎. Клик по самим кнопкам действий
+      // (✎/✕) не должен дублироваться кликом по строке, поэтому там
+      // stopPropagation(). После сохранения правок load() перерисовывает
+      // таблицу заново — колонка "Профит" сразу пересчитывается по свежему
+      // result/manual_profit и красится в зелёный/красный автоматически.
+      tableRoot.querySelectorAll('.clv-row').forEach(row => {
+        row.addEventListener('click', () => {
+          const entry = allEntries.find(e => String(e.id) === row.dataset.id);
+          if (entry) enterEdit(entry);
+        });
+        row.addEventListener('keydown', (e) => {
+          if (e.key === 'Enter') {
+            const entry = allEntries.find(en => String(en.id) === row.dataset.id);
+            if (entry) enterEdit(entry);
+          }
+        });
+      });
+      tableRoot.querySelectorAll('.bet-card-edit').forEach(btn => {
+        btn.addEventListener('click', (e) => {
+          e.stopPropagation();
+          const entry = allEntries.find(en => String(en.id) === btn.dataset.id);
+          if (entry) enterEdit(entry);
+        });
+      });
+      tableRoot.querySelectorAll('.bet-card-del').forEach(btn => {
+        btn.addEventListener('click', (e) => {
+          e.stopPropagation();
+          const entry = allEntries.find(en => String(en.id) === btn.dataset.id);
+          deleteEntry(btn.dataset.id, entry ? entry.match : '');
+        });
+      });
+    }
+
+    function updateDiscList(entries){
+      const names = Array.from(new Set(entries.map(e => (e.discipline || '').trim()).filter(Boolean))).sort();
+      discList.innerHTML = names.map(n => `<option value="${escapeHtml(n)}"></option>`).join('');
+    }
+
+    function renderAll(){
+      const filtered = activeMonth ? allEntries.filter(e => monthKey(e.entry_date) === activeMonth) : allEntries;
+      renderStatTiles(filtered);
+      renderMonthTabs(allEntries);
+      renderTable(filtered);
+    }
+
+    async function load(){
+      const { data, error } = await supabase.from('clv_entries').select('*');
+      if (error) {
+        tableRoot.innerHTML = `<div class="empty-state">Ошибка загрузки: ${error.message}</div>`;
+        return;
+      }
+      allEntries = data || [];
+      updateDiscList(allEntries);
+      renderAll();
+    }
+
+    document.getElementById('c_date').value = todayLocalStr();
+    load();
+  }
+</script>
+
+</body>
+</html>

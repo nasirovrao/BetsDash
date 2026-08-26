@@ -196,6 +196,7 @@ table.bets-table tbody tr:hover td.num{ color: var(--gold); }
 .res-pill.loss{ background: var(--rust-soft); color: var(--rust); }
 .res-pill.push, .res-pill.pending{ background: var(--line-soft); color: var(--ink-faint); }
 .res-pill.sold{ background: rgba(124,108,255,0.14); color: var(--gold); }
+.res-pill.hedged{ background: var(--teal-soft); color: var(--teal); }
 .tag-chip{
   font-family:'JetBrains Mono', monospace; font-size:11px; background: var(--gold); color: var(--gold-ink);
   padding:2px 7px; border-radius:20px;
@@ -391,6 +392,116 @@ table.bets-table tbody tr:hover td.num{ color: var(--gold); }
 .setup-row{ display:flex; gap:12px; align-items:flex-end; flex-wrap:wrap; }
 .setup-row .field{ margin-bottom:0; min-width:160px; }
 .setup-row .btn{ width:auto; padding:11px 22px; }
+
+/* ---- breakdown cards (По букмекерам / Рынки / Команды / Найденные эджи) ---- */
+.bd-grid{ display:grid; grid-template-columns: repeat(auto-fill, minmax(230px, 1fr)); gap:14px; }
+.bd-card{
+  display:block; background: var(--bg-card); border:1px solid var(--line); border-radius: 14px;
+  padding:18px 20px 20px; text-decoration:none; color: inherit; position:relative;
+  transition: border-color 0.15s ease, transform 0.15s ease, background 0.15s ease;
+}
+.bd-card-link{ cursor:pointer; }
+.bd-card-link:hover{ border-color: var(--gold); background: var(--bg-raised); transform: translateY(-2px); }
+.bd-card-link:hover .bd-card-arrow{ opacity:1; transform: translateX(2px); }
+.bd-card-head{ display:flex; align-items:flex-start; justify-content:space-between; gap:10px; margin-bottom:12px; }
+.bd-card-name{ font-family:'Space Grotesk', sans-serif; font-weight:600; font-size:16px; color: var(--ink); line-height:1.3; }
+.bd-card-count{ font-family:'JetBrains Mono', monospace; font-size:10.5px; text-transform:uppercase; letter-spacing:0.04em; color: var(--ink-faint); white-space:nowrap; flex:none; margin-top:2px; }
+.bd-card-bar{ height:5px; border-radius:4px; background: var(--rust-soft); overflow:hidden; margin-bottom:16px; }
+.bd-card-bar-fill{ height:100%; background: var(--teal); border-radius:4px; }
+.bd-card-stats{ display:flex; align-items:center; justify-content:space-between; gap:10px; }
+.bd-card-stat{ display:flex; flex-direction:column; gap:3px; }
+.bd-card-stat-label{ font-family:'JetBrains Mono', monospace; font-size:9.5px; text-transform:uppercase; letter-spacing:0.05em; color: var(--ink-faint); }
+.bd-card-stat-value{ font-family:'JetBrains Mono', monospace; font-size:14px; color: var(--ink); font-variant-numeric: tabular-nums; }
+.bd-card-arrow{
+  position:absolute; top:16px; right:16px; color: var(--ink-faint); font-size:14px; opacity:0;
+  transition: opacity 0.15s ease, transform 0.15s ease;
+}
+.bd-back{
+  display:inline-block; font-family:'JetBrains Mono', monospace; font-size:12px; color: var(--ink-faint);
+  text-decoration:none; margin-bottom:18px; padding:6px 0;
+}
+.bd-back:hover{ color: var(--gold); }
+.bd-detail-head{ margin-bottom:20px; }
+.bd-detail-label{ font-family:'JetBrains Mono', monospace; font-size:11px; text-transform:uppercase; letter-spacing:0.05em; color: var(--ink-faint); margin-bottom:4px; }
+.bd-detail-name{ font-size:26px; }
+
+/* ---- дашборд: текущая серия ---- */
+.streak-block{
+  background: var(--bg-card); border:1px solid var(--line); border-radius: 14px; padding: 20px 24px 22px; margin-bottom:30px;
+  display:flex; align-items:center; justify-content:space-between; gap:24px; flex-wrap:wrap;
+}
+.streak-info{ display:flex; flex-direction:column; gap:4px; }
+.streak-label{ font-family:'JetBrains Mono', monospace; font-size:10.5px; text-transform:uppercase; letter-spacing:0.05em; color: var(--ink-faint); }
+.streak-value{ font-family:'Space Grotesk', sans-serif; font-weight:600; font-size:21px; }
+.streak-value.pos{ color: var(--teal); }
+.streak-value.neg{ color: var(--rust); }
+.streak-value.neu{ color: var(--ink-dim); }
+.streak-sub{ font-size:12px; color: var(--ink-faint); }
+.streak-dots{ display:flex; align-items:center; gap:6px; flex-wrap:wrap; }
+.streak-dot{
+  width:13px; height:13px; border-radius:50%; background: var(--line-soft); flex:none;
+  display:flex; align-items:center; justify-content:center;
+}
+.streak-dot.w{ background: var(--teal); }
+.streak-dot.l{ background: var(--rust); }
+.streak-dot.p{ background: var(--ink-faint); }
+.streak-dot.last{ box-shadow: 0 0 0 3px rgba(124,108,255,0.28); }
+@media (max-width: 560px){
+  .streak-block{ flex-direction:column; align-items:flex-start; }
+}
+
+/* ---- CLV Tracker ---- */
+.clv-card{
+  background: var(--bg-card); border:1px solid var(--line); border-top:2px solid var(--gold); border-radius: 16px;
+  padding: 26px 26px 8px; margin-bottom: 30px;
+}
+.clv-card-head{ display:flex; align-items:flex-start; justify-content:space-between; gap:16px; margin-bottom:22px; flex-wrap:wrap; }
+.clv-card-title{ font-size:22px; margin-bottom:4px; }
+.clv-card-sub{ font-family:'JetBrains Mono', monospace; font-size:11px; text-transform:uppercase; letter-spacing:0.06em; color: var(--ink-faint); }
+.stat-grid-5{ grid-template-columns: repeat(5, 1fr); margin-bottom:22px; }
+@media (max-width: 900px){ .stat-grid-5{ grid-template-columns: repeat(2, 1fr); } }
+@media (max-width: 560px){ .stat-grid-5{ grid-template-columns: 1fr; } }
+.clv-month-tabs{ display:flex; gap:8px; flex-wrap:wrap; margin-bottom:20px; }
+.clv-month-tab{
+  font-family:'JetBrains Mono', monospace; font-size:12px; letter-spacing:0.02em; background: var(--bg-raised);
+  border:1px solid var(--line); color: var(--ink-dim); padding:8px 16px; border-radius:20px; cursor:pointer;
+}
+.clv-month-tab:hover{ border-color: var(--ink-faint); color: var(--ink); }
+.clv-month-tab.active{ background: var(--gold); border-color: var(--gold); color: var(--gold-ink); }
+.clv-month-group{ margin-bottom: 4px; }
+.clv-month-title{
+  display:flex; align-items:center; gap:8px; font-family:'JetBrains Mono', monospace; font-size:11px;
+  text-transform:uppercase; letter-spacing:0.06em; color: var(--ink-faint); padding:12px 4px; border-bottom:1px solid var(--line-soft);
+}
+table.clv-table{ width:100%; border-collapse:collapse; font-size:13.5px; min-width:760px; }
+table.clv-table th{
+  text-align:left; padding:10px 12px; font-family:'JetBrains Mono', monospace; font-size:10.5px; text-transform:uppercase;
+  letter-spacing:0.05em; color: var(--ink-faint); border-bottom:1px solid var(--line-soft); white-space:nowrap;
+}
+table.clv-table td{ padding:13px 12px; border-bottom:1px solid var(--line-soft); vertical-align:top; }
+table.clv-table tbody tr:hover{ background: var(--bg-raised); }
+table.clv-table tbody tr:last-child td{ border-bottom:none; }
+table.clv-table tbody tr.clv-row{ cursor:pointer; }
+table.clv-table tbody tr.clv-row:focus-visible{ outline:2px solid var(--gold); outline-offset:-2px; }
+table.clv-table tbody tr.clv-row:hover .clv-match{ color: var(--gold); }
+.clv-match{ font-family:'Space Grotesk', sans-serif; font-weight:600; font-size:14px; color: var(--ink); }
+.clv-pick{ font-size:12px; color: var(--ink-dim); margin-top:2px; }
+.clv-meta{ display:flex; align-items:center; gap:8px; margin-top:6px; flex-wrap:wrap; }
+.clv-num{ font-family:'JetBrains Mono', monospace; font-variant-numeric: tabular-nums; color: var(--ink); white-space:nowrap; }
+.clv-num.pending{ color: var(--ink-faint); }
+.clv-num.pos{ color: var(--teal); }
+.clv-num.neg{ color: var(--rust); }
+.clv-num-sub{ display:block; font-size:10px; color: var(--ink-faint); margin-top:1px; text-transform:uppercase; letter-spacing:0.03em; }
+.clv-actions{ display:flex; gap:2px; white-space:nowrap; }
+.clv-disabled-card{
+  background: var(--bg-card); border:1px dashed var(--line); border-radius: var(--radius);
+  padding: 50px 30px; text-align:center; color: var(--ink-faint);
+}
+.clv-disabled-card h2{ color: var(--ink); font-size:19px; margin-bottom:10px; }
+.clv-disabled-card p{ font-size:14px; max-width:440px; margin:0 auto; }
+@media (max-width: 720px){
+  .clv-card{ padding: 20px 18px 6px; }
+}
 
 /* ---- placeholder / "soon" page ---- */
 .soon-card{

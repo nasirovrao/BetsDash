@@ -225,8 +225,7 @@ export function escapeHtml(s) {
 }
 
 // Рендерит таблицу "группа → статистика" — используется на страницах
-// По дисциплинам / По букмекерам / Сегментация / Найденные эджи, чтобы не
-// повторять одну и ту же вёрстку таблицы четыре раза.
+// Сегментация, чтобы не повторять одну и ту же вёрстку таблицы.
 export function renderGroupTable(groups, labelHeader) {
   if (!groups.length) {
     return '<div class="empty-state">Пока нет данных для этой разбивки — добавь ставки с этим полем на странице «Ставки».</div>';
@@ -249,4 +248,174 @@ export function renderGroupTable(groups, labelHeader) {
         </table>
       </div>
     </div>`;
+}
+
+// ---- Разбивки нового вида (карточки + переход в полную статистику) ----
+// Используется на страницах По букмекерам / Рынки / Команды / Найденные эджи.
+// Каждая карточка — сущность (букмекер/рынок/команда/эдж) с ключевыми цифрами
+// и мини-полоской винрейта; если pageFile задан — карточка кликабельна и
+// ведёт на ?key=... той же страницы, где renderBreakdownDetail() покажет
+// полную статистику и список ставок именно по этой сущности.
+export function renderGroupCards(groups, labelHeader, pageFile) {
+  if (!groups.length) {
+    return '<div class="empty-state">Пока нет данных для этой разбивки — добавь ставки с этим полем на странице «Ставки».</div>';
+  }
+  const cards = groups.map(g => {
+    const decided = g.wins + g.losses;
+    const winPct = decided ? (g.wins / decided * 100) : 0;
+    const profitCls = g.totalProfit > 0 ? 'pos-text' : g.totalProfit < 0 ? 'neg-text' : '';
+    const inner = `
+      <div class="bd-card-head">
+        <div class="bd-card-name">${escapeHtml(g.key)}</div>
+        <div class="bd-card-count">${g.total} ${g.total === 1 ? 'ставка' : 'ставок'}</div>
+      </div>
+      <div class="bd-card-bar"><div class="bd-card-bar-fill" style="width:${decided ? winPct.toFixed(1) : 0}%;"></div></div>
+      <div class="bd-card-stats">
+        <div class="bd-card-stat"><span class="bd-card-stat-label">Винрейт</span><span class="bd-card-stat-value">${g.winrate == null ? '—' : g.winrate.toFixed(1) + '%'}</span></div>
+        <div class="bd-card-stat"><span class="bd-card-stat-label">ROI</span><span class="bd-card-stat-value ${g.roi > 0 ? 'pos-text' : g.roi < 0 ? 'neg-text' : ''}">${g.roi == null ? '—' : g.roi.toFixed(1) + '%'}</span></div>
+        <div class="bd-card-stat"><span class="bd-card-stat-label">Профит</span><span class="bd-card-stat-value ${profitCls}">${fmtMoney(g.totalProfit)}</span></div>
+      </div>
+      ${pageFile ? '<div class="bd-card-arrow">→</div>' : ''}
+    `;
+    if (pageFile) {
+      const href = `${pageFile}?key=${encodeURIComponent(g.key)}`;
+      return `<a class="bd-card bd-card-link" href="${href}">${inner}</a>`;
+    }
+    return `<div class="bd-card">${inner}</div>`;
+  }).join('');
+  return `<div class="bd-grid">${cards}</div>`;
+}
+
+// Полная статистика по одной сущности (клик по карточке из renderGroupCards) —
+// повторяет вид дашборда (сетка stat-card) + список конкретных ставок ниже.
+export function renderBreakdownDetail(labelHeader, keyLabel, group, backHref) {
+  if (!group) {
+    return `
+      <a class="bd-back" href="${backHref}">← Назад к списку</a>
+      <div class="empty-state">Не нашлось данных по «${escapeHtml(keyLabel)}» — возможно, ставки с этим значением были изменены или удалены.</div>`;
+  }
+  const cards = [
+    { label: 'Ставок', value: group.total, sub: group.pending ? `${group.pending} в ожидании` : '' },
+    { label: 'W / L / P', value: `${group.wins} / ${group.losses} / ${group.pushes}`, sub: '' },
+    { label: 'Винрейт', value: group.winrate == null ? '—' : group.winrate.toFixed(1) + '%', sub: (group.wins + group.losses) ? `${group.wins + group.losses} решённых` : '' },
+    { label: 'Профит', value: fmtMoney(group.totalProfit), cls: group.totalProfit > 0 ? 'pos' : group.totalProfit < 0 ? 'neg' : '', sub: '' },
+    { label: 'ROI', value: group.roi == null ? '—' : group.roi.toFixed(2) + '%', cls: group.roi > 0 ? 'pos' : group.roi < 0 ? 'neg' : '', sub: '' },
+    { label: 'Средний кэф', value: group.avgOdds == null ? '—' : group.avgOdds.toFixed(2), sub: '' },
+  ];
+  const statHtml = cards.map(c => `
+    <div class="stat-card">
+      <div class="stat-label">${c.label}</div>
+      <div class="stat-value ${c.cls || ''}">${c.value}</div>
+      ${c.sub ? `<div class="stat-sub">${c.sub}</div>` : ''}
+    </div>
+  `).join('');
+  return `
+    <a class="bd-back" href="${backHref}">← Назад к списку</a>
+    <div class="bd-detail-head">
+      <div class="bd-detail-label">${labelHeader}</div>
+      <h3 class="bd-detail-name">${escapeHtml(keyLabel)}</h3>
+    </div>
+    <div class="stat-grid stat-grid-3">${statHtml}</div>
+    ${renderBetsFlatTable(group.list)}
+  `;
+}
+
+// Плоская таблица ставок (без группировки по месяцам) — используется в
+// детальном виде разбивок (renderBreakdownDetail) и может пригодиться где-то
+// ещё, где нужен просто список ставок с ключевыми полями.
+export function renderBetsFlatTable(bets) {
+  if (!bets || !bets.length) {
+    return '<div class="empty-state">Ставок не найдено.</div>';
+  }
+  const sorted = bets.slice().sort((a, b) => (b.bet_date || '').localeCompare(a.bet_date || '') || (b.id - a.id));
+  const rows = sorted.map(b => {
+    const profit = computeProfit(b);
+    const profitCls = profit == null ? '' : profit > 0 ? 'pos-text' : profit < 0 ? 'neg-text' : '';
+    const title = b.match || b.pick || '—';
+    return `
+      <tr>
+        <td class="num">${b.bet_date ? b.bet_date.split('-').reverse().join('.') : '—'}</td>
+        <td>${escapeHtml(title)}</td>
+        <td>${escapeHtml(b.discipline || '—')}</td>
+        <td class="num">${b.odds != null ? Number(b.odds).toFixed(2) : '—'}</td>
+        <td><span class="res-pill ${{ Win: 'win', Loss: 'loss', Push: 'push', Pending: 'pending', Sold: 'sold' }[b.result] || 'pending'}">${escapeHtml(b.result)}</span></td>
+        <td class="num ${profitCls}">${profit == null ? '—' : fmtMoney(profit)}</td>
+      </tr>`;
+  }).join('');
+  return `
+    <div class="table-wrap" style="margin-top:22px;">
+      <div class="table-scroll">
+        <table class="bets-table">
+          <thead><tr><th>Дата</th><th>Матч / Пик</th><th>Дисциплина</th><th>Кэф</th><th>Результат</th><th>Профит</th></tr></thead>
+          <tbody>${rows}</tbody>
+        </table>
+      </div>
+    </div>`;
+}
+
+// ---- Текущая серия (streak) для дашборда ----
+// Берёт последние n РЕШЁННЫХ ставок (по дате, затем по id — свежие последние),
+// классифицирует каждую по фактическому профиту (не по полю result напрямую,
+// чтобы Sold с отрицательным manual_profit тоже считался поражением, а не
+// нейтральной ставкой) и считает текущую серию с конца списка. Push
+// (профит 0) прерывает серию — это осознанно простая трактовка.
+export function computeStreak(bets, n = 10) {
+  const settled = (bets || [])
+    .filter(b => b.result !== 'Pending')
+    .slice()
+    .sort((a, b) => (a.bet_date || '').localeCompare(b.bet_date || '') || (a.id - b.id));
+  const recent = settled.slice(-n).map(b => {
+    const p = computeProfit(b);
+    const outcome = p > 0 ? 'W' : p < 0 ? 'L' : 'P';
+    return { bet: b, outcome };
+  });
+  let streakType = null, streakLen = 0;
+  for (let i = recent.length - 1; i >= 0; i--) {
+    const o = recent[i].outcome;
+    if (o === 'P') break;
+    if (streakType === null) { streakType = o; streakLen = 1; }
+    else if (o === streakType) streakLen++;
+    else break;
+  }
+  return { recent, streakType, streakLen, sampleSize: recent.length };
+}
+
+// ---- CLV Tracker — отдельный, независимый от "bets" журнал ----
+// CLV% = (входной кэф / кэф закрытия − 1) × 100 — стандартная формула
+// closing line value: положительная, если ты поймал кэф лучше, чем итоговая
+// линия закрытия рынка.
+export function computeClv(entryOdds, closingOdds) {
+  if (entryOdds == null || closingOdds == null || !closingOdds) return null;
+  return (Number(entryOdds) / Number(closingOdds) - 1) * 100;
+}
+
+// Профит по одной CLV-записи. В отличие от обычного журнала ставок, здесь
+// НЕТ исхода Win/Loss по формуле "кэф × сумма" — записи в CLV Tracker это
+// пойманные эджи, которые закрываются вручную: либо хеджем (перекрытием
+// на другой стороне/у другого букмекера), либо продажей (кэшаутом).
+// В обоих случаях реальный профит зависит от того, как именно и на какую
+// сумму захеджировано — это нельзя вывести по формуле из одного кэфа входа,
+// поэтому он всегда вводится вручную (manual_profit), а result только
+// помечает, каким способом запись была закрыта.
+export function computeClvProfit(entry) {
+  if (entry.result === 'Hedged' || entry.result === 'Sold') {
+    return entry.manual_profit != null ? Number(entry.manual_profit) : 0;
+  }
+  return null; // Pending — исход ещё не зафиксирован
+}
+
+// Сводная статистика для верхних плашек CLV Tracker.
+export function computeClvStats(entries) {
+  const list = entries || [];
+  const closed = list.filter(e => e.result !== 'Pending');
+  const pending = list.filter(e => e.result === 'Pending');
+  const inPlay = pending.reduce((s, e) => s + Number(e.stake || 0), 0);
+  const totalProfit = closed.reduce((s, e) => s + (computeClvProfit(e) || 0), 0);
+  const totalStaked = closed.reduce((s, e) => s + Number(e.stake || 0), 0);
+  const roi = totalStaked ? (totalProfit / totalStaked * 100) : null;
+  const withClv = list.filter(e => e.closing_odds != null);
+  const avgClv = withClv.length
+    ? withClv.reduce((s, e) => s + (computeClv(e.entry_odds, e.closing_odds) || 0), 0) / withClv.length
+    : null;
+  return { total: list.length, inPlay, totalProfit, roi, avgClv };
 }

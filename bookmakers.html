@@ -7,7 +7,7 @@
 <link rel="preconnect" href="https://fonts.googleapis.com">
 <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
 <link href="https://fonts.googleapis.com/css2?family=Space+Grotesk:wght@500;600;700&family=Inter:wght@400;500;600;700&family=JetBrains+Mono:wght@400;500;600&display=swap" rel="stylesheet">
-<link rel="stylesheet" href="styles.css?v=15">
+<link rel="stylesheet" href="styles.css?v=17">
 </head>
 <body>
 
@@ -32,6 +32,7 @@
     <a class="nav-pill" href="teams.html">Команды</a>
     <a class="nav-pill" href="segmentation.html">Сегментация</a>
     <a class="nav-pill" href="edges.html">Найденные эджи</a>
+    <a class="nav-pill" id="navClvPill" href="clv.html" style="display:none;">CLV Tracker</a>
   </div>
 </nav>
 
@@ -39,33 +40,40 @@
   <div class="wrap">
     <div class="section-head">
       <h2>По букмекерам</h2>
-      <div class="section-note">Кто из букмекеров реально приносит профит.</div>
+      <div class="section-note">Кто из букмекеров реально приносит профит. Клик по карточке — полная статистика и список ставок.</div>
     </div>
     <div id="breakdownRoot"><div class="empty-state">Загружаю…</div></div>
   </div>
 </section>
 
 <script type="module">
-  import { supabase, requireSession } from './supabase-client.js';
-  import { groupBets, renderGroupTable } from './lib.js';
+  import { supabase, requireSession, isClvEnabled } from './supabase-client.js';
+  import { groupBets, renderGroupCards, renderBreakdownDetail } from './lib.js';
 
   const session = await requireSession();
   if (session) {
     document.getElementById('userEmail').textContent = session.user.email;
   }
+  isClvEnabled().then(on => { if (on) document.getElementById('navClvPill').style.display = ''; });
   document.getElementById('logoutBtn').addEventListener('click', async () => {
     await supabase.auth.signOut();
     window.location.href = 'index.html';
   });
 
   const root = document.getElementById('breakdownRoot');
+  const keyParam = new URLSearchParams(location.search).get('key');
 
   const { data, error } = await supabase.from('bets').select('*');
   if (error) {
     root.innerHTML = `<div class="empty-state">Ошибка загрузки: ${error.message}</div>`;
   } else {
     const groups = groupBets(data, b => b.bookmaker);
-    root.innerHTML = renderGroupTable(groups, 'Букмекер');
+    if (keyParam) {
+      const group = groups.find(g => g.key === keyParam);
+      root.innerHTML = renderBreakdownDetail('Букмекер', keyParam, group, 'bookmakers.html');
+    } else {
+      root.innerHTML = renderGroupCards(groups, 'Букмекер', 'bookmakers.html');
+    }
   }
 </script>
 

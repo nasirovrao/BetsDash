@@ -7,7 +7,7 @@
 <link rel="preconnect" href="https://fonts.googleapis.com">
 <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
 <link href="https://fonts.googleapis.com/css2?family=Space+Grotesk:wght@500;600;700&family=Inter:wght@400;500;600;700&family=JetBrains+Mono:wght@400;500;600&display=swap" rel="stylesheet">
-<link rel="stylesheet" href="styles.css?v=15">
+<link rel="stylesheet" href="styles.css?v=17">
 </head>
 <body>
 
@@ -32,6 +32,7 @@
     <a class="nav-pill" href="teams.html">Команды</a>
     <a class="nav-pill" href="segmentation.html">Сегментация</a>
     <a class="nav-pill" href="edges.html">Найденные эджи</a>
+    <a class="nav-pill" id="navClvPill" href="clv.html" style="display:none;">CLV Tracker</a>
   </div>
 </nav>
 
@@ -56,18 +57,21 @@
 
     <div class="stat-grid" id="statGrid"></div>
 
+    <div class="streak-block" id="streakBlock" style="display:none;"></div>
+
     <div class="section-note" id="dashHint" style="margin-top:-14px; margin-bottom:26px;"></div>
   </div>
 </section>
 
 <script type="module">
-  import { supabase, requireSession } from './supabase-client.js';
-  import { fmtMoney, computeStats } from './lib.js';
+  import { supabase, requireSession, isClvEnabled } from './supabase-client.js';
+  import { fmtMoney, computeStats, computeStreak } from './lib.js';
 
   const session = await requireSession();
   if (session) {
     document.getElementById('userEmail').textContent = session.user.email;
   }
+  isClvEnabled().then(on => { if (on) document.getElementById('navClvPill').style.display = ''; });
 
   document.getElementById('logoutBtn').addEventListener('click', async () => {
     await supabase.auth.signOut();
@@ -78,6 +82,44 @@
   const setupPrompt = document.getElementById('setupPrompt');
   const dashHint = document.getElementById('dashHint');
   const asOfNote = document.getElementById('asOfNote');
+  const streakBlock = document.getElementById('streakBlock');
+
+  // "победа/победы/побед" — русское склонение числительных: 1 → ед.число,
+  // 2-4 → форма "few", 5+ (и 11-14) → форма "many".
+  function ruCount(n, one, few, many) {
+    const mod10 = n % 10, mod100 = n % 100;
+    if (mod10 === 1 && mod100 !== 11) return one;
+    if (mod10 >= 2 && mod10 <= 4 && !(mod100 >= 12 && mod100 <= 14)) return few;
+    return many;
+  }
+
+  // Последние 5-10 сыгранных ставок подряд — быстрый взгляд "на волне я
+  // сейчас или в просадке", без необходимости листать всю ленту.
+  function renderStreak(bets) {
+    const { recent, streakType, streakLen } = computeStreak(bets, 10);
+    if (!recent.length) { streakBlock.style.display = 'none'; return; }
+    streakBlock.style.display = '';
+    const cls = streakType === 'W' ? 'pos' : streakType === 'L' ? 'neg' : 'neu';
+    const headline = streakType == null
+      ? 'Нет активной серии'
+      : streakType === 'W'
+        ? `${streakLen} ${ruCount(streakLen, 'победа', 'победы', 'побед')} подряд`
+        : `${streakLen} ${ruCount(streakLen, 'поражение', 'поражения', 'поражений')} подряд`;
+    const dots = recent.map((r, i) => {
+      const dotCls = r.outcome === 'W' ? 'w' : r.outcome === 'L' ? 'l' : 'p';
+      const isLast = i === recent.length - 1;
+      const dateLabel = r.bet.bet_date ? r.bet.bet_date.split('-').reverse().join('.') : '';
+      return `<span class="streak-dot ${dotCls}${isLast ? ' last' : ''}" title="${dateLabel}: ${r.outcome === 'W' ? 'Win' : r.outcome === 'L' ? 'Loss' : 'Push'}"></span>`;
+    }).join('');
+    streakBlock.innerHTML = `
+      <div class="streak-info">
+        <div class="streak-label">Текущая серия</div>
+        <div class="streak-value ${cls}">${headline}</div>
+        <div class="streak-sub">по последним ${recent.length} ${ruCount(recent.length, 'сыгранной ставке', 'сыгранным ставкам', 'сыгранным ставкам')}</div>
+      </div>
+      <div class="streak-dots">${dots}</div>
+    `;
+  }
 
   function renderStats(s) {
     const cards = [
@@ -110,6 +152,8 @@
       dashHint.textContent = 'Ошибка загрузки: ' + (betsErr || wErr || sErr).message;
       return;
     }
+
+    renderStreak(bets || []);
 
     if (!settings) {
       setupPrompt.style.display = 'block';

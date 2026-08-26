@@ -7,7 +7,7 @@
 <link rel="preconnect" href="https://fonts.googleapis.com">
 <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
 <link href="https://fonts.googleapis.com/css2?family=Space+Grotesk:wght@500;600;700&family=Inter:wght@400;500;600;700&family=JetBrains+Mono:wght@400;500;600&display=swap" rel="stylesheet">
-<link rel="stylesheet" href="styles.css?v=15">
+<link rel="stylesheet" href="styles.css?v=17">
 </head>
 <body>
 
@@ -32,6 +32,7 @@
     <a class="nav-pill" href="teams.html">Команды</a>
     <a class="nav-pill" href="segmentation.html">Сегментация</a>
     <a class="nav-pill" href="edges.html">Найденные эджи</a>
+    <a class="nav-pill" id="navClvPill" href="clv.html" style="display:none;">CLV Tracker</a>
   </div>
 </nav>
 
@@ -56,10 +57,6 @@
             <select id="f_discipline" required>
               <option value="Dota2">Dota2</option>
               <option value="CS2">CS2</option>
-              <option value="Football">Football</option>
-              <option value="Tennis">Tennis</option>
-              <option value="LOL">LOL</option>
-              <option value="Valorant">Valorant</option>
               <option value="Hockey">Hockey</option>
               <option value="Other">Другое</option>
             </select>
@@ -128,7 +125,8 @@
           </div>
           <div class="field">
             <label for="f_edge">Эдж-паттерн (метка)</label>
-            <input id="f_edge" type="text" placeholder="например: closing-value-cs2">
+            <input id="f_edge" type="text" placeholder="например: closing-value-cs2" list="edgeList" autocomplete="off">
+            <datalist id="edgeList"></datalist>
           </div>
           <div class="field" style="grid-column: 1 / -1;">
             <label for="f_notes">Заметка (необязательно)</label>
@@ -167,13 +165,14 @@
 </section>
 
 <script type="module">
-  import { supabase, requireSession } from './supabase-client.js';
+  import { supabase, requireSession, isClvEnabled } from './supabase-client.js';
   import { computeProfit, fmtMoney } from './lib.js';
 
   const session = await requireSession();
   if (session) {
     document.getElementById('userEmail').textContent = session.user.email;
   }
+  isClvEnabled().then(on => { if (on) document.getElementById('navClvPill').style.display = ''; });
 
   document.getElementById('logoutBtn').addEventListener('click', async () => {
     await supabase.auth.signOut();
@@ -185,6 +184,7 @@
   const countNote = document.getElementById('countNote');
   const formStatus = document.getElementById('formStatus');
   const bookmakerList = document.getElementById('bookmakerList');
+  const edgeList = document.getElementById('edgeList');
   const betForm = document.getElementById('betForm');
   const betFormBlock = document.getElementById('betFormBlock');
   const betFormHeading = document.getElementById('betFormHeading');
@@ -618,6 +618,7 @@
     allBets = data || [];
     countNote.textContent = allBets.length + (allBets.length === 1 ? ' ставка' : ' ставок');
     updateBookmakerList(allBets);
+    updateEdgeList(allBets);
     populateFilterOptions(allBets);
     applyFilters();
   }
@@ -628,6 +629,16 @@
   function updateBookmakerList(data){
     const names = Array.from(new Set(data.map(b => (b.bookmaker || '').trim()).filter(Boolean))).sort();
     bookmakerList.innerHTML = names.map(n => `<option value="${escapeHtml(n)}"></option>`).join('');
+  }
+
+  // Эдж-паттерны — та же идея, что и с букмекерами: вводишь метку один раз,
+  // дальше она подсказывается автодополнением, чтобы одна и та же метка не
+  // разъезжалась по написанию (например "closing-value" vs "Closing Value")
+  // и статистика на странице "Найденные эджи" считалась по-настоящему по
+  // одному и тому же паттерну.
+  function updateEdgeList(data){
+    const tags = Array.from(new Set(data.map(b => (b.edge_tag || '').trim()).filter(Boolean))).sort();
+    edgeList.innerHTML = tags.map(t => `<option value="${escapeHtml(t)}"></option>`).join('');
   }
 
   // Подтверждение перед удалением — без него случайный тап по ✕ безвозвратно
