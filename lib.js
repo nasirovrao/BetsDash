@@ -6,6 +6,21 @@ export function fmtMoney(n) {
   return sign + '$' + Math.abs(n).toFixed(2).replace(/\.00$/, '');
 }
 
+// Разметка для карточки "W / L / P" — вместо голого "15 / 11 / 1" (непонятно
+// с ходу, где какое число) показывает три мягких цветных пилюли-бейджа:
+// победы зелёным, поражения красным, пуши нейтральным — тот же визуальный
+// язык, что и у res-pill (Win/Loss/Push в ленте ставок), только покрупнее.
+// Общий helper — чтобы дашборд и все страницы с разбивкой
+// (renderBreakdownDetail) выглядели одинаково, а не по-своему на каждой странице.
+export function renderWLP(wins, losses, pushes) {
+  return `
+    <div class="wlp-row">
+      <span class="wlp-pill wlp-w"><b>${wins}</b>W</span>
+      <span class="wlp-pill wlp-l"><b>${losses}</b>L</span>
+      <span class="wlp-pill wlp-p"><b>${pushes}</b>P</span>
+    </div>`;
+}
+
 // Профит по одной ставке в $. null — если ставка ещё не сыграна (Pending).
 export function computeProfit(bet) {
   if (bet.result === 'Win') return Number(bet.stake) * (Number(bet.odds) - 1);
@@ -356,7 +371,7 @@ export function renderBreakdownDetail(labelHeader, keyLabel, group, backHref, hi
   }
   const cards = [
     { label: 'Ставок', value: group.total, sub: group.pending ? `${group.pending} в ожидании` : '' },
-    { label: 'W / L / P', value: `${group.wins} / ${group.losses} / ${group.pushes}`, sub: '' },
+    { label: 'W / L / P', value: renderWLP(group.wins, group.losses, group.pushes), sub: '' },
     { label: 'Винрейт', value: group.winrate == null ? '—' : group.winrate.toFixed(1) + '%', sub: (group.wins + group.losses) ? `${group.wins + group.losses} решённых` : '' },
     { label: 'Профит', value: fmtMoney(group.totalProfit), cls: group.totalProfit > 0 ? 'pos' : group.totalProfit < 0 ? 'neg' : '', sub: '' },
     { label: 'ROI', value: group.roi == null ? '—' : group.roi.toFixed(2) + '%', cls: group.roi > 0 ? 'pos' : group.roi < 0 ? 'neg' : '', sub: '' },

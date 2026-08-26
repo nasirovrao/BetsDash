@@ -7,7 +7,7 @@
 <link rel="preconnect" href="https://fonts.googleapis.com">
 <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
 <link href="https://fonts.googleapis.com/css2?family=Space+Grotesk:wght@500;600;700&family=Inter:wght@400;500;600;700&family=JetBrains+Mono:wght@400;500;600&display=swap" rel="stylesheet">
-<link rel="stylesheet" href="styles.css?v=20">
+<link rel="stylesheet" href="styles.css?v=22">
 </head>
 <body>
 
@@ -72,7 +72,7 @@
 
 <script type="module">
   import { supabase, requireSession, isClvEnabled } from './supabase-client.js';
-  import { fmtMoney, computeStats, computeStreak, escapeHtml, monthKeyOf, monthLabelOf } from './lib.js';
+  import { fmtMoney, computeStats, computeStreak, escapeHtml, monthKeyOf, monthLabelOf, renderWLP } from './lib.js';
 
   const session = await requireSession();
   if (session) {
@@ -146,7 +146,7 @@
   function renderStats(s, hideBankCards) {
     const cards = [
       { label: 'Всего ставок', value: s.total, sub: s.pending ? `${s.pending} в ожидании` : '' },
-      { label: 'W / L / P', value: `${s.wins} / ${s.losses} / ${s.pushes}`, sub: '' },
+      { label: 'W / L / P', value: renderWLP(s.wins, s.losses, s.pushes), sub: '' },
       { label: 'Винрейт', value: s.winrate == null ? '—' : s.winrate.toFixed(1) + '%', sub: (s.wins + s.losses) ? `${s.wins + s.losses} решённых` : '' },
       { label: 'Профит', value: fmtMoney(s.totalProfit), cls: s.totalProfit > 0 ? 'pos' : s.totalProfit < 0 ? 'neg' : '', sub: '' },
       { label: 'ROI', value: s.roi == null ? '—' : s.roi.toFixed(2) + '%', cls: s.roi > 0 ? 'pos' : s.roi < 0 ? 'neg' : '', sub: '' },

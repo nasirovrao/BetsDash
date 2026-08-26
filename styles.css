@@ -408,6 +408,19 @@ table.bets-table tbody tr:hover td.num{ color: var(--gold); }
 @media (max-width: 900px){ .stat-grid{ grid-template-columns: repeat(2, 1fr); } }
 @media (max-width: 560px){ .stat-grid{ grid-template-columns: 1fr; } }
 
+/* ---- карточка "W / L / P" — мягкие цветные пилюли вместо голого "15 / 11 / 1" ---- */
+.wlp-row{ display:flex; align-items:center; gap:8px; flex-wrap:wrap; margin-top:2px; }
+.wlp-pill{
+  display:inline-flex; align-items:baseline; gap:5px; font-family:'JetBrains Mono', monospace;
+  font-size:12px; font-weight:600; letter-spacing:0.02em; padding:7px 12px 6px; border-radius:20px;
+  line-height:1; font-variant-numeric: tabular-nums; transition: transform 0.15s ease;
+}
+.wlp-pill b{ font-size:19px; font-weight:700; letter-spacing:0; }
+.wlp-w{ background: var(--teal-soft); color: var(--teal); }
+.wlp-l{ background: var(--rust-soft); color: var(--rust); }
+.wlp-p{ background: var(--line-soft); color: var(--ink-faint); }
+.stat-card:hover .wlp-pill{ transform: translateY(-1px); }
+
 /* ---- bank setup / withdraw form ---- */
 .setup-card{
   background: var(--bg-card); border:1px solid var(--gold); border-radius: var(--radius); padding:22px 24px; margin-bottom:30px;
