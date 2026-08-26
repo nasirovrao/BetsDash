@@ -260,16 +260,22 @@ export function renderGroupCards(groups, labelHeader, pageFile) {
   if (!groups.length) {
     return '<div class="empty-state">Пока нет данных для этой разбивки — добавь ставки с этим полем на странице «Ставки».</div>';
   }
+  // Полоска под названием отражает ПРОФИТ, не винрейт: зелёная и заполняется
+  // тем больше, чем больше плюс, красная и заполняется тем больше, чем
+  // больше минус. Заполнение нормировано на максимальный |профит| среди
+  // карточек этой же страницы — так самая прибыльная/убыточная сущность
+  // получает полную полоску, а остальные видны относительно неё.
+  const maxAbsProfit = Math.max(1, ...groups.map(g => Math.abs(g.totalProfit)));
   const cards = groups.map(g => {
-    const decided = g.wins + g.losses;
-    const winPct = decided ? (g.wins / decided * 100) : 0;
     const profitCls = g.totalProfit > 0 ? 'pos-text' : g.totalProfit < 0 ? 'neg-text' : '';
+    const barCls = g.totalProfit > 0 ? 'pos' : g.totalProfit < 0 ? 'neg' : 'neu';
+    const barPct = Math.min(100, Math.abs(g.totalProfit) / maxAbsProfit * 100);
     const inner = `
       <div class="bd-card-head">
         <div class="bd-card-name">${escapeHtml(g.key)}</div>
         <div class="bd-card-count">${g.total} ${g.total === 1 ? 'ставка' : 'ставок'}</div>
       </div>
-      <div class="bd-card-bar"><div class="bd-card-bar-fill" style="width:${decided ? winPct.toFixed(1) : 0}%;"></div></div>
+      <div class="bd-card-bar"><div class="bd-card-bar-fill ${barCls}" style="width:${barPct.toFixed(1)}%;"></div></div>
       <div class="bd-card-stats">
         <div class="bd-card-stat"><span class="bd-card-stat-label">Винрейт</span><span class="bd-card-stat-value">${g.winrate == null ? '—' : g.winrate.toFixed(1) + '%'}</span></div>
         <div class="bd-card-stat"><span class="bd-card-stat-label">ROI</span><span class="bd-card-stat-value ${g.roi > 0 ? 'pos-text' : g.roi < 0 ? 'neg-text' : ''}">${g.roi == null ? '—' : g.roi.toFixed(1) + '%'}</span></div>
@@ -389,16 +395,34 @@ export function computeClv(entryOdds, closingOdds) {
   return (Number(entryOdds) / Number(closingOdds) - 1) * 100;
 }
 
+// Профит от полного хеджа — классическая формула трейдера/арбитражника.
+// На противоположную сторону ставится сумма hedgeStake = stake × entryOdds /
+// hedgeOdds — она уравнивает выплату независимо от исхода, поэтому
+// гарантированный профит НЕ зависит от того, кто выиграет:
+//   profit = stake × entryOdds − stake − hedgeStake
+// Если 1/entryOdds + 1/hedgeOdds ⩾ 1 — реальной вилки нет, профит выйдет
+// нулевым или отрицательным, и это тоже честный, ожидаемый результат
+// формулы (не ошибка), просто хедж в моменте оказался невыгодным.
+export function computeHedgeProfit(entryOdds, hedgeOdds, stake) {
+  if (entryOdds == null || hedgeOdds == null || stake == null) return null;
+  const S = Number(stake), O1 = Number(entryOdds), O2 = Number(hedgeOdds);
+  if (!O2) return null;
+  const hedgeStake = S * O1 / O2;
+  return S * O1 - S - hedgeStake;
+}
+
 // Профит по одной CLV-записи. В отличие от обычного журнала ставок, здесь
 // НЕТ исхода Win/Loss по формуле "кэф × сумма" — записи в CLV Tracker это
-// пойманные эджи, которые закрываются вручную: либо хеджем (перекрытием
-// на другой стороне/у другого букмекера), либо продажей (кэшаутом).
-// В обоих случаях реальный профит зависит от того, как именно и на какую
-// сумму захеджировано — это нельзя вывести по формуле из одного кэфа входа,
-// поэтому он всегда вводится вручную (manual_profit), а result только
-// помечает, каким способом запись была закрыта.
+// пойманные эджи, которые закрываются одним из двух способов:
+//   • Hedged (захеджирована) — профит считается АВТОМАТИЧЕСКИ по формуле
+//     computeHedgeProfit() из кэфов входа/хеджа и суммы ставки;
+//   • Sold (продана/кэшаут) — сумма кэшаута определяется букмекером, а не
+//     формулой, поэтому вводится вручную (manual_profit).
 export function computeClvProfit(entry) {
-  if (entry.result === 'Hedged' || entry.result === 'Sold') {
+  if (entry.result === 'Hedged') {
+    return computeHedgeProfit(entry.entry_odds, entry.hedge_odds, entry.stake);
+  }
+  if (entry.result === 'Sold') {
     return entry.manual_profit != null ? Number(entry.manual_profit) : 0;
   }
   return null; // Pending — исход ещё не зафиксирован

@@ -40,7 +40,8 @@ h1,h2{ font-family: 'Space Grotesk', -apple-system, sans-serif; font-weight: 600
 /* ---- topbar ---- */
 .topbar{ border-bottom: 1px solid var(--line-soft); }
 .topbar .wrap{ display:flex; align-items:center; justify-content:space-between; padding: 18px 24px; gap:16px; flex-wrap:wrap; }
-.brand{ font-family:'Space Grotesk', sans-serif; font-weight:700; font-size:19px; letter-spacing:-0.02em; display:flex; align-items:center; }
+.brand{ font-family:'Space Grotesk', sans-serif; font-weight:700; font-size:19px; letter-spacing:-0.02em; display:flex; align-items:center; text-decoration:none; color: var(--ink); transition: opacity 0.15s ease; }
+.brand:hover{ opacity:0.82; }
 .brand span{ color: var(--gold); }
 .brand-mark{ margin-right:8px; flex:none; }
 .auth-brand{ display:flex; align-items:center; }
@@ -94,6 +95,12 @@ h1,h2{ font-family: 'Space Grotesk', -apple-system, sans-serif; font-weight: 600
   border-radius: var(--radius); background: var(--bg-raised); color: var(--ink);
 }
 .field input:focus{ outline:none; border-color: var(--gold); }
+.hedge-preview-value{
+  font-family:'JetBrains Mono', monospace; font-size:14.5px; font-weight:600; padding:11px 13px;
+  border:1px dashed var(--line); border-radius: var(--radius); background: var(--bg-raised); color: var(--ink-dim);
+}
+.hedge-preview-value.pos{ color: var(--teal); border-color: rgba(53,209,153,0.35); }
+.hedge-preview-value.neg{ color: var(--rust); border-color: rgba(251,113,137,0.35); }
 .btn{
   font-family:'Inter', sans-serif; font-weight:600; font-size:14px; padding:12px 20px; border-radius: var(--radius);
   border:1px solid transparent; cursor:pointer; width:100%;
@@ -113,10 +120,14 @@ h1,h2{ font-family: 'Space Grotesk', -apple-system, sans-serif; font-weight: 600
 
 /* ---- navigation (under topbar) ---- */
 .app-nav{ border-bottom: 1px solid var(--line-soft); background: var(--bg-raised); }
-.app-nav .wrap{ display:flex; gap:4px; padding: 10px 24px; overflow-x:auto; }
+.app-nav .wrap{
+  display:flex; gap:2px; padding: 10px 20px; overflow-x:auto;
+  scrollbar-width: none; -ms-overflow-style: none; /* скроллится, но без уродливого native-скроллбара */
+}
+.app-nav .wrap::-webkit-scrollbar{ display:none; height:0; }
 .nav-pill{
-  flex: none; font-family:'JetBrains Mono', monospace; font-size:12px; text-transform:uppercase; letter-spacing:0.03em;
-  color: var(--ink-faint); text-decoration:none; padding:8px 13px; border-radius: var(--radius); white-space:nowrap;
+  flex: none; font-family:'JetBrains Mono', monospace; font-size:11.5px; text-transform:uppercase; letter-spacing:0.02em;
+  color: var(--ink-faint); text-decoration:none; padding:7px 10px; border-radius: var(--radius); white-space:nowrap;
   border:1px solid transparent; transition: background 0.12s ease, color 0.12s ease, border-color 0.12s ease;
 }
 .nav-pill:hover{ color: var(--ink); border-color: var(--line); }
@@ -406,8 +417,11 @@ table.bets-table tbody tr:hover td.num{ color: var(--gold); }
 .bd-card-head{ display:flex; align-items:flex-start; justify-content:space-between; gap:10px; margin-bottom:12px; }
 .bd-card-name{ font-family:'Space Grotesk', sans-serif; font-weight:600; font-size:16px; color: var(--ink); line-height:1.3; }
 .bd-card-count{ font-family:'JetBrains Mono', monospace; font-size:10.5px; text-transform:uppercase; letter-spacing:0.04em; color: var(--ink-faint); white-space:nowrap; flex:none; margin-top:2px; }
-.bd-card-bar{ height:5px; border-radius:4px; background: var(--rust-soft); overflow:hidden; margin-bottom:16px; }
-.bd-card-bar-fill{ height:100%; background: var(--teal); border-radius:4px; }
+.bd-card-bar{ height:5px; border-radius:4px; background: var(--line-soft); overflow:hidden; margin-bottom:16px; }
+.bd-card-bar-fill{ height:100%; border-radius:4px; transition: width 0.2s ease; }
+.bd-card-bar-fill.pos{ background: var(--teal); }
+.bd-card-bar-fill.neg{ background: var(--rust); }
+.bd-card-bar-fill.neu{ background: var(--ink-faint); }
 .bd-card-stats{ display:flex; align-items:center; justify-content:space-between; gap:10px; }
 .bd-card-stat{ display:flex; flex-direction:column; gap:3px; }
 .bd-card-stat-label{ font-family:'JetBrains Mono', monospace; font-size:9.5px; text-transform:uppercase; letter-spacing:0.05em; color: var(--ink-faint); }

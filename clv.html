@@ -7,13 +7,13 @@
 <link rel="preconnect" href="https://fonts.googleapis.com">
 <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
 <link href="https://fonts.googleapis.com/css2?family=Space+Grotesk:wght@500;600;700&family=Inter:wght@400;500;600;700&family=JetBrains+Mono:wght@400;500;600&display=swap" rel="stylesheet">
-<link rel="stylesheet" href="styles.css?v=17">
+<link rel="stylesheet" href="styles.css?v=19">
 </head>
 <body>
 
 <div class="topbar">
   <div class="wrap">
-    <div class="brand"><svg class="brand-mark" viewBox="0 0 32 32" width="20" height="20" aria-hidden="true"><path d="M16 2L28 12L22 30H10L4 12Z" fill="var(--gold)" opacity="0.16"/><path d="M16 2L28 12L16 18L4 12Z" fill="var(--gold)"/><path d="M16 18L28 12L22 30H16Z" fill="var(--gold)" opacity="0.55"/><path d="M16 18L4 12L10 30H16Z" fill="var(--gold)" opacity="0.75"/></svg>EDGE<span>.</span></div>
+    <a class="brand" href="dashboard.html"><svg class="brand-mark" viewBox="0 0 32 32" width="20" height="20" aria-hidden="true"><path d="M16 2L28 12L22 30H10L4 12Z" fill="var(--gold)" opacity="0.16"/><path d="M16 2L28 12L16 18L4 12Z" fill="var(--gold)"/><path d="M16 18L28 12L22 30H16Z" fill="var(--gold)" opacity="0.55"/><path d="M16 18L4 12L10 30H16Z" fill="var(--gold)" opacity="0.75"/></svg>EDGE<span>.</span></a>
     <div class="topbar-user">
       <span id="userEmail">…</span>
       <button id="logoutBtn" type="button">Выйти</button>
@@ -44,7 +44,7 @@
 
 <script type="module">
   import { supabase, requireSession, isClvEnabled } from './supabase-client.js';
-  import { fmtMoney, computeClv, computeClvProfit, computeClvStats, escapeHtml } from './lib.js';
+  import { fmtMoney, computeClv, computeClvProfit, computeClvStats, computeHedgeProfit, escapeHtml } from './lib.js';
 
   const session = await requireSession();
   if (session) {
@@ -147,13 +147,17 @@
                 <label for="c_result">Статус</label>
                 <select id="c_result">
                   <option value="Pending">В игре</option>
-                  <option value="Hedged">Захеджирована (перекрыта)</option>
+                  <option value="Hedged">Захеджирована (профит — авто по кэфу хеджа)</option>
                   <option value="Sold">Продана (кэшаут)</option>
                 </select>
               </div>
+              <div class="field" id="c_hedgePreviewField" style="display:none;">
+                <label>Профит по хеджу (авто)</label>
+                <div class="hedge-preview-value" id="c_hedgePreviewValue">—</div>
+              </div>
               <div class="field" id="c_manualProfitField" style="display:none;">
-                <label for="c_manualProfit">Итоговый профит ($)</label>
-                <input id="c_manualProfit" type="number" step="0.01" placeholder="можно отрицательный — реальный итог хеджа/продажи">
+                <label for="c_manualProfit">Итоговый профит от продажи ($)</label>
+                <input id="c_manualProfit" type="number" step="0.01" placeholder="можно отрицательный — сколько реально получил кэшаутом">
               </div>
               <div class="field" style="grid-column: 1 / -1;">
                 <label for="c_notes">Заметка (необязательно)</label>
@@ -185,6 +189,11 @@
     const resultSelect = document.getElementById('c_result');
     const manualProfitField = document.getElementById('c_manualProfitField');
     const manualProfitInput = document.getElementById('c_manualProfit');
+    const hedgePreviewField = document.getElementById('c_hedgePreviewField');
+    const hedgePreviewValue = document.getElementById('c_hedgePreviewValue');
+    const entryOddsInput = document.getElementById('c_entry');
+    const hedgeOddsInput = document.getElementById('c_hedge');
+    const stakeInput = document.getElementById('c_stake');
     const statGrid = document.getElementById('clvStatGrid');
     const monthTabsEl = document.getElementById('clvMonthTabs');
     const tableRoot = document.getElementById('clvTableRoot');
@@ -192,6 +201,33 @@
 
     let allEntries = [];
     let activeMonth = '';
+
+    // При статусе "Захеджирована" профит НЕ вводится руками — считается
+    // автоматически по кэфу входа/хеджа и сумме ставки (classic hedge-calc
+    // формула, см. computeHedgeProfit в lib.js). Поле профита ручное только
+    // для "Продана" (кэшаут-сумму назначает букмекер, формулой не выведешь).
+    function updateHedgePreview(){
+      const p = computeHedgeProfit(
+        entryOddsInput.value ? Number(entryOddsInput.value) : null,
+        hedgeOddsInput.value ? Number(hedgeOddsInput.value) : null,
+        stakeInput.value ? Number(stakeInput.value) : null,
+      );
+      if (p == null) {
+        hedgePreviewValue.textContent = '—';
+        hedgePreviewValue.className = 'hedge-preview-value';
+        return;
+      }
+      hedgePreviewValue.textContent = fmtMoney(p);
+      hedgePreviewValue.className = 'hedge-preview-value ' + (p > 0 ? 'pos' : p < 0 ? 'neg' : '');
+    }
+    function syncStatusFields(){
+      const val = resultSelect.value;
+      manualProfitField.style.display = val === 'Sold' ? '' : 'none';
+      manualProfitInput.required = val === 'Sold';
+      hedgePreviewField.style.display = val === 'Hedged' ? '' : 'none';
+      if (val === 'Hedged') updateHedgePreview();
+    }
+    [entryOddsInput, hedgeOddsInput, stakeInput].forEach(el => el.addEventListener('input', updateHedgePreview));
 
     function openForm(){
       formBlock.style.display = '';
@@ -201,8 +237,7 @@
       form.reset();
       editIdField.value = '';
       document.getElementById('c_date').value = todayLocalStr();
-      manualProfitField.style.display = 'none';
-      manualProfitInput.required = false;
+      syncStatusFields();
       formHeading.textContent = 'Новая запись';
       saveBtn.textContent = 'Сохранить запись';
     }
@@ -219,10 +254,8 @@
       document.getElementById('c_stake').value = entry.stake;
       resultSelect.value = entry.result;
       document.getElementById('c_notes').value = entry.notes || '';
-      const needsProfit = entry.result === 'Hedged' || entry.result === 'Sold';
-      manualProfitField.style.display = needsProfit ? '' : 'none';
-      manualProfitInput.required = needsProfit;
       manualProfitInput.value = entry.manual_profit != null ? entry.manual_profit : '';
+      syncStatusFields();
       formHeading.textContent = 'Редактировать запись';
       saveBtn.textContent = 'Сохранить изменения';
       openForm();
@@ -237,14 +270,18 @@
       formBlock.style.display = 'none';
       formStatus.textContent = '';
     });
-    resultSelect.addEventListener('change', () => {
-      const needsProfit = resultSelect.value === 'Hedged' || resultSelect.value === 'Sold';
-      manualProfitField.style.display = needsProfit ? '' : 'none';
-      manualProfitInput.required = needsProfit;
-    });
+    resultSelect.addEventListener('change', syncStatusFields);
 
     form.addEventListener('submit', async (e) => {
       e.preventDefault();
+      // Для "Захеджирована" профит считается по кэфу хеджа — без него формула
+      // не сработает, поэтому это единственный статус, где хедж-кэф обязателен.
+      if (resultSelect.value === 'Hedged' && !document.getElementById('c_hedge').value) {
+        formStatus.textContent = 'Укажи кэф хеджа — без него профит по формуле не посчитать.';
+        document.getElementById('c_hedge').focus();
+        return;
+      }
+
       const editId = editIdField.value;
       saveBtn.disabled = true;
       formStatus.textContent = 'Сохраняю…';
@@ -262,7 +299,10 @@
         stake: Number(document.getElementById('c_stake').value),
         result: resultSelect.value,
         notes: document.getElementById('c_notes').value.trim() || null,
-        manual_profit: (resultSelect.value === 'Hedged' || resultSelect.value === 'Sold') && manualProfitInput.value ? Number(manualProfitInput.value) : null,
+        // manual_profit имеет смысл только для "Продана" — при "Захеджирована"
+        // профит выводится формулой на лету из entry_odds/hedge_odds/stake,
+        // отдельно в базе не хранится и не должен затирать старое значение.
+        manual_profit: resultSelect.value === 'Sold' && manualProfitInput.value ? Number(manualProfitInput.value) : null,
       };
 
       const { error } = editId
@@ -359,10 +399,22 @@
 
       const html = groups.map(g => {
         const rows = g.list.map(entry => {
-          const profit = entry.result === 'Pending' ? null : computeClvProfit(entry);
-          const profitHtml = profit == null
-            ? '<span class="clv-num pending">—</span>'
-            : `<span class="clv-num ${profit > 0 ? 'pos' : profit < 0 ? 'neg' : ''}">${fmtMoney(profit)}</span>`;
+          let profitHtml;
+          if (entry.result === 'Pending') {
+            // Пока "В игре" — если уже вписан кэф хеджа, показываем ОЖИДАЕМЫЙ
+            // профит по нему же (формула та же, что и для "Захеджирована"),
+            // с тильдой — цена хеджа к моменту реального закрытия может
+            // измениться, это не финальная цифра.
+            const preview = computeHedgeProfit(entry.entry_odds, entry.hedge_odds, entry.stake);
+            profitHtml = preview == null
+              ? '<span class="clv-num pending">—</span>'
+              : `<span class="clv-num pending">~${fmtMoney(preview)}<span class="clv-num-sub">ожид.</span></span>`;
+          } else {
+            const profit = computeClvProfit(entry);
+            profitHtml = profit == null
+              ? '<span class="clv-num pending">—</span>'
+              : `<span class="clv-num ${profit > 0 ? 'pos' : profit < 0 ? 'neg' : ''}">${fmtMoney(profit)}</span>`;
+          }
           const { closingHtml, clvHtml, hedgeHtml } = clvCellsHtml(entry);
           return `
             <tr class="clv-row" data-id="${entry.id}" tabindex="0" title="Открыть для редактирования">
