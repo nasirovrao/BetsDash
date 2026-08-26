@@ -11,6 +11,9 @@ export function computeProfit(bet) {
   if (bet.result === 'Win') return Number(bet.stake) * (Number(bet.odds) - 1);
   if (bet.result === 'Loss') return -Number(bet.stake);
   if (bet.result === 'Push') return 0;
+  // Продана/закрыта досрочно — фактический профит не выводится по формуле,
+  // а вводится вручную в момент продажи (может быть как в плюс, так и в минус).
+  if (bet.result === 'Sold') return bet.manual_profit != null ? Number(bet.manual_profit) : 0;
   return null;
 }
 

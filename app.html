@@ -7,7 +7,7 @@
 <link rel="preconnect" href="https://fonts.googleapis.com">
 <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
 <link href="https://fonts.googleapis.com/css2?family=Space+Grotesk:wght@500;600;700&family=Inter:wght@400;500;600;700&family=JetBrains+Mono:wght@400;500;600&display=swap" rel="stylesheet">
-<link rel="stylesheet" href="styles.css?v=7">
+<link rel="stylesheet" href="styles.css?v=8">
 </head>
 <body>
 
@@ -95,7 +95,12 @@
               <option value="Win">Win</option>
               <option value="Loss">Loss</option>
               <option value="Push">Push</option>
+              <option value="Sold">Продана (кэшаут)</option>
             </select>
+          </div>
+          <div class="field" id="f_manualProfitField" style="display:none;">
+            <label for="f_manualProfit">Профит от продажи ($)</label>
+            <input id="f_manualProfit" type="number" step="0.01" placeholder="можно отрицательный">
           </div>
           <div class="field">
             <label for="f_type">Тип ставки</label>
@@ -119,6 +124,10 @@
           <div class="field">
             <label for="f_edge">Эдж-паттерн (метка)</label>
             <input id="f_edge" type="text" placeholder="например: closing-value-cs2">
+          </div>
+          <div class="field" style="grid-column: 1 / -1;">
+            <label for="f_notes">Заметка (необязательно)</label>
+            <input id="f_notes" type="text" placeholder="контекст, который стоит запомнить об этой ставке">
           </div>
         </div>
         <div class="form-actions">
@@ -172,7 +181,7 @@
     return `${day}.${m}.${y}`;
   }
   function resPillClass(r){
-    return { Win:'win', Loss:'loss', Push:'push', Pending:'pending' }[r] || 'pending';
+    return { Win:'win', Loss:'loss', Push:'push', Pending:'pending', Sold:'sold' }[r] || 'pending';
   }
 
   function renderRow(bet){
@@ -254,6 +263,9 @@
       bet_type: document.getElementById('f_type').value || null,
       conviction: document.getElementById('f_conviction').value ? Number(document.getElementById('f_conviction').value) : null,
       edge_tag: document.getElementById('f_edge').value.trim() || null,
+      notes: document.getElementById('f_notes').value.trim() || null,
+      manual_profit: document.getElementById('f_result').value === 'Sold' && document.getElementById('f_manualProfit').value
+        ? Number(document.getElementById('f_manualProfit').value) : null,
     };
 
     const { error } = await supabase.from('bets').insert(payload);
@@ -267,7 +279,19 @@
     e.target.reset();
     document.getElementById('f_flat').value = 1;
     document.getElementById('f_date').valueAsDate = new Date();
+    manualProfitField.style.display = 'none';
+    manualProfitInput.required = false;
     loadBets();
+  });
+
+  // Поле "Профит от продажи" нужно только когда результат — досрочная продажа.
+  const resultSelect = document.getElementById('f_result');
+  const manualProfitField = document.getElementById('f_manualProfitField');
+  const manualProfitInput = document.getElementById('f_manualProfit');
+  resultSelect.addEventListener('change', () => {
+    const isSold = resultSelect.value === 'Sold';
+    manualProfitField.style.display = isSold ? '' : 'none';
+    manualProfitInput.required = isSold;
   });
 
   document.getElementById('f_date').valueAsDate = new Date();

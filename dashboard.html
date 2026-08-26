@@ -7,7 +7,7 @@
 <link rel="preconnect" href="https://fonts.googleapis.com">
 <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
 <link href="https://fonts.googleapis.com/css2?family=Space+Grotesk:wght@500;600;700&family=Inter:wght@400;500;600;700&family=JetBrains+Mono:wght@400;500;600&display=swap" rel="stylesheet">
-<link rel="stylesheet" href="styles.css?v=7">
+<link rel="stylesheet" href="styles.css?v=8">
 </head>
 <body>
 
@@ -114,13 +114,13 @@
     if (!settings) {
       setupPrompt.style.display = 'block';
       renderStats(computeStats(bets || [], withdrawals || [], 0));
-      dashHint.textContent = '';
+      dashHint.innerHTML = (bets && bets.length) ? '' : 'Пусто? Есть история из старого журнала — можно <a href="import.html" style="color:var(--gold);">импортировать её сюда</a>.';
       return;
     }
 
     setupPrompt.style.display = 'none';
     renderStats(computeStats(bets || [], withdrawals || [], settings.starting_bankroll));
-    dashHint.textContent = (bets && bets.length) ? '' : 'Пока нет ни одной ставки — добавь их на странице «Ставки».';
+    dashHint.innerHTML = (bets && bets.length) ? '' : 'Пока нет ни одной ставки — добавь их на странице «Ставки», либо <a href="import.html" style="color:var(--gold);">импортируй историю из старого журнала</a>.';
   }
 
   document.getElementById('saveStartBank').addEventListener('click', async () => {

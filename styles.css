@@ -160,6 +160,7 @@ table.bets-table tbody tr:hover td.num{ color: var(--gold); }
 .res-pill.win{ background: var(--teal-soft); color: var(--teal); }
 .res-pill.loss{ background: var(--rust-soft); color: var(--rust); }
 .res-pill.push, .res-pill.pending{ background: var(--line-soft); color: var(--ink-faint); }
+.res-pill.sold{ background: rgba(124,108,255,0.14); color: var(--gold); }
 .tag-chip{
   font-family:'JetBrains Mono', monospace; font-size:11px; background: var(--gold); color: var(--gold-ink);
   padding:2px 7px; border-radius:20px;

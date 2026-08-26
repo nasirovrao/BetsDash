@@ -1,0 +1,133 @@
+<!doctype html>
+<html lang="ru">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>Импорт истории — EDGE</title>
+<link rel="preconnect" href="https://fonts.googleapis.com">
+<link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
+<link href="https://fonts.googleapis.com/css2?family=Space+Grotesk:wght@500;600;700&family=Inter:wght@400;500;600;700&family=JetBrains+Mono:wght@400;500;600&display=swap" rel="stylesheet">
+<link rel="stylesheet" href="styles.css?v=8">
+<style>
+  .import-card{ max-width: 640px; margin: 48px auto; background: var(--bg-card); border: 1px solid var(--line); border-radius: var(--radius); padding: 32px; box-shadow: var(--shadow); }
+  .import-card h2{ margin: 0 0 6px; }
+  .import-card p{ color: var(--ink-dim); line-height: 1.55; }
+  .import-stats{ display:flex; gap:24px; margin: 20px 0; padding: 16px; background: var(--bg-raised); border-radius: var(--radius); border: 1px solid var(--line-soft); }
+  .import-stats div strong{ display:block; font-family:'Space Grotesk',sans-serif; font-size:22px; color: var(--ink); }
+  .import-stats div span{ font-size:12px; color: var(--ink-faint); text-transform:uppercase; letter-spacing:.05em; }
+  .import-progress{ height:8px; border-radius:6px; background: var(--bg-raised); overflow:hidden; margin: 18px 0 8px; display:none; }
+  .import-progress-bar{ height:100%; width:0%; background: var(--gold); transition: width .2s ease; }
+  .import-log{ font-family:'JetBrains Mono',monospace; font-size:12px; color: var(--ink-dim); white-space:pre-wrap; max-height:220px; overflow-y:auto; margin-top:14px; }
+  .warn-box{ background: var(--rust-soft); color: var(--rust); border-radius: var(--radius); padding: 12px 16px; font-size: 13px; margin: 16px 0; display:none; }
+</style>
+</head>
+<body>
+
+<div class="topbar">
+  <div class="wrap">
+    <div class="brand"><svg class="brand-mark" viewBox="0 0 32 32" width="20" height="20" aria-hidden="true"><path d="M16 2L28 12L22 30H10L4 12Z" fill="var(--gold)" opacity="0.16"/><path d="M16 2L28 12L16 18L4 12Z" fill="var(--gold)"/><path d="M16 18L28 12L22 30H16Z" fill="var(--gold)" opacity="0.55"/><path d="M16 18L4 12L10 30H16Z" fill="var(--gold)" opacity="0.75"/></svg>EDGE<span>.</span></div>
+    <div class="topbar-user">
+      <span id="userEmail">…</span>
+      <button id="logoutBtn" type="button">Выйти</button>
+    </div>
+  </div>
+</div>
+
+<section>
+  <div class="wrap">
+    <div class="import-card">
+      <h2>Импорт истории из старого журнала</h2>
+      <p>Разовая загрузка ставок из старого CyberValue-журнала в твой аккаунт. Импортируются только в твою собственную базу — их увидишь только ты.</p>
+
+      <div class="import-stats">
+        <div><strong id="seedCount">—</strong><span>в файле</span></div>
+        <div><strong id="existingCount">—</strong><span>уже в базе</span></div>
+      </div>
+
+      <div class="warn-box" id="warnBox"></div>
+
+      <button class="btn btn-primary" type="button" id="importBtn" style="width:auto;">Импортировать</button>
+      <span id="statusText" style="margin-left:12px; color:var(--ink-dim); font-size:13px;"></span>
+
+      <div class="import-progress" id="progressWrap"><div class="import-progress-bar" id="progressBar"></div></div>
+      <div class="import-log" id="logBox"></div>
+    </div>
+  </div>
+</section>
+
+<script type="module">
+  import { supabase, requireSession } from './supabase-client.js';
+  import { seedBets } from './bets_seed.js';
+
+  const session = await requireSession();
+  if (session) {
+    document.getElementById('userEmail').textContent = session.user.email;
+  }
+  document.getElementById('logoutBtn').addEventListener('click', async () => {
+    await supabase.auth.signOut();
+    window.location.href = 'index.html';
+  });
+
+  const seedCountEl = document.getElementById('seedCount');
+  const existingCountEl = document.getElementById('existingCount');
+  const warnBox = document.getElementById('warnBox');
+  const importBtn = document.getElementById('importBtn');
+  const statusText = document.getElementById('statusText');
+  const progressWrap = document.getElementById('progressWrap');
+  const progressBar = document.getElementById('progressBar');
+  const logBox = document.getElementById('logBox');
+
+  function log(line){
+    logBox.textContent += line + '\n';
+    logBox.scrollTop = logBox.scrollHeight;
+  }
+
+  seedCountEl.textContent = seedBets.length;
+
+  const { count, error: countError } = await supabase
+    .from('bets')
+    .select('*', { count: 'exact', head: true });
+
+  if (countError) {
+    statusText.textContent = 'Не удалось проверить базу: ' + countError.message;
+    importBtn.disabled = true;
+  } else {
+    existingCountEl.textContent = count;
+    if (count > 0) {
+      warnBox.style.display = 'block';
+      warnBox.textContent = `В базе уже есть ${count} ставок(и). Повторный запуск импорта добавит ещё ${seedBets.length} строк поверх них (дублирование). Нажимай только если уверен, что импорта ещё не было.`;
+    }
+  }
+
+  importBtn.addEventListener('click', async () => {
+    importBtn.disabled = true;
+    progressWrap.style.display = 'block';
+    logBox.textContent = '';
+    const userId = session.user.id;
+    const CHUNK = 50;
+    let done = 0, failed = 0;
+
+    for (let i = 0; i < seedBets.length; i += CHUNK) {
+      const chunk = seedBets.slice(i, i + CHUNK).map(b => ({ ...b, user_id: userId }));
+      const { error } = await supabase.from('bets').insert(chunk);
+      if (error) {
+        failed += chunk.length;
+        log(`✗ Строки ${i + 1}–${i + chunk.length}: ${error.message}`);
+      } else {
+        done += chunk.length;
+        log(`✓ Загружено ${done} / ${seedBets.length}`);
+      }
+      progressBar.style.width = Math.round((i + chunk.length) / seedBets.length * 100) + '%';
+      statusText.textContent = `${done} загружено, ${failed} с ошибкой…`;
+    }
+
+    statusText.textContent = failed
+      ? `Готово с ошибками: ${done} загружено, ${failed} не удалось.`
+      : `Готово — все ${done} ставок загружены.`;
+    log(failed ? 'Есть ошибки — смотри строки выше.' : 'Импорт завершён. Можно переходить на страницу «Ставки».');
+    importBtn.textContent = 'Импорт завершён';
+  });
+</script>
+
+</body>
+</html>
