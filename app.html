@@ -203,6 +203,17 @@
   function escapeHtml(s){
     return String(s ?? '').replace(/[&<>"']/g, c => ({'&':'&amp;','<':'&lt;','>':'&gt;','"':'&quot;',"'":'&#39;'}[c]));
   }
+  // "Сегодня" по МЕСТНОМУ времени пользователя, а не по UTC: input.valueAsDate
+  // трактует Date как UTC-полночь, из-за чего для часовых поясов восточнее UTC
+  // (например, Москва) в первые часы после полуночи по местному времени поле
+  // подставляло вчерашнюю дату — ставка могла случайно уйти не тем днём.
+  function todayLocalStr(){
+    const d = new Date();
+    const y = d.getFullYear();
+    const m = String(d.getMonth() + 1).padStart(2, '0');
+    const day = String(d.getDate()).padStart(2, '0');
+    return `${y}-${m}-${day}`;
+  }
   function fmtDate(d){
     const [y,m,day] = d.split('-');
     return `${day}.${m}.${y}`;
@@ -667,7 +678,7 @@
     betForm.reset();
     editIdField.value = '';
     document.getElementById('f_flat').value = 1;
-    document.getElementById('f_date').valueAsDate = new Date();
+    document.getElementById('f_date').value = todayLocalStr();
     manualProfitField.style.display = 'none';
     manualProfitInput.required = false;
     betFormHeading.textContent = 'Добавить ставку';
@@ -728,7 +739,7 @@
     manualProfitInput.required = isSold;
   });
 
-  document.getElementById('f_date').valueAsDate = new Date();
+  document.getElementById('f_date').value = todayLocalStr();
   loadBets();
 </script>
 

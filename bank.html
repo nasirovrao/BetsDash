@@ -129,6 +129,14 @@
     const [y, m, day] = d.split('-');
     return `${day}.${m}.${y}`;
   }
+  // "Сегодня" по местному времени — см. такую же правку в app.html.
+  function todayLocalStr(){
+    const d = new Date();
+    const y = d.getFullYear();
+    const m = String(d.getMonth() + 1).padStart(2, '0');
+    const day = String(d.getDate()).padStart(2, '0');
+    return `${y}-${m}-${day}`;
+  }
 
   function renderBankStats(s) {
     const cards = [
@@ -433,11 +441,11 @@
     }
     formStatus.textContent = 'Добавлено.';
     e.target.reset();
-    document.getElementById('w_date').valueAsDate = new Date();
+    document.getElementById('w_date').value = todayLocalStr();
     load();
   });
 
-  document.getElementById('w_date').valueAsDate = new Date();
+  document.getElementById('w_date').value = todayLocalStr();
   load();
 </script>
 
