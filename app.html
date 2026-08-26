@@ -7,7 +7,7 @@
 <link rel="preconnect" href="https://fonts.googleapis.com">
 <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
 <link href="https://fonts.googleapis.com/css2?family=Space+Grotesk:wght@500;600;700&family=Inter:wght@400;500;600;700&family=JetBrains+Mono:wght@400;500;600&display=swap" rel="stylesheet">
-<link rel="stylesheet" href="styles.css?v=9">
+<link rel="stylesheet" href="styles.css?v=11">
 </head>
 <body>
 
@@ -137,25 +137,14 @@
       </form>
     </div>
 
-    <div class="table-wrap">
-      <div class="table-scroll">
-        <table class="bets-table" id="betsTable">
-          <thead>
-            <tr>
-              <th>Дата</th><th>Дисциплина</th><th>Букмекер</th><th>Турнир</th><th>Матч / Пик</th>
-              <th>Кэф</th><th>Флет</th><th>Сумма</th><th>Результат</th><th>Метка</th><th></th>
-            </tr>
-          </thead>
-          <tbody id="betsTbody"></tbody>
-        </table>
-      </div>
-      <div class="empty-state" id="emptyState" style="display:none;">Пока нет ни одной ставки — добавь первую формой выше.</div>
-    </div>
+    <div id="betFeed" class="bet-feed"></div>
+    <div class="empty-state" id="emptyState" style="display:none;">Пока нет ни одной ставки — добавь первую формой выше.</div>
   </div>
 </section>
 
 <script type="module">
   import { supabase, requireSession } from './supabase-client.js';
+  import { computeProfit, fmtMoney } from './lib.js';
 
   const session = await requireSession();
   if (session) {
@@ -167,7 +156,7 @@
     window.location.href = 'index.html';
   });
 
-  const tbody = document.getElementById('betsTbody');
+  const betFeed = document.getElementById('betFeed');
   const emptyState = document.getElementById('emptyState');
   const countNote = document.getElementById('countNote');
   const formStatus = document.getElementById('formStatus');
@@ -180,27 +169,138 @@
     const [y,m,day] = d.split('-');
     return `${day}.${m}.${y}`;
   }
+  const MONTH_NAMES = ['Январь','Февраль','Март','Апрель','Май','Июнь','Июль','Август','Сентябрь','Октябрь','Ноябрь','Декабрь'];
+  function monthLabel(d){
+    const [y, m] = d.split('-');
+    return `${MONTH_NAMES[Number(m) - 1]} ${y}`;
+  }
   function resPillClass(r){
     return { Win:'win', Loss:'loss', Push:'push', Pending:'pending', Sold:'sold' }[r] || 'pending';
   }
 
-  function renderRow(bet){
-    const tr = document.createElement('tr');
-    tr.innerHTML = `
-      <td class="num">${fmtDate(bet.bet_date)}</td>
-      <td>${escapeHtml(bet.discipline)}</td>
-      <td>${escapeHtml(bet.bookmaker)}</td>
-      <td>${escapeHtml(bet.tournament || '—')}</td>
-      <td>${escapeHtml(bet.match || '—')} ${bet.match ? '—' : ''} ${escapeHtml(bet.pick)}</td>
-      <td class="num">${Number(bet.odds).toFixed(2)}</td>
-      <td class="num">${Number(bet.flat_mult).toFixed(2)}×</td>
-      <td class="num">$${Number(bet.stake).toFixed(2)}</td>
-      <td><span class="res-pill ${resPillClass(bet.result)}">${bet.result}</span></td>
-      <td>${bet.edge_tag ? `<span class="tag-chip">${escapeHtml(bet.edge_tag)}</span>` : ''}</td>
-      <td><button class="row-del" data-id="${bet.id}">Удалить</button></td>
+  // Заголовок карточки: используем "Матч", а если его нет (экспрессы, ставки без
+  // указанного матча) — падаем на текст пика, чтобы карточка не осталась пустой.
+  function cardTitle(bet){
+    return bet.match ? escapeHtml(bet.match) : escapeHtml(bet.pick);
+  }
+
+  // Для Pending-ставок вместо статичного пилла — выпадающий список, чтобы можно
+  // было проставить результат руками, когда матч отыгран, без пересоздания ставки.
+  function resultCellHtml(bet){
+    if (bet.result !== 'Pending') {
+      return `<span class="bet-stat-label">Результат</span><span class="res-pill ${resPillClass(bet.result)}">${bet.result}</span>`;
+    }
+    return `
+      <span class="bet-stat-label">Результат</span>
+      <select class="pending-select" data-id="${bet.id}">
+        <option value="" selected disabled>Pending</option>
+        <option value="Win">Win</option>
+        <option value="Loss">Loss</option>
+        <option value="Push">Push</option>
+        <option value="Sold">Продана</option>
+      </select>
     `;
-    tr.querySelector('.row-del').addEventListener('click', () => deleteBet(bet.id));
-    return tr;
+  }
+
+  function wirePendingControl(cardEl, bet){
+    const select = cardEl.querySelector('.pending-select');
+    if (!select) return;
+    select.addEventListener('change', async () => {
+      const val = select.value;
+      if (!val) return;
+      if (val === 'Sold') {
+        showSoldMiniForm(cardEl, bet.id);
+        return;
+      }
+      select.disabled = true;
+      const ok = await updateBetResult(bet.id, val, null);
+      if (ok) loadBets(); else select.disabled = false;
+    });
+  }
+
+  function showSoldMiniForm(cardEl, id){
+    const cell = cardEl.querySelector('.pending-result-stat');
+    cell.innerHTML = `
+      <span class="bet-stat-label">Профит от продажи</span>
+      <div class="mini-sold-row">
+        <input type="number" step="0.01" class="mini-profit-input" placeholder="$">
+        <button type="button" class="mini-confirm-btn" title="Сохранить">✓</button>
+      </div>
+    `;
+    const input = cell.querySelector('.mini-profit-input');
+    input.focus();
+    cell.querySelector('.mini-confirm-btn').addEventListener('click', async () => {
+      if (input.value === '') { input.focus(); return; }
+      const ok = await updateBetResult(id, 'Sold', Number(input.value));
+      if (ok) loadBets();
+    });
+    input.addEventListener('keydown', (e) => {
+      if (e.key === 'Enter') { e.preventDefault(); cell.querySelector('.mini-confirm-btn').click(); }
+    });
+  }
+
+  async function updateBetResult(id, result, manualProfit){
+    const payload = { result };
+    if (result === 'Sold') payload.manual_profit = manualProfit;
+    const { error } = await supabase.from('bets').update(payload).eq('id', id);
+    if (error) {
+      formStatus.textContent = 'Не удалось обновить результат: ' + error.message;
+      return false;
+    }
+    formStatus.textContent = '';
+    return true;
+  }
+
+  function renderCard(bet){
+    const div = document.createElement('div');
+    div.className = 'bet-card';
+    const profit = computeProfit(bet);
+    const profitCls = profit == null ? '' : profit > 0 ? 'pos-text' : profit < 0 ? 'neg-text' : '';
+    div.innerHTML = `
+      <div class="bet-card-main">
+        <div class="bet-card-title">${cardTitle(bet)}</div>
+        <div class="bet-card-sub">${escapeHtml(bet.pick)}</div>
+        <div class="bet-card-meta">
+          <span class="meta-chip">${escapeHtml(bet.discipline)}</span>
+          <span class="meta-chip">${escapeHtml(bet.bookmaker)}</span>
+          ${bet.tournament ? `<span class="meta-chip">${escapeHtml(bet.tournament)}</span>` : ''}
+          ${bet.edge_tag ? `<span class="tag-chip">${escapeHtml(bet.edge_tag)}</span>` : ''}
+          <span class="meta-date">${fmtDate(bet.bet_date)}</span>
+        </div>
+        ${bet.notes ? `<div class="bet-card-note">${escapeHtml(bet.notes)}</div>` : ''}
+      </div>
+      <div class="bet-card-stats">
+        <div class="bet-stat"><span class="bet-stat-label">Кэф</span><span class="bet-stat-value">${Number(bet.odds).toFixed(2)}</span></div>
+        <div class="bet-stat"><span class="bet-stat-label">Флет</span><span class="bet-stat-value">${Number(bet.flat_mult).toFixed(2)}×</span></div>
+        <div class="bet-stat"><span class="bet-stat-label">Сумма</span><span class="bet-stat-value">$${Number(bet.stake).toFixed(2)}</span></div>
+        <div class="bet-stat pending-result-stat">${resultCellHtml(bet)}</div>
+        <div class="bet-stat"><span class="bet-stat-label">Профит</span><span class="bet-stat-value ${profitCls}">${profit == null ? '—' : fmtMoney(profit)}</span></div>
+      </div>
+      <button class="bet-card-del" data-id="${bet.id}" title="Удалить ставку">✕</button>
+    `;
+    div.querySelector('.bet-card-del').addEventListener('click', () => deleteBet(bet.id));
+    if (bet.result === 'Pending') wirePendingControl(div, bet);
+    return div;
+  }
+
+  // Ставки уже приходят отсортированными по дате (свежие сверху) — просто
+  // разбиваем их на секции по месяцу, сохраняя порядок.
+  function renderFeed(data){
+    betFeed.innerHTML = '';
+    let currentMonth = null;
+    let monthEl = null;
+    data.forEach(bet => {
+      const label = monthLabel(bet.bet_date);
+      if (label !== currentMonth) {
+        currentMonth = label;
+        const group = document.createElement('div');
+        group.className = 'month-group';
+        group.innerHTML = `<div class="month-header">${label.toUpperCase()}</div>`;
+        betFeed.appendChild(group);
+        monthEl = group;
+      }
+      monthEl.appendChild(renderCard(bet));
+    });
   }
 
   async function loadBets(){
@@ -214,12 +314,12 @@
       formStatus.textContent = 'Ошибка загрузки: ' + error.message;
       return;
     }
-    tbody.innerHTML = '';
     if (!data.length) {
+      betFeed.innerHTML = '';
       emptyState.style.display = 'block';
     } else {
       emptyState.style.display = 'none';
-      data.forEach(bet => tbody.appendChild(renderRow(bet)));
+      renderFeed(data);
     }
     countNote.textContent = data.length + (data.length === 1 ? ' ставка' : ' ставок');
     updateBookmakerList(data);

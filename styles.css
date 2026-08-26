@@ -174,6 +174,66 @@ table.bets-table tbody tr:hover td.num{ color: var(--gold); }
 .pos-text{ color: var(--teal); }
 .neg-text{ color: var(--rust); }
 
+/* ---- лента ставок (карточки, сгруппированные по месяцу) ---- */
+.bet-feed{ display:flex; flex-direction:column; gap:28px; }
+.month-group{ display:flex; flex-direction:column; gap:1px; border:1px solid var(--line); border-radius: var(--radius); overflow:hidden; background: var(--line-soft); }
+.month-header{
+  font-family:'JetBrains Mono', monospace; font-size:11px; font-weight:600; text-transform:uppercase; letter-spacing:0.08em;
+  color: var(--ink-faint); background: var(--bg-card); padding:10px 18px;
+}
+.bet-card{
+  display:flex; align-items:center; justify-content:space-between; gap:20px; flex-wrap:wrap;
+  background: var(--bg-raised); padding:16px 18px; transition: background 0.15s ease;
+  position:relative;
+}
+.bet-card:hover{ background: var(--bg-card); }
+.bet-card-main{ flex: 1 1 260px; min-width:0; }
+.bet-card-title{ font-family:'Space Grotesk', sans-serif; font-weight:600; font-size:15px; color: var(--ink); margin-bottom:3px; }
+.bet-card-sub{ font-size:13px; color: var(--ink-dim); margin-bottom:9px; }
+.bet-card-meta{ display:flex; align-items:center; gap:8px; flex-wrap:wrap; }
+.meta-chip{
+  font-family:'JetBrains Mono', monospace; font-size:10.5px; text-transform:uppercase; letter-spacing:0.03em;
+  background: var(--bg-card); border:1px solid var(--line); color: var(--ink-faint); padding:2px 8px; border-radius:20px;
+}
+.bet-card:hover .meta-chip{ border-color: var(--line); color: var(--ink-dim); }
+.meta-date{ font-family:'JetBrains Mono', monospace; font-size:11px; color: var(--ink-faint); }
+.bet-card-note{ font-size:12px; color: var(--ink-faint); font-style:italic; margin-top:7px; max-width:520px; }
+.bet-card-stats{ display:flex; align-items:center; gap:26px; flex-wrap:wrap; }
+.bet-stat{ display:flex; flex-direction:column; gap:3px; min-width:56px; }
+.bet-stat-label{ font-family:'JetBrains Mono', monospace; font-size:9.5px; text-transform:uppercase; letter-spacing:0.05em; color: var(--ink-faint); }
+.bet-stat-value{ font-family:'JetBrains Mono', monospace; font-size:14px; color: var(--ink); font-variant-numeric: tabular-nums; }
+.bet-card-del{
+  background:none; border:none; color: var(--ink-faint); cursor:pointer; font-size:16px; line-height:1;
+  padding:4px 6px; border-radius:6px; opacity:0.5; transition: all 0.15s ease;
+}
+.bet-card-del:hover{ opacity:1; color: var(--rust); background: var(--rust-soft); }
+
+/* ---- Pending: проставить результат руками ---- */
+.pending-select{
+  font-family:'JetBrains Mono', monospace; font-size:12.5px; background: var(--bg-card); color: var(--ink);
+  border:1px solid var(--line); border-radius:6px; padding:4px 8px; cursor:pointer; min-width:100px;
+}
+.pending-select:hover{ border-color: var(--gold); }
+.pending-select:focus{ outline:none; border-color: var(--gold); }
+.mini-sold-row{ display:flex; align-items:center; gap:6px; }
+.mini-profit-input{
+  font-family:'JetBrains Mono', monospace; font-size:12.5px; background: var(--bg-card); color: var(--ink);
+  border:1px solid var(--line); border-radius:6px; padding:4px 8px; width:76px;
+}
+.mini-profit-input:focus{ outline:none; border-color: var(--gold); }
+.mini-confirm-btn{
+  background: var(--teal-soft); color: var(--teal); border:1px solid transparent; border-radius:6px;
+  width:26px; height:26px; cursor:pointer; font-size:13px; line-height:1; flex:none;
+}
+.mini-confirm-btn:hover{ background: var(--teal); color: var(--bg); }
+
+@media (max-width: 720px){
+  .bet-card{ flex-direction:column; align-items:stretch; justify-content:flex-start; gap:14px; }
+  .bet-card-main{ flex:none; }
+  .bet-card-stats{ justify-content:flex-start; gap:18px 22px; border-top:1px solid var(--line-soft); padding-top:12px; }
+  .bet-card-del{ position:absolute; top:12px; right:14px; }
+}
+
 /* ---- breakdown pages (по дисциплинам / букмекерам / сегментация / эджи) ---- */
 .breakdown-block{ margin-bottom: 34px; }
 .breakdown-block h3{ font-family:'Inter', sans-serif; font-weight:700; font-size:13px; text-transform:uppercase; letter-spacing:0.05em; color: var(--ink-dim); margin:0 0 14px; }
