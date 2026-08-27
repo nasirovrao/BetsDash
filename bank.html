@@ -18,6 +18,7 @@
     <a class="brand" href="dashboard.html"><svg class="brand-mark" viewBox="0 0 32 32" width="20" height="20" aria-hidden="true"><circle cx="16" cy="16" r="12" fill="none" stroke="var(--gold)" stroke-width="1.6" opacity="0.28"/><path d="M16 4 A12 12 0 0 1 26.9 12.3" fill="none" stroke="var(--gold)" stroke-width="3" stroke-linecap="round"/><line x1="12" y1="12" x2="12" y2="20" stroke="var(--gold)" stroke-width="2.6" stroke-linecap="round"/><line x1="12" y1="12" x2="19" y2="12" stroke="var(--gold)" stroke-width="2.6" stroke-linecap="round"/><line x1="12" y1="16" x2="17.5" y2="16" stroke="var(--gold)" stroke-width="2.6" stroke-linecap="round"/><line x1="12" y1="20" x2="19" y2="20" stroke="var(--gold)" stroke-width="2.6" stroke-linecap="round"/></svg>EDGE<span>.</span></a>
     <div class="topbar-user">
       <a class="topbar-link" href="profile-settings.html">Публичный профиль</a>
+      <a class="topbar-link" href="channel-team.html">Доступ к каналу</a>
       <span id="userEmail">…</span>
       <button id="logoutBtn" type="button">Выйти</button>
     </div>
@@ -46,6 +47,8 @@
       <div class="section-note" id="countNote"></div>
     </div>
 
+    <div id="channelSwitch"></div>
+
     <div class="stat-grid stat-grid-3" id="bankStatGrid"></div>
 
     <div class="chart-block">
@@ -56,7 +59,7 @@
       </div>
     </div>
 
-    <div class="bet-form">
+    <div class="bet-form" id="startBankBlock">
       <h3>Стартовый банк</h3>
       <div class="setup-row">
         <div class="field">
@@ -68,7 +71,7 @@
       </div>
     </div>
 
-    <div class="bet-form">
+    <div class="bet-form" id="withdrawFormBlock">
       <h3>Добавить вывод</h3>
       <form id="withdrawForm">
         <div class="form-grid form-grid-3">
@@ -108,7 +111,7 @@
 
 <script type="module">
   import { supabase, requireSession, isClvEnabled } from './supabase-client.js';
-  import { fmtMoney, computeStats, computeBankPoints } from './lib.js';
+  import { fmtMoney, computeStats, computeBankPoints, getChannelParams, loadMyChannels, renderChannelSwitch, preserveChannelInNav } from './lib.js';
 
   const session = await requireSession();
   if (session) {
@@ -119,6 +122,24 @@
     await supabase.auth.signOut();
     window.location.href = 'index.html';
   });
+
+  // Банк — как и решили, управляет только владелец канала: редактор видит
+  // те же цифры (RLS даёт ему select на withdrawals/settings), но формы
+  // "стартовый банк"/"добавить вывод" и удаление выводов для него скрыты.
+  const { channel: activeChannel, owner: ownerParam } = getChannelParams();
+  const ownerUserId = ownerParam || session.user.id;
+  const isEditorView = ownerUserId !== session.user.id;
+  preserveChannelInNav(activeChannel, ownerUserId, session.user.id);
+
+  loadMyChannels(supabase, session.user.id).then(channels => {
+    document.getElementById('channelSwitch').innerHTML =
+      renderChannelSwitch(channels, activeChannel, ownerUserId, 'bank.html');
+  });
+
+  if (isEditorView) {
+    document.getElementById('startBankBlock').style.display = 'none';
+    document.getElementById('withdrawFormBlock').style.display = 'none';
+  }
 
   const wTbody = document.getElementById('wTbody');
   const emptyState = document.getElementById('emptyState');
@@ -358,9 +379,10 @@
       <td class="num">${fmtDate(w.w_date)}</td>
       <td class="num">${fmtMoney(Number(w.amount))}</td>
       <td>${escapeHtml(w.note || '—')}</td>
-      <td><button class="row-del" data-id="${w.id}">Удалить</button></td>
+      <td>${isEditorView ? '' : `<button class="row-del" data-id="${w.id}">Удалить</button>`}</td>
     `;
-    tr.querySelector('.row-del').addEventListener('click', () => deleteWithdrawal(w.id, w));
+    const delBtn = tr.querySelector('.row-del');
+    if (delBtn) delBtn.addEventListener('click', () => deleteWithdrawal(w.id, w));
     return tr;
   }
 
@@ -368,9 +390,9 @@
 
   async function load() {
     const [{ data: bets, error: betsErr }, { data: withdrawals, error: wErr }, { data: settings, error: sErr }] = await Promise.all([
-      supabase.from('bets').select('*').eq('channel', 'default'),
-      supabase.from('withdrawals').select('*').eq('channel', 'default').order('w_date', { ascending: false }),
-      supabase.from('settings').select('*').eq('channel', 'default').maybeSingle(),
+      supabase.from('bets').select('*').eq('user_id', ownerUserId).eq('channel', activeChannel),
+      supabase.from('withdrawals').select('*').eq('user_id', ownerUserId).eq('channel', activeChannel).order('w_date', { ascending: false }),
+      supabase.from('settings').select('*').eq('user_id', ownerUserId).eq('channel', activeChannel).maybeSingle(),
     ]);
 
     if (betsErr || wErr || sErr) {
@@ -392,7 +414,9 @@
       emptyState.style.display = 'none';
       list.forEach(w => wTbody.appendChild(renderRow(w)));
     }
-    countNote.textContent = list.length + (list.length === 1 ? ' вывод' : ' выводов');
+    const channelLabel = activeChannel === 'default' ? 'Личный дневник' : activeChannel;
+    const editorTag = isEditorView ? ' · ты — редактор' : '';
+    countNote.textContent = `${channelLabel}${editorTag} · ${list.length}${list.length === 1 ? ' вывод' : ' выводов'}`;
   }
 
   document.getElementById('saveStartBank').addEventListener('click', async () => {
@@ -400,8 +424,8 @@
     if (!val || val < 0) return;
     startBankStatus.textContent = 'Сохраняю…';
     const { error } = currentSettings
-      ? await supabase.from('settings').update({ starting_bankroll: val }).eq('user_id', session.user.id).eq('channel', 'default')
-      : await supabase.from('settings').insert({ user_id: session.user.id, channel: 'default', starting_bankroll: val });
+      ? await supabase.from('settings').update({ starting_bankroll: val }).eq('user_id', ownerUserId).eq('channel', activeChannel)
+      : await supabase.from('settings').insert({ user_id: ownerUserId, channel: activeChannel, starting_bankroll: val });
     if (error) {
       startBankStatus.textContent = 'Ошибка: ' + error.message;
       return;
@@ -431,8 +455,8 @@
     formStatus.textContent = 'Сохраняю…';
 
     const payload = {
-      user_id: session.user.id,
-      channel: 'default',
+      user_id: ownerUserId,
+      channel: activeChannel,
       w_date: document.getElementById('w_date').value,
       amount: Number(document.getElementById('w_amount').value),
       note: document.getElementById('w_note').value.trim() || null,

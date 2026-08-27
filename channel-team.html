@@ -1,0 +1,306 @@
+<!doctype html>
+<html lang="ru">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>Доступ к каналу — EDGE</title>
+<link rel="preconnect" href="https://fonts.googleapis.com">
+<link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
+<link href="https://fonts.googleapis.com/css2?family=Unbounded:wght@600;700;800&family=Golos+Text:wght@400;500;600;700&family=JetBrains+Mono:wght@400;500;600&display=swap" rel="stylesheet">
+<link rel="stylesheet" href="styles.css?v=29">
+<!-- EDGE 2.0 — новая дизайн-система (палитра/типографика/фон), см. styles-edge2.css -->
+<link rel="stylesheet" href="styles-edge2.css?v=1">
+</head>
+<body>
+
+<div class="topbar">
+  <div class="wrap">
+    <a class="brand" href="dashboard.html"><svg class="brand-mark" viewBox="0 0 32 32" width="20" height="20" aria-hidden="true"><circle cx="16" cy="16" r="12" fill="none" stroke="var(--gold)" stroke-width="1.6" opacity="0.28"/><path d="M16 4 A12 12 0 0 1 26.9 12.3" fill="none" stroke="var(--gold)" stroke-width="3" stroke-linecap="round"/><line x1="12" y1="12" x2="12" y2="20" stroke="var(--gold)" stroke-width="2.6" stroke-linecap="round"/><line x1="12" y1="12" x2="19" y2="12" stroke="var(--gold)" stroke-width="2.6" stroke-linecap="round"/><line x1="12" y1="16" x2="17.5" y2="16" stroke="var(--gold)" stroke-width="2.6" stroke-linecap="round"/><line x1="12" y1="20" x2="19" y2="20" stroke="var(--gold)" stroke-width="2.6" stroke-linecap="round"/></svg>EDGE<span>.</span></a>
+    <div class="topbar-user">
+      <a class="topbar-link" href="profile-settings.html">Публичный профиль</a>
+      <a class="topbar-link" href="channel-team.html">Доступ к каналу</a>
+      <span id="userEmail">…</span>
+      <button id="logoutBtn" type="button">Выйти</button>
+    </div>
+  </div>
+</div>
+
+<nav class="app-nav">
+  <div class="wrap">
+    <a class="nav-pill" href="dashboard.html">Дашборд</a>
+    <a class="nav-pill" href="app.html">Ставки</a>
+    <a class="nav-pill" href="bank.html">Выводы и банк</a>
+    <a class="nav-pill" href="disciplines.html">По дисциплинам</a>
+    <a class="nav-pill" href="bookmakers.html">По букмекерам</a>
+    <a class="nav-pill" href="markets.html">Рынки</a>
+    <a class="nav-pill" href="teams.html">Команды</a>
+    <a class="nav-pill" href="segmentation.html">Сегментация</a>
+    <a class="nav-pill" href="edges.html">Найденные эджи</a>
+    <a class="nav-pill" id="navClvPill" href="clv.html" style="display:none;">CLV Tracker</a>
+  </div>
+</nav>
+
+<section>
+  <div class="wrap">
+    <div class="section-head">
+      <h2>Доступ к каналу</h2>
+      <div class="section-note">Попроси доступ на редактирование чужого публичного канала — или выдай его тем, кто попросил доступ к твоему.</div>
+    </div>
+
+    <div class="bet-form">
+      <h3>Запросить доступ к каналу</h3>
+      <div class="setup-row">
+        <div class="field">
+          <label for="lookupUsername">Публичное имя канала (как в ссылке /public.html?u=...)</label>
+          <input id="lookupUsername" type="text" placeholder="cybervalue" autocomplete="off">
+        </div>
+        <button class="btn btn-primary" type="button" id="lookupBtn" style="width:auto;">Найти</button>
+      </div>
+      <div id="lookupResult" style="margin-top:14px;"></div>
+    </div>
+
+    <div class="bet-form">
+      <h3>Мои заявки</h3>
+      <div id="myRequestsRoot"><div class="empty-state">Загружаю…</div></div>
+    </div>
+
+    <div class="bet-form">
+      <h3>Заявки на доступ к твоим каналам</h3>
+      <div id="pendingRoot"><div class="empty-state">Загружаю…</div></div>
+    </div>
+
+    <div class="bet-form">
+      <h3>Редакторы твоих каналов</h3>
+      <div id="editorsRoot"><div class="empty-state">Загружаю…</div></div>
+    </div>
+  </div>
+</section>
+
+<script type="module">
+  import { supabase, requireSession, isClvEnabled } from './supabase-client.js';
+  import { escapeHtml, preserveChannelInNav } from './lib.js';
+
+  const session = await requireSession();
+  if (session) {
+    document.getElementById('userEmail').textContent = session.user.email;
+  }
+  isClvEnabled().then(on => { if (on) document.getElementById('navClvPill').style.display = ''; });
+  document.getElementById('logoutBtn').addEventListener('click', async () => {
+    await supabase.auth.signOut();
+    window.location.href = 'index.html';
+  });
+  // Эта страница не привязана к конкретному каналу (охватывает сразу все
+  // каналы пользователя — и как владельца, и как редактора), поэтому
+  // переключателя каналов здесь нет — только сохраняем контекст, если сюда
+  // пришли уже находясь внутри чужого/не-default канала.
+  preserveChannelInNav('default', session.user.id, session.user.id);
+
+  const myUserId = session.user.id;
+
+  const lookupUsername = document.getElementById('lookupUsername');
+  const lookupBtn = document.getElementById('lookupBtn');
+  const lookupResult = document.getElementById('lookupResult');
+  const myRequestsRoot = document.getElementById('myRequestsRoot');
+  const pendingRoot = document.getElementById('pendingRoot');
+  const editorsRoot = document.getElementById('editorsRoot');
+
+  function fmtDateTime(iso) {
+    if (!iso) return '';
+    try {
+      return new Date(iso).toLocaleString('ru-RU', { day: '2-digit', month: '2-digit', year: 'numeric', hour: '2-digit', minute: '2-digit' });
+    } catch { return ''; }
+  }
+
+  // Тот же принцип "пилюли", что и res-pill у результатов ставок — просто
+  // переиспользуем готовые цвета вместо новых классов под 3 статуса заявки.
+  function statusPill(status) {
+    const map = {
+      pending: ['pending', 'На рассмотрении'],
+      approved: ['win', 'Одобрено'],
+      rejected: ['loss', 'Отклонено'],
+    };
+    const [cls, label] = map[status] || ['pending', status];
+    return `<span class="res-pill ${cls}">${label}</span>`;
+  }
+
+  // ---- Запрос доступа: ищем публичный профиль по имени канала, показываем
+  // что нашли и текущий статус заявки (если уже подавалась), либо кнопку
+  // "Запросить доступ".
+  async function doLookup() {
+    const username = lookupUsername.value.trim().toLowerCase();
+    if (!username) return;
+    lookupResult.innerHTML = '<div class="form-status">Ищу…</div>';
+    const { data: profile, error } = await supabase
+      .from('profiles').select('*').eq('username', username).eq('is_public', true).maybeSingle();
+    if (error) {
+      lookupResult.innerHTML = `<div class="form-status">Ошибка: ${escapeHtml(error.message)}</div>`;
+      return;
+    }
+    if (!profile) {
+      lookupResult.innerHTML = `<div class="form-status">Публичный канал «${escapeHtml(username)}» не найден. Проверь имя — оно берётся из ссылки на публичный профиль (/public.html?u=...).</div>`;
+      return;
+    }
+    if (profile.user_id === myUserId) {
+      lookupResult.innerHTML = `<div class="form-status">Это твой собственный канал — доступ запрашивать не нужно.</div>`;
+      return;
+    }
+    const { data: existing } = await supabase
+      .from('channel_members').select('*')
+      .eq('owner_user_id', profile.user_id).eq('channel', profile.channel).eq('member_user_id', myUserId)
+      .maybeSingle();
+    const label = escapeHtml(profile.display_name || profile.username);
+    if (existing) {
+      lookupResult.innerHTML = `
+        <div class="bd-card" style="cursor:default;">
+          <div class="bd-card-head"><div class="bd-card-name">${label}</div></div>
+          <div style="margin-top:6px;">${statusPill(existing.status)}</div>
+        </div>`;
+      return;
+    }
+    lookupResult.innerHTML = `
+      <div class="bd-card" style="cursor:default;">
+        <div class="bd-card-head"><div class="bd-card-name">${label}</div></div>
+        <div class="form-actions" style="margin-top:10px;">
+          <button class="btn btn-primary" type="button" id="requestAccessBtn" style="width:auto;">Запросить доступ на редактирование</button>
+          <span class="form-status" id="requestAccessStatus"></span>
+        </div>
+      </div>`;
+    document.getElementById('requestAccessBtn').addEventListener('click', async () => {
+      const status = document.getElementById('requestAccessStatus');
+      status.textContent = 'Отправляю…';
+      const { error: insErr } = await supabase.from('channel_members').insert({
+        owner_user_id: profile.user_id,
+        channel: profile.channel,
+        channel_label: profile.display_name || profile.username,
+        member_user_id: myUserId,
+        member_email: session.user.email,
+        status: 'pending',
+      });
+      if (insErr) {
+        status.textContent = insErr.code === '23505' ? 'Заявка уже подана.' : 'Ошибка: ' + insErr.message;
+        return;
+      }
+      status.textContent = 'Заявка отправлена ✓';
+      loadMyRequests();
+    });
+  }
+  lookupBtn.addEventListener('click', doLookup);
+  lookupUsername.addEventListener('keydown', e => { if (e.key === 'Enter') { e.preventDefault(); doLookup(); } });
+
+  // ---- Мои заявки: все строки, где заявитель — я, независимо от статуса.
+  // Отменить заявку отсюда нельзя (решение — только за владельцем канала,
+  // так же как и остальное управление доступом), поэтому кнопок здесь нет.
+  async function loadMyRequests() {
+    const { data, error } = await supabase
+      .from('channel_members').select('*').eq('member_user_id', myUserId).order('requested_at', { ascending: false });
+    if (error) {
+      myRequestsRoot.innerHTML = `<div class="empty-state">Ошибка загрузки: ${escapeHtml(error.message)}</div>`;
+      return;
+    }
+    const rows = data || [];
+    if (!rows.length) {
+      myRequestsRoot.innerHTML = '<div class="empty-state">Заявок пока нет.</div>';
+      return;
+    }
+    myRequestsRoot.innerHTML = `
+      <div class="table-wrap"><div class="table-scroll">
+        <table class="bets-table">
+          <thead><tr><th>Канал</th><th>Подана</th><th>Статус</th></tr></thead>
+          <tbody>
+            ${rows.map(r => `
+              <tr>
+                <td>${escapeHtml(r.channel_label || r.channel)}</td>
+                <td class="num">${fmtDateTime(r.requested_at)}</td>
+                <td>${statusPill(r.status)}</td>
+              </tr>`).join('')}
+          </tbody>
+        </table>
+      </div></div>`;
+  }
+
+  // ---- Заявки на доступ к моим каналам (я — владелец) — только pending,
+  // с кнопками Одобрить/Отклонить.
+  async function loadPending() {
+    const { data, error } = await supabase
+      .from('channel_members').select('*').eq('owner_user_id', myUserId).eq('status', 'pending').order('requested_at', { ascending: false });
+    if (error) {
+      pendingRoot.innerHTML = `<div class="empty-state">Ошибка загрузки: ${escapeHtml(error.message)}</div>`;
+      return;
+    }
+    const rows = data || [];
+    if (!rows.length) {
+      pendingRoot.innerHTML = '<div class="empty-state">Заявок на рассмотрении нет.</div>';
+      return;
+    }
+    pendingRoot.innerHTML = `
+      <div class="table-wrap"><div class="table-scroll">
+        <table class="bets-table">
+          <thead><tr><th>Канал</th><th>Кто просит</th><th>Подана</th><th></th></tr></thead>
+          <tbody>
+            ${rows.map(r => `
+              <tr>
+                <td>${escapeHtml(r.channel_label || r.channel)}</td>
+                <td>${escapeHtml(r.member_email || r.member_user_id)}</td>
+                <td class="num">${fmtDateTime(r.requested_at)}</td>
+                <td>
+                  <button class="btn btn-primary" type="button" data-approve="${r.id}" style="width:auto; padding:6px 14px; font-size:12.5px;">Одобрить</button>
+                  <button class="row-del" type="button" data-reject="${r.id}">Отклонить</button>
+                </td>
+              </tr>`).join('')}
+          </tbody>
+        </table>
+      </div></div>`;
+    pendingRoot.querySelectorAll('[data-approve]').forEach(btn => btn.addEventListener('click', () => decide(btn.dataset.approve, 'approved')));
+    pendingRoot.querySelectorAll('[data-reject]').forEach(btn => btn.addEventListener('click', () => decide(btn.dataset.reject, 'rejected')));
+  }
+
+  async function decide(id, status) {
+    const { error } = await supabase.from('channel_members').update({ status, decided_at: new Date().toISOString() }).eq('id', id);
+    if (error) { alert('Не удалось сохранить: ' + error.message); return; }
+    await Promise.all([loadPending(), loadEditors()]);
+  }
+
+  // ---- Действующие редакторы моих каналов — approved, с кнопкой "Отозвать".
+  async function loadEditors() {
+    const { data, error } = await supabase
+      .from('channel_members').select('*').eq('owner_user_id', myUserId).eq('status', 'approved').order('decided_at', { ascending: false });
+    if (error) {
+      editorsRoot.innerHTML = `<div class="empty-state">Ошибка загрузки: ${escapeHtml(error.message)}</div>`;
+      return;
+    }
+    const rows = data || [];
+    if (!rows.length) {
+      editorsRoot.innerHTML = '<div class="empty-state">Пока никому не выдан доступ на редактирование.</div>';
+      return;
+    }
+    editorsRoot.innerHTML = `
+      <div class="table-wrap"><div class="table-scroll">
+        <table class="bets-table">
+          <thead><tr><th>Канал</th><th>Редактор</th><th>Доступ выдан</th><th></th></tr></thead>
+          <tbody>
+            ${rows.map(r => `
+              <tr>
+                <td>${escapeHtml(r.channel_label || r.channel)}</td>
+                <td>${escapeHtml(r.member_email || r.member_user_id)}</td>
+                <td class="num">${fmtDateTime(r.decided_at)}</td>
+                <td><button class="row-del" type="button" data-revoke="${r.id}">Отозвать</button></td>
+              </tr>`).join('')}
+          </tbody>
+        </table>
+      </div></div>`;
+    editorsRoot.querySelectorAll('[data-revoke]').forEach(btn => btn.addEventListener('click', () => revoke(btn.dataset.revoke)));
+  }
+
+  async function revoke(id) {
+    const ok = window.confirm('Отозвать доступ на редактирование? Редактор сразу потеряет доступ к каналу.');
+    if (!ok) return;
+    const { error } = await supabase.from('channel_members').delete().eq('id', id);
+    if (error) { alert('Не удалось отозвать: ' + error.message); return; }
+    loadEditors();
+  }
+
+  await Promise.all([loadMyRequests(), loadPending(), loadEditors()]);
+</script>
+
+</body>
+</html>

@@ -18,6 +18,7 @@
     <a class="brand" href="dashboard.html"><svg class="brand-mark" viewBox="0 0 32 32" width="20" height="20" aria-hidden="true"><circle cx="16" cy="16" r="12" fill="none" stroke="var(--gold)" stroke-width="1.6" opacity="0.28"/><path d="M16 4 A12 12 0 0 1 26.9 12.3" fill="none" stroke="var(--gold)" stroke-width="3" stroke-linecap="round"/><line x1="12" y1="12" x2="12" y2="20" stroke="var(--gold)" stroke-width="2.6" stroke-linecap="round"/><line x1="12" y1="12" x2="19" y2="12" stroke="var(--gold)" stroke-width="2.6" stroke-linecap="round"/><line x1="12" y1="16" x2="17.5" y2="16" stroke="var(--gold)" stroke-width="2.6" stroke-linecap="round"/><line x1="12" y1="20" x2="19" y2="20" stroke="var(--gold)" stroke-width="2.6" stroke-linecap="round"/></svg>EDGE<span>.</span></a>
     <div class="topbar-user">
       <a class="topbar-link" href="profile-settings.html">Публичный профиль</a>
+      <a class="topbar-link" href="channel-team.html">Доступ к каналу</a>
       <span id="userEmail">…</span>
       <button id="logoutBtn" type="button">Выйти</button>
     </div>
@@ -45,6 +46,8 @@
       <h2>Дашборд</h2>
       <div class="section-note" id="asOfNote"></div>
     </div>
+
+    <div id="channelSwitch"></div>
 
     <div id="setupPrompt" class="setup-card" style="display:none;">
       <h3>Укажи стартовый банк</h3>
@@ -75,13 +78,26 @@
 
 <script type="module">
   import { supabase, requireSession, isClvEnabled } from './supabase-client.js';
-  import { fmtMoney, computeStats, computeStreak, escapeHtml, monthKeyOf, monthLabelOf, renderWLP } from './lib.js';
+  import { fmtMoney, computeStats, computeStreak, escapeHtml, monthKeyOf, monthLabelOf, renderWLP, getChannelParams, loadMyChannels, renderChannelSwitch, preserveChannelInNav } from './lib.js';
 
   const session = await requireSession();
   if (session) {
     document.getElementById('userEmail').textContent = session.user.email;
   }
   isClvEnabled().then(on => { if (on) document.getElementById('navClvPill').style.display = ''; });
+
+  // Канал/владелец из ?channel=&owner= — тот же паттерн, что и на app.html,
+  // чтобы "переключиться внутри дашборда" реально работало, а не только
+  // на странице ввода ставок.
+  const { channel: activeChannel, owner: ownerParam } = getChannelParams();
+  const ownerUserId = ownerParam || session.user.id;
+  const isEditorView = ownerUserId !== session.user.id;
+  preserveChannelInNav(activeChannel, ownerUserId, session.user.id);
+
+  loadMyChannels(supabase, session.user.id).then(channels => {
+    document.getElementById('channelSwitch').innerHTML =
+      renderChannelSwitch(channels, activeChannel, ownerUserId, 'dashboard.html');
+  });
 
   document.getElementById('logoutBtn').addEventListener('click', async () => {
     await supabase.auth.signOut();
@@ -212,9 +228,9 @@
 
   async function load() {
     const [{ data: bets, error: betsErr }, { data: withdrawals, error: wErr }, { data: settings, error: sErr }] = await Promise.all([
-      supabase.from('bets').select('*').eq('channel', 'default'),
-      supabase.from('withdrawals').select('*').eq('channel', 'default'),
-      supabase.from('settings').select('*').eq('channel', 'default').maybeSingle(),
+      supabase.from('bets').select('*').eq('user_id', ownerUserId).eq('channel', activeChannel),
+      supabase.from('withdrawals').select('*').eq('user_id', ownerUserId).eq('channel', activeChannel),
+      supabase.from('settings').select('*').eq('user_id', ownerUserId).eq('channel', activeChannel).maybeSingle(),
     ]);
 
     if (betsErr || wErr || sErr) {
@@ -228,21 +244,26 @@
     populateDashFilters(allBets);
 
     if (!settings) {
-      setupPrompt.style.display = 'block';
+      // Стартовый банк — это управление банком, а оно, как и решили,
+      // остаётся только у владельца канала: редактору эту форму не
+      // показываем (у него всё равно нет прав на insert в settings).
+      setupPrompt.style.display = isEditorView ? 'none' : 'block';
       applyDashFilters();
-      dashHint.innerHTML = allBets.length ? '' : 'Пусто? Есть история из старого журнала — можно <a href="import.html" style="color:var(--gold);">импортировать её сюда</a>.';
+      dashHint.innerHTML = isEditorView
+        ? 'Владелец канала ещё не указал стартовый банк — показатели «Банк» и «Прирост банка» появятся после этого.'
+        : (allBets.length ? '' : 'Пусто? Есть история из старого журнала — можно <a href="import.html" style="color:var(--gold);">импортировать её сюда</a>.');
       return;
     }
 
     setupPrompt.style.display = 'none';
     applyDashFilters();
-    dashHint.innerHTML = allBets.length ? '' : 'Пока нет ни одной ставки — добавь их на странице «Ставки», либо <a href="import.html" style="color:var(--gold);">импортируй историю из старого журнала</a>.';
+    dashHint.innerHTML = allBets.length ? '' : (isEditorView ? '' : 'Пока нет ни одной ставки — добавь их на странице «Ставки», либо <a href="import.html" style="color:var(--gold);">импортируй историю из старого журнала</a>.');
   }
 
   document.getElementById('saveStartBank').addEventListener('click', async () => {
     const val = Number(document.getElementById('startBank').value);
     if (!val || val <= 0) return;
-    const { error } = await supabase.from('settings').insert({ user_id: session.user.id, channel: 'default', starting_bankroll: val });
+    const { error } = await supabase.from('settings').insert({ user_id: ownerUserId, channel: activeChannel, starting_bankroll: val });
     if (error) {
       dashHint.textContent = 'Не удалось сохранить: ' + error.message;
       return;
@@ -250,7 +271,9 @@
     load();
   });
 
-  asOfNote.textContent = new Date().toLocaleDateString('ru-RU', { day: '2-digit', month: '2-digit', year: 'numeric' });
+  const channelLabel = activeChannel === 'default' ? 'Личный дневник' : activeChannel;
+  const editorTag = isEditorView ? ' · ты — редактор' : '';
+  asOfNote.textContent = `${channelLabel}${editorTag} · ${new Date().toLocaleDateString('ru-RU', { day: '2-digit', month: '2-digit', year: 'numeric' })}`;
   load();
 </script>
 

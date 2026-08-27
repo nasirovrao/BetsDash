@@ -118,13 +118,13 @@
             ${profile.logo_url ? `<img class="profile-hero-logo" src="${escapeHtml(profile.logo_url)}" alt="${escapeHtml(profile.display_name || profile.username)}">` : ''}
             <div class="profile-hero-headline">
               <div class="profile-hero-name">${escapeHtml(profile.display_name || profile.username)}</div>
-              <span class="profile-badge">Публичный профиль · верифицированные данные · только чтение</span>
+              <span class="profile-badge">Публичный профиль · верифицированные данные</span>
             </div>
           </div>
           ${profile.bio ? `<div class="profile-hero-bio">${escapeHtml(profile.bio)}</div>` : ''}
           <div class="trust-note">
             <span class="trust-note-mark">⏱</span>
-            <span>Каждая ставка — с меткой времени добавления. Если запись меняли уже после того, как исход стал известен, это отмечено значком «✎ изменено» в таблице.</span>
+            <span>Правки задним числом видно: наведи на «✎ изменено» в таблице — покажет, что именно поменяли.</span>
           </div>
         </div>`;
 

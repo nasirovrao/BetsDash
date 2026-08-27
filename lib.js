@@ -438,8 +438,17 @@ export function renderBetsFlatTable(bets, opts) {
     const title = b.match || b.pick || '—';
     const addedTitle = b.created_at ? `Добавлено в систему: ${fmtDateTime(b.created_at)}` : '';
     const edited = wasEditedAfterSettle(b);
+    // Бейдж в таблице остаётся коротким (не ломает вёрстку на мобильном),
+    // а тултип теперь ведёт с КОНКРЕТИКОЙ — что именно поменяли (edit_note
+    // из триггера, milestone11), например "пик: П1 → П2" — а не только с
+    // датами, как раньше. Даты остаются вторым планом, в скобках.
+    const editedTitle = edited
+      ? (b.edit_note
+          ? `${b.edit_note} (после исхода: ${fmtDateTime(b.settled_at)} → ${fmtDateTime(b.updated_at)})`
+          : `Изменено после того, как исход стал известен: ${fmtDateTime(b.settled_at)} → ${fmtDateTime(b.updated_at)}`)
+      : '';
     const editedBadge = edited
-      ? `<span class="edited-badge" title="Расcчитана: ${fmtDateTime(b.settled_at)} · последняя правка: ${fmtDateTime(b.updated_at)} — запись меняли уже после того, как исход стал известен">✎ изменено</span>`
+      ? `<span class="edited-badge" title="${escapeHtml(editedTitle)}">✎ изменено</span>`
       : '';
     return `
       <tr>
@@ -546,4 +555,93 @@ export function computeClvStats(entries) {
     ? withClv.reduce((s, e) => s + (computeClv(e.entry_odds, e.closing_odds) || 0), 0) / withClv.length
     : null;
   return { total: list.length, inPlay, totalProfit, roi, avgClv };
+}
+
+// ============================================================
+// Мульти-канал / совместное редактирование — Milestone 12.
+//
+// Раньше переключатель канала жил только на app.html, хардкодом на 2
+// варианта ("default"/"cybervalue"), и переход на любую другую приватную
+// страницу тут же сбрасывал контекст обратно на "default" — статистика
+// не-default канала была не видна нигде, кроме самой ленты ставок.
+// Ниже — общий механизм: канал+владелец читаются из URL, сохраняются на
+// всех внутренних ссылках, а список каналов для переключателя собирается
+// динамически (свои каналы + каналы, куда тебя одобрили редактором),
+// а не хардкодится.
+// ============================================================
+
+// ?channel= — какой канал показываем. ?owner= — user_id владельца, ЗАДАЁТСЯ
+// только когда смотришь канал, которым сам не владеешь (тебе дали доступ
+// редактора) — для своих каналов владелец всегда просто "я".
+export function getChannelParams() {
+  const p = new URLSearchParams(location.search);
+  return { channel: p.get('channel') || 'default', owner: p.get('owner') || null };
+}
+
+// Список каналов, которые пользователь может выбрать в переключателе:
+//   - "default" — всегда, это личный дневник;
+//   - любой другой канал, где у пользователя есть СВОИ ставки (он владелец);
+//   - каналы, куда его одобрили редактором (channel_members, status=approved).
+export async function loadMyChannels(supabase, myUserId) {
+  const [{ data: ownBets }, { data: memberRows }] = await Promise.all([
+    supabase.from('bets').select('channel').eq('user_id', myUserId),
+    supabase.from('channel_members').select('owner_user_id, channel, channel_label, status').eq('member_user_id', myUserId).eq('status', 'approved'),
+  ]);
+  const ownChannelSet = new Set((ownBets || []).map(b => b.channel || 'default'));
+  ownChannelSet.add('default');
+  const own = Array.from(ownChannelSet).map(ch => ({
+    channel: ch, ownerUserId: myUserId, label: ch === 'default' ? 'Личный дневник' : ch, role: 'owner',
+  }));
+  const shared = (memberRows || []).map(r => ({
+    channel: r.channel, ownerUserId: r.owner_user_id, label: r.channel_label || r.channel, role: 'editor',
+  }));
+  return [...own, ...shared];
+}
+
+// Рендерит пилюли переключателя каналов. Ничего не рисует, если у
+// пользователя ровно один канал (личный дневник) — переключать нечего.
+export function renderChannelSwitch(channels, activeChannel, activeOwnerId, pageFile) {
+  if (!channels || channels.length <= 1) return '';
+  const pills = channels.map(c => {
+    const isActive = c.channel === activeChannel && c.ownerUserId === activeOwnerId;
+    const params = new URLSearchParams();
+    if (c.channel !== 'default') params.set('channel', c.channel);
+    if (c.role === 'editor') params.set('owner', c.ownerUserId);
+    const qs = params.toString();
+    const href = `${pageFile}${qs ? '?' + qs : ''}`;
+    const roleTag = c.role === 'editor' ? ' <span style="opacity:.6;font-weight:400;">· редактор</span>' : '';
+    return `<a class="channel-pill${isActive ? ' active' : ''}" href="${href}">${escapeHtml(c.label)}${roleTag}</a>`;
+  }).join('');
+  return `<div class="channel-switch">${pills}</div>`;
+}
+
+// Дописывает ?channel=&owner= ко всем ссылкам топбара/нав-бара на текущей
+// странице, чтобы контекст канала не терялся при переходе на другую
+// вкладку (Дашборд → Букмекеры и т.д. остаются в том же канале).
+export function preserveChannelInNav(channel, ownerUserId, myUserId) {
+  const isDefaultOwn = channel === 'default' && (!ownerUserId || ownerUserId === myUserId);
+  if (isDefaultOwn) return;
+  const params = new URLSearchParams();
+  if (channel !== 'default') params.set('channel', channel);
+  if (ownerUserId && ownerUserId !== myUserId) params.set('owner', ownerUserId);
+  const suffix = '?' + params.toString();
+  if (suffix === '?') return;
+  document.querySelectorAll('.app-nav a.nav-pill[href], a.brand[href]').forEach(a => {
+    const href = a.getAttribute('href');
+    if (!href || href.startsWith('http') || href.includes('?')) return;
+    a.setAttribute('href', href + suffix);
+  });
+}
+
+// Строит "pageFile" со ?channel=&owner= для страниц-разбивок (bookmakers.html,
+// disciplines.html и т.д.) — передаётся в renderGroupCards/renderBreakdownDetail
+// вместо голого имени файла, чтобы клик по карточке ("→ детали") и кнопка
+// "← Назад к списку" не теряли текущий канал/владельца, как это уже сделано
+// для нав-бара в preserveChannelInNav().
+export function channelHref(pageFile, channel, ownerUserId, myUserId) {
+  const params = new URLSearchParams();
+  if (channel !== 'default') params.set('channel', channel);
+  if (ownerUserId && ownerUserId !== myUserId) params.set('owner', ownerUserId);
+  const qs = params.toString();
+  return qs ? `${pageFile}?${qs}` : pageFile;
 }

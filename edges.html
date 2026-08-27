@@ -18,6 +18,7 @@
     <a class="brand" href="dashboard.html"><svg class="brand-mark" viewBox="0 0 32 32" width="20" height="20" aria-hidden="true"><circle cx="16" cy="16" r="12" fill="none" stroke="var(--gold)" stroke-width="1.6" opacity="0.28"/><path d="M16 4 A12 12 0 0 1 26.9 12.3" fill="none" stroke="var(--gold)" stroke-width="3" stroke-linecap="round"/><line x1="12" y1="12" x2="12" y2="20" stroke="var(--gold)" stroke-width="2.6" stroke-linecap="round"/><line x1="12" y1="12" x2="19" y2="12" stroke="var(--gold)" stroke-width="2.6" stroke-linecap="round"/><line x1="12" y1="16" x2="17.5" y2="16" stroke="var(--gold)" stroke-width="2.6" stroke-linecap="round"/><line x1="12" y1="20" x2="19" y2="20" stroke="var(--gold)" stroke-width="2.6" stroke-linecap="round"/></svg>EDGE<span>.</span></a>
     <div class="topbar-user">
       <a class="topbar-link" href="profile-settings.html">Публичный профиль</a>
+      <a class="topbar-link" href="channel-team.html">Доступ к каналу</a>
       <span id="userEmail">…</span>
       <button id="logoutBtn" type="button">Выйти</button>
     </div>
@@ -46,7 +47,9 @@
       <div class="section-note">Заведи эдж по имени сам — или он появится тут же, как только используешь такую метку в форме «Ставки». Клик по карточке — полная статистика и список ставок.</div>
     </div>
 
-    <div class="bet-form">
+    <div id="channelSwitch"></div>
+
+    <div class="bet-form" id="newEdgeBlock">
       <h3>Новый эдж</h3>
       <form id="newEdgeForm">
         <div class="form-grid form-grid-2">
@@ -72,7 +75,7 @@
 
 <script type="module">
   import { supabase, requireSession, isClvEnabled } from './supabase-client.js';
-  import { groupBets, renderGroupCards, renderBreakdownDetail, mergeEdgeGroups } from './lib.js';
+  import { groupBets, renderGroupCards, renderBreakdownDetail, mergeEdgeGroups, getChannelParams, loadMyChannels, renderChannelSwitch, preserveChannelInNav, channelHref } from './lib.js';
 
   const session = await requireSession();
   if (session) {
@@ -83,6 +86,24 @@
     await supabase.auth.signOut();
     window.location.href = 'index.html';
   });
+
+  // Эджи сознательно НЕ входят в совместное редактирование (см. комментарий
+  // в schema_milestone12.sql) — это личный реестр владельца канала, поэтому
+  // на канале, где текущий пользователь редактор, форма добавления эджа
+  // скрыта: RLS всё равно не даст ни прочитать чужой реестр, ни записать в
+  // него, форма для него была бы просто дохлой кнопкой.
+  const { channel: activeChannel, owner: ownerParam } = getChannelParams();
+  const ownerUserId = ownerParam || session.user.id;
+  const isEditorView = ownerUserId !== session.user.id;
+  preserveChannelInNav(activeChannel, ownerUserId, session.user.id);
+  const pageFile = channelHref('edges.html', activeChannel, ownerUserId, session.user.id);
+
+  loadMyChannels(supabase, session.user.id).then(channels => {
+    document.getElementById('channelSwitch').innerHTML =
+      renderChannelSwitch(channels, activeChannel, ownerUserId, 'edges.html');
+  });
+
+  if (isEditorView) document.getElementById('newEdgeBlock').style.display = 'none';
 
   const root = document.getElementById('breakdownRoot');
   const keyParam = new URLSearchParams(location.search).get('key');
@@ -97,8 +118,8 @@
   // как раньше (эджи только из тегов ставок).
   async function loadAndRender() {
     const [{ data: bets, error: betsErr }, edgesRes] = await Promise.all([
-      supabase.from('bets').select('*').eq('channel', 'default'),
-      supabase.from('edges').select('*').eq('channel', 'default').order('created_at', { ascending: false }),
+      supabase.from('bets').select('*').eq('user_id', ownerUserId).eq('channel', activeChannel),
+      supabase.from('edges').select('*').eq('user_id', ownerUserId).eq('channel', activeChannel).order('created_at', { ascending: false }),
     ]);
     if (betsErr) {
       root.innerHTML = `<div class="empty-state">Ошибка загрузки: ${betsErr.message}</div>`;
@@ -109,9 +130,9 @@
     const groups = mergeEdgeGroups(edgeDefs, betGroups);
     if (keyParam) {
       const group = groups.find(g => g.key === keyParam);
-      root.innerHTML = renderBreakdownDetail('Эдж-паттерн', keyParam, group, 'edges.html');
+      root.innerHTML = renderBreakdownDetail('Эдж-паттерн', keyParam, group, pageFile);
     } else {
-      root.innerHTML = renderGroupCards(groups, 'Эдж-паттерн', 'edges.html');
+      root.innerHTML = renderGroupCards(groups, 'Эдж-паттерн', pageFile);
     }
   }
 
@@ -124,7 +145,7 @@
     const description = document.getElementById('ne_desc').value.trim() || null;
     addEdgeBtn.disabled = true;
     newEdgeStatus.textContent = 'Сохраняю…';
-    const { error } = await supabase.from('edges').insert({ name, description, channel: 'default' });
+    const { error } = await supabase.from('edges').insert({ name, description, channel: activeChannel });
     addEdgeBtn.disabled = false;
     if (error) {
       if (error.code === '23505') {

@@ -18,6 +18,7 @@
     <a class="brand" href="dashboard.html"><svg class="brand-mark" viewBox="0 0 32 32" width="20" height="20" aria-hidden="true"><circle cx="16" cy="16" r="12" fill="none" stroke="var(--gold)" stroke-width="1.6" opacity="0.28"/><path d="M16 4 A12 12 0 0 1 26.9 12.3" fill="none" stroke="var(--gold)" stroke-width="3" stroke-linecap="round"/><line x1="12" y1="12" x2="12" y2="20" stroke="var(--gold)" stroke-width="2.6" stroke-linecap="round"/><line x1="12" y1="12" x2="19" y2="12" stroke="var(--gold)" stroke-width="2.6" stroke-linecap="round"/><line x1="12" y1="16" x2="17.5" y2="16" stroke="var(--gold)" stroke-width="2.6" stroke-linecap="round"/><line x1="12" y1="20" x2="19" y2="20" stroke="var(--gold)" stroke-width="2.6" stroke-linecap="round"/></svg>EDGE<span>.</span></a>
     <div class="topbar-user">
       <a class="topbar-link" href="profile-settings.html">Публичный профиль</a>
+      <a class="topbar-link" href="channel-team.html">Доступ к каналу</a>
       <span id="userEmail">…</span>
       <button id="logoutBtn" type="button">Выйти</button>
     </div>
@@ -45,13 +46,14 @@
       <h2>Команды</h2>
       <div class="section-note">Каждая ставка учитывается у обеих команд матча — вопрос не «за кого ставка», а «как заходят ставки на матчах с этой командой». Имена команд приводятся к единому виду автоматически. Дуэли 1x1 в статистику не включены. Клик по карточке — полная статистика и список ставок.</div>
     </div>
+    <div id="channelSwitch"></div>
     <div id="breakdownRoot"><div class="empty-state">Загружаю…</div></div>
   </div>
 </section>
 
 <script type="module">
   import { supabase, requireSession, isClvEnabled } from './supabase-client.js';
-  import { groupBetsMulti, renderGroupCards, renderBreakdownDetail, teamKeysForBet } from './lib.js';
+  import { groupBetsMulti, renderGroupCards, renderBreakdownDetail, teamKeysForBet, getChannelParams, loadMyChannels, renderChannelSwitch, preserveChannelInNav, channelHref } from './lib.js';
 
   const session = await requireSession();
   if (session) {
@@ -63,19 +65,29 @@
     window.location.href = 'index.html';
   });
 
+  const { channel: activeChannel, owner: ownerParam } = getChannelParams();
+  const ownerUserId = ownerParam || session.user.id;
+  preserveChannelInNav(activeChannel, ownerUserId, session.user.id);
+  const pageFile = channelHref('teams.html', activeChannel, ownerUserId, session.user.id);
+
+  loadMyChannels(supabase, session.user.id).then(channels => {
+    document.getElementById('channelSwitch').innerHTML =
+      renderChannelSwitch(channels, activeChannel, ownerUserId, 'teams.html');
+  });
+
   const root = document.getElementById('breakdownRoot');
   const keyParam = new URLSearchParams(location.search).get('key');
 
-  const { data, error } = await supabase.from('bets').select('*').eq('channel', 'default');
+  const { data, error } = await supabase.from('bets').select('*').eq('user_id', ownerUserId).eq('channel', activeChannel);
   if (error) {
     root.innerHTML = `<div class="empty-state">Ошибка загрузки: ${error.message}</div>`;
   } else {
     const groups = groupBetsMulti(data, teamKeysForBet);
     if (keyParam) {
       const group = groups.find(g => g.key === keyParam);
-      root.innerHTML = renderBreakdownDetail('Команда', keyParam, group, 'teams.html');
+      root.innerHTML = renderBreakdownDetail('Команда', keyParam, group, pageFile);
     } else {
-      root.innerHTML = renderGroupCards(groups, 'Команда', 'teams.html');
+      root.innerHTML = renderGroupCards(groups, 'Команда', pageFile);
     }
   }
 </script>
