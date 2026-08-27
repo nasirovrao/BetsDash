@@ -435,7 +435,17 @@ export function renderBetsFlatTable(bets, opts) {
   const rows = sorted.map(b => {
     const profit = computeProfit(b);
     const profitCls = profit == null ? '' : profit > 0 ? 'pos-text' : profit < 0 ? 'neg-text' : '';
-    const title = b.match || b.pick || '—';
+    // Раньше здесь показывался ТОЛЬКО матч (или, если его не было, только
+    // пик) — колонка называется "Матч / Пик", но реальный пик (на что
+    // именно ставили) не попадал в таблицу вовсе, если матч был указан.
+    // Теперь показываем оба: матч — основной строкой, пик — приглушённой
+    // строкой под ним (как на карточках ставок в app.html), и только если
+    // они реально разные значения — не дублируем одно и то же дважды.
+    const matchTitle = b.match || '';
+    const pickTitle = b.pick || '';
+    const titleHtml = matchTitle
+      ? `${escapeHtml(matchTitle)}${pickTitle && pickTitle !== matchTitle ? `<div class="bd-table-sub">${escapeHtml(pickTitle)}</div>` : ''}`
+      : escapeHtml(pickTitle || '—');
     const addedTitle = b.created_at ? `Добавлено в систему: ${fmtDateTime(b.created_at)}` : '';
     const edited = wasEditedAfterSettle(b);
     // Бейдж в таблице остаётся коротким (не ломает вёрстку на мобильном),
@@ -453,7 +463,7 @@ export function renderBetsFlatTable(bets, opts) {
     return `
       <tr>
         <td class="num" title="${escapeHtml(addedTitle)}">${b.bet_date ? b.bet_date.split('-').reverse().join('.') : '—'}</td>
-        <td>${escapeHtml(title)}</td>
+        <td>${titleHtml}</td>
         <td>${escapeHtml(b.discipline || '—')}</td>
         ${hideBookmaker ? '' : `<td>${escapeHtml(b.bookmaker || '—')}</td>`}
         <td class="num">${b.odds != null ? Number(b.odds).toFixed(2) : '—'}</td>

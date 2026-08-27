@@ -235,6 +235,9 @@ table.bets-table td{ padding:11px 14px; border-bottom:1px solid var(--line-soft)
 table.bets-table td.num, table.bets-table td.no-wrap{ white-space:nowrap; }
 table.bets-table tr:last-child td{ border-bottom:none; }
 table.bets-table td.num{ color: var(--ink); }
+/* Пик под матчем в колонке "Матч / Пик" (renderBetsFlatTable, lib.js) —
+   приглушённая вторая строка, так же как .bet-card-sub на карточках ставок. */
+.bd-table-sub{ font-size:12.5px; color: var(--ink-faint); margin-top:3px; }
 table.bets-table tbody tr{ transition: background 0.12s ease; }
 table.bets-table tbody tr:hover{ background: var(--bg-card); }
 table.bets-table tbody tr:hover td{ color: var(--ink); }

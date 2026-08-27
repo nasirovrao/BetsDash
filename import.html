@@ -3,24 +3,62 @@
 <head>
 <meta charset="utf-8">
 <meta name="viewport" content="width=device-width, initial-scale=1">
-<title>Импорт истории — EDGE</title>
+<title>Импорт ставок — EDGE</title>
 <link rel="preconnect" href="https://fonts.googleapis.com">
 <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
 <link href="https://fonts.googleapis.com/css2?family=Unbounded:wght@600;700;800&family=Golos+Text:wght@400;500;600;700&family=JetBrains+Mono:wght@400;500;600&display=swap" rel="stylesheet">
 <link rel="stylesheet" href="styles.css?v=29">
 <!-- EDGE 2.0 — новая дизайн-система (палитра/типографика/фон), см. styles-edge2.css -->
 <link rel="stylesheet" href="styles-edge2.css?v=1">
+<!-- SheetJS — парсинг .xlsx/.xls/.csv прямо в браузере, без бэкенда (сайт
+     статический). Файл лежит локально (vendor/xlsx.full.min.js, версия
+     0.18.5 с npm), а не грузится с внешнего CDN — так импорт не зависит от
+     стороннего хостинга и работает даже если внешний CDN недоступен. -->
+<script src="vendor/xlsx.full.min.js"></script>
 <style>
-  .import-card{ max-width: 640px; margin: 48px auto; background: var(--bg-card); border: 1px solid var(--line); border-radius: var(--radius); padding: 32px; box-shadow: var(--shadow); }
-  .import-card h2{ margin: 0 0 6px; }
+  .import-card{ max-width: 880px; margin: 28px auto; background: var(--bg-card); border: 1px solid var(--line); border-radius: var(--radius); padding: 28px 32px; box-shadow: var(--shadow); }
+  .import-card + .import-card{ margin-top: 20px; }
+  .import-card h3{ margin: 0 0 6px; }
   .import-card p{ color: var(--ink-dim); line-height: 1.55; }
-  .import-stats{ display:flex; gap:24px; margin: 20px 0; padding: 16px; background: var(--bg-raised); border-radius: var(--radius); border: 1px solid var(--line-soft); }
-  .import-stats div strong{ display:block; font-family:'Space Grotesk',sans-serif; font-size:22px; color: var(--ink); }
-  .import-stats div span{ font-size:12px; color: var(--ink-faint); text-transform:uppercase; letter-spacing:.05em; }
+  .import-step-num{ display:inline-flex; align-items:center; justify-content:center; width:22px; height:22px; border-radius:50%; background: var(--gold); color:#1a1408; font-family:'JetBrains Mono',monospace; font-size:12px; font-weight:700; margin-right:8px; vertical-align:middle; }
+
+  .dropzone{ border:1.5px dashed var(--line); border-radius: var(--radius); padding: 28px; text-align:center; cursor:pointer; transition: border-color .15s ease, background .15s ease; margin-top:14px; }
+  .dropzone:hover, .dropzone.drag-over{ border-color: var(--gold); background: var(--bg-raised); }
+  .dropzone-hint{ color: var(--ink-faint); font-size:12.5px; margin-top:6px; }
+  .file-chip{ display:inline-flex; align-items:center; gap:10px; margin-top:12px; padding:8px 14px; background: var(--bg-raised); border:1px solid var(--line-soft); border-radius: var(--radius); font-size:13px; color: var(--ink); }
+  .file-chip button{ background:none; border:none; color: var(--ink-faint); cursor:pointer; font-size:14px; padding:0; }
+  .file-chip button:hover{ color: var(--rust); }
+
+  .gsheet-hint{ margin-top:18px; padding:16px 18px; background: var(--bg-raised); border:1px solid var(--line-soft); border-radius: var(--radius); font-size:13px; color: var(--ink-dim); line-height:1.6; }
+  .gsheet-hint b{ color: var(--ink); }
+  .gsheet-steps{ margin:10px 0 0; padding-left:0; list-style:none; counter-reset: gstep; }
+  .gsheet-steps li{ counter-increment: gstep; position:relative; padding-left:30px; margin-bottom:8px; }
+  .gsheet-steps li::before{ content: counter(gstep); position:absolute; left:0; top:0; width:20px; height:20px; border-radius:50%; background: var(--gold); color:#1a1408; font-family:'JetBrains Mono',monospace; font-size:11px; font-weight:700; display:flex; align-items:center; justify-content:center; }
+  .gsheet-steps li:last-child{ margin-bottom:0; }
+  .gsheet-steps code{ font-family:'JetBrains Mono',monospace; font-size:12px; background: var(--bg-card); border:1px solid var(--line-soft); border-radius:4px; padding:1px 6px; color: var(--ink); }
+  .gsheet-why{ margin-top:12px; padding-top:12px; border-top:1px solid var(--line-soft); font-size:12.5px; color: var(--ink-faint); }
+
+  .map-grid{ display:grid; grid-template-columns: 1fr 1fr; gap:10px 20px; margin-top:16px; }
+  @media (max-width: 700px){ .map-grid{ grid-template-columns: 1fr; } }
+  .map-row{ display:flex; align-items:center; gap:10px; padding:8px 0; border-bottom:1px solid var(--line-soft); }
+  .map-row-label{ flex:0 0 168px; font-size:13.5px; color: var(--ink); }
+  .map-row-label .req{ color: var(--gold); margin-left:3px; }
+  .map-row select{ flex:1 1 auto; min-width:0; font-family:'Inter', sans-serif; font-size:13.5px; padding:9px 11px; border:1px solid var(--line); border-radius: var(--radius); background: var(--bg-raised); color: var(--ink); }
+  .map-row select:focus{ outline:none; border-color: var(--gold); }
+
+  .import-summary{ display:flex; gap:24px; margin: 4px 0 18px; padding: 16px; background: var(--bg-raised); border-radius: var(--radius); border: 1px solid var(--line-soft); flex-wrap:wrap; }
+  .import-summary div strong{ display:block; font-family:'Space Grotesk',sans-serif; font-size:22px; }
+  .import-summary div strong.ok{ color: var(--teal); }
+  .import-summary div strong.bad{ color: var(--rust); }
+  .import-summary div span{ font-size:12px; color: var(--ink-faint); text-transform:uppercase; letter-spacing:.05em; }
+
+  .skip-list{ font-family:'JetBrains Mono',monospace; font-size:12px; color: var(--ink-dim); max-height:160px; overflow-y:auto; background: var(--bg-raised); border:1px solid var(--line-soft); border-radius: var(--radius); padding:10px 12px; margin-top:8px; }
+  .skip-list div{ padding:2px 0; }
+
   .import-progress{ height:8px; border-radius:6px; background: var(--bg-raised); overflow:hidden; margin: 18px 0 8px; display:none; }
   .import-progress-bar{ height:100%; width:0%; background: var(--gold); transition: width .2s ease; }
-  .import-log{ font-family:'JetBrains Mono',monospace; font-size:12px; color: var(--ink-dim); white-space:pre-wrap; max-height:220px; overflow-y:auto; margin-top:14px; }
-  .warn-box{ background: var(--rust-soft); color: var(--rust); border-radius: var(--radius); padding: 12px 16px; font-size: 13px; margin: 16px 0; display:none; }
+  .import-log{ font-family:'JetBrains Mono',monospace; font-size:12px; color: var(--ink-dim); white-space:pre-wrap; max-height:180px; overflow-y:auto; margin-top:14px; }
+  .warn-box{ background: var(--rust-soft); color: var(--rust); border-radius: var(--radius); padding: 12px 16px; font-size: 13px; margin: 16px 0; }
 </style>
 </head>
 <body>
@@ -37,21 +75,88 @@
   </div>
 </div>
 
+<nav class="app-nav">
+  <div class="wrap">
+    <a class="nav-pill" href="dashboard.html">Дашборд</a>
+    <a class="nav-pill" href="app.html">Ставки</a>
+    <a class="nav-pill" href="bank.html">Выводы и банк</a>
+    <a class="nav-pill" href="disciplines.html">По дисциплинам</a>
+    <a class="nav-pill" href="bookmakers.html">По букмекерам</a>
+    <a class="nav-pill" href="markets.html">Рынки</a>
+    <a class="nav-pill" href="teams.html">Команды</a>
+    <a class="nav-pill" href="segmentation.html">Сегментация</a>
+    <a class="nav-pill" href="edges.html">Найденные эджи</a>
+    <a class="nav-pill" id="navClvPill" href="clv.html" style="display:none;">CLV Tracker</a>
+  </div>
+</nav>
+
 <section>
   <div class="wrap">
-    <div class="import-card">
-      <h2>Импорт истории из старого журнала</h2>
-      <p>Разовая загрузка ставок из старого CyberValue-журнала в твой аккаунт. Импортируются только в твою собственную базу — их увидишь только ты.</p>
+    <div class="section-head">
+      <h2>Импорт ставок</h2>
+      <div class="section-note">Загрузи таблицу Excel (.xlsx/.xls) или CSV — сайт сам разберёт колонки и разложит ставки по полям. Импорт идёт в канал, выбранный ниже.</div>
+    </div>
 
-      <div class="import-stats">
-        <div><strong id="seedCount">—</strong><span>в файле</span></div>
-        <div><strong id="existingCount">—</strong><span>уже в базе</span></div>
+    <div id="channelSwitch"></div>
+
+    <div class="import-card">
+      <h3><span class="import-step-num">1</span>Файл</h3>
+      <p style="margin-top:0;">Файл Excel (.xlsx/.xls) или CSV. Ведёшь историю в Google Таблицах? Ниже — как выгрузить её в подходящий файл за пару кликов.</p>
+
+      <div class="dropzone" id="dropzone">
+        <div>Перетащи файл сюда — или нажми, чтобы выбрать</div>
+        <div class="dropzone-hint">.xlsx, .xls, .csv</div>
+        <input type="file" id="fileInput" accept=".xlsx,.xls,.csv" style="display:none;">
+      </div>
+      <div id="fileChipWrap"></div>
+
+      <div class="gsheet-hint">
+        <b>Как импортировать из Google Таблиц</b>
+        <ol class="gsheet-steps">
+          <li>Открой свою таблицу на <code>docs.google.com</code></li>
+          <li>Если ставок несколько листов — переключись на нужный лист (импортируется только тот, что открыт сейчас)</li>
+          <li>Сверху меню: <code>Файл → Скачать</code></li>
+          <li>Выбери <code>Microsoft Excel (.xlsx)</code> — файл скачается на компьютер/телефон</li>
+          <li>Перетащи этот файл в область загрузки выше (или нажми на неё и выбери файл)</li>
+        </ol>
+        <div class="gsheet-why"><b>Почему нельзя просто вставить ссылку?</b> Google не разрешает браузеру напрямую читать таблицу по ссылке (ограничение безопасности на стороне Google, не наше) — поэтому надёжный путь только один: скачать файл и загрузить его сюда, как обычный Excel.</div>
       </div>
 
-      <div class="warn-box" id="warnBox"></div>
+      <div class="warn-box" id="parseError" style="display:none;"></div>
+    </div>
 
-      <button class="btn btn-primary" type="button" id="importBtn" style="width:auto;">Импортировать</button>
-      <span id="statusText" style="margin-left:12px; color:var(--ink-dim); font-size:13px;"></span>
+    <div class="import-card" id="mapCard" style="display:none;">
+      <h3><span class="import-step-num">2</span>Какая колонка что значит</h3>
+      <p style="margin-top:0;">Сопоставил(и) автоматически по названиям колонок — проверь и поправь, если что-то не так. <span id="fileRowsNote"></span></p>
+      <div class="map-grid" id="mapGrid"></div>
+      <div style="margin-top:18px;">
+        <button class="btn btn-primary" type="button" id="previewBtn" style="width:auto;">Показать предпросмотр</button>
+      </div>
+    </div>
+
+    <div class="import-card" id="previewCard" style="display:none;">
+      <h3><span class="import-step-num">3</span>Проверка и импорт</h3>
+
+      <div class="import-summary">
+        <div><strong class="ok" id="validCount">0</strong><span>готовы к импорту</span></div>
+        <div><strong class="bad" id="invalidCount">0</strong><span>пропущено</span></div>
+        <div><strong id="targetChannelLabel">—</strong><span>канал назначения</span></div>
+      </div>
+
+      <div id="skipListWrap" style="display:none;">
+        <div class="section-note" style="margin:0 0 4px;">Пропущенные строки и причина:</div>
+        <div class="skip-list" id="skipList"></div>
+      </div>
+
+      <div class="table-wrap" style="margin-top:18px;"><div class="table-scroll">
+        <table class="bets-table" id="previewTable"></table>
+      </div></div>
+      <div class="section-note" id="previewMoreNote" style="margin-top:8px;"></div>
+
+      <div style="margin-top:20px;">
+        <button class="btn btn-primary" type="button" id="importBtn" style="width:auto;">Импортировать</button>
+        <span id="statusText" style="margin-left:12px; color:var(--ink-dim); font-size:13px;"></span>
+      </div>
 
       <div class="import-progress" id="progressWrap"><div class="import-progress-bar" id="progressBar"></div></div>
       <div class="import-log" id="logBox"></div>
@@ -60,77 +165,383 @@
 </section>
 
 <script type="module">
-  import { supabase, requireSession } from './supabase-client.js';
-  import { initEmailPrivacyToggle } from './lib.js';
-  import { seedBets } from './bets_seed.js';
+  import { supabase, requireSession, isClvEnabled } from './supabase-client.js';
+  import { escapeHtml, getChannelParams, loadMyChannels, renderChannelSwitch, preserveChannelInNav, initEmailPrivacyToggle, channelHref } from './lib.js';
 
   const session = await requireSession();
   if (session) {
     initEmailPrivacyToggle(session.user.email);
   }
+  isClvEnabled().then(on => { if (on) document.getElementById('navClvPill').style.display = ''; });
   document.getElementById('logoutBtn').addEventListener('click', async () => {
     await supabase.auth.signOut();
     window.location.href = 'index.html';
   });
 
-  const seedCountEl = document.getElementById('seedCount');
-  const existingCountEl = document.getElementById('existingCount');
-  const warnBox = document.getElementById('warnBox');
-  const importBtn = document.getElementById('importBtn');
-  const statusText = document.getElementById('statusText');
-  const progressWrap = document.getElementById('progressWrap');
-  const progressBar = document.getElementById('progressBar');
-  const logBox = document.getElementById('logBox');
+  // Тот же паттерн канала/владельца, что и на app.html — импортируем в тот
+  // канал, что выбран переключателем (по умолчанию — свой личный дневник).
+  // Редактор чужого канала может импортировать в него точно так же, как
+  // может добавлять ставки вручную (та же модель прав, что и в app.html).
+  const { channel: activeChannel, owner: ownerParam } = getChannelParams();
+  const ownerUserId = ownerParam || session.user.id;
+  preserveChannelInNav(activeChannel, ownerUserId, session.user.id);
+  let activeChannelLabel = activeChannel === 'default' ? 'Личный дневник' : activeChannel;
+  loadMyChannels(supabase, session.user.id).then(channels => {
+    document.getElementById('channelSwitch').innerHTML =
+      renderChannelSwitch(channels, activeChannel, ownerUserId, 'import.html');
+    const found = channels.find(c => c.channel === activeChannel && c.ownerUserId === ownerUserId);
+    if (found) { activeChannelLabel = found.label; document.getElementById('targetChannelLabel').textContent = activeChannelLabel; }
+  });
+  document.getElementById('targetChannelLabel').textContent = activeChannelLabel;
 
-  function log(line){
-    logBox.textContent += line + '\n';
-    logBox.scrollTop = logBox.scrollHeight;
+  // ---- Поля bets и их синонимы для автосопоставления колонок. Порядок —
+  // сперва обязательные (см. schema.sql: not null / check-ограничения),
+  // затем необязательные. required=true не даёт выбрать "— не импортировать —".
+  const FIELD_DEFS = [
+    { key: 'bet_date', label: 'Дата', required: true, synonyms: ['дата', 'дата ставки', 'date', 'день'] },
+    { key: 'discipline', label: 'Дисциплина', required: true, synonyms: ['дисциплина', 'discipline', 'спорт', 'sport', 'игра', 'game'] },
+    { key: 'bookmaker', label: 'Букмекер', required: true, synonyms: ['букмекер', 'bookmaker', 'бк', 'контора', 'bk'] },
+    { key: 'pick', label: 'Пик (что ставили)', required: true, synonyms: ['пик', 'pick', 'исход', 'selection', 'что ставил'] },
+    { key: 'odds', label: 'Кэф', required: true, synonyms: ['кэф', 'кф', 'коэффициент', 'odds', 'цена', 'price'] },
+    { key: 'stake', label: 'Сумма ставки', required: true, synonyms: ['сумма', 'сумма ставки', 'stake', 'amount', 'размер', '$'] },
+    { key: 'tournament', label: 'Турнир', required: false, synonyms: ['турнир', 'tournament', 'лига', 'league'] },
+    { key: 'match', label: 'Матч', required: false, synonyms: ['матч', 'match', 'событие', 'event'] },
+    { key: 'result', label: 'Результат', required: false, synonyms: ['результат', 'result', 'статус', 'outcome'] },
+    { key: 'flat_mult', label: 'Флэт (множитель)', required: false, synonyms: ['флэт', 'flat', 'множитель', 'юнит', 'unit', 'units'] },
+    { key: 'bet_type', label: 'Тип ставки', required: false, synonyms: ['тип', 'тип ставки', 'type', 'bet type'] },
+    { key: 'conviction', label: 'Уверенность', required: false, synonyms: ['уверенность', 'conviction', 'confidence'] },
+    { key: 'edge_tag', label: 'Эдж', required: false, synonyms: ['эдж', 'edge', 'тег', 'tag'] },
+    { key: 'notes', label: 'Заметка', required: false, synonyms: ['заметка', 'комментарий', 'notes', 'note', 'comment'] },
+    { key: 'is_live', label: 'Лайв', required: false, synonyms: ['лайв', 'live', 'in-play', 'in play'] },
+  ];
+
+  function normHeader(s) {
+    return (s || '').toString().trim().toLowerCase().replace(/[_\-.]+/g, ' ').replace(/\s+/g, ' ');
   }
 
-  seedCountEl.textContent = seedBets.length;
+  function autoMapColumns(headers) {
+    const normed = headers.map(normHeader);
+    const used = new Set();
+    const mapping = {};
+    // проход 1: точное совпадение с одним из синонимов
+    FIELD_DEFS.forEach(f => {
+      for (let i = 0; i < headers.length; i++) {
+        if (used.has(i)) continue;
+        if (f.synonyms.includes(normed[i])) { mapping[f.key] = i; used.add(i); return; }
+      }
+    });
+    // проход 2: подстрока (в любую сторону) — на случай "Дата ставки" vs "дата"
+    FIELD_DEFS.forEach(f => {
+      if (mapping[f.key] !== undefined) return;
+      for (let i = 0; i < headers.length; i++) {
+        if (used.has(i)) continue;
+        if (f.synonyms.some(syn => normed[i].includes(syn) || syn.includes(normed[i]))) {
+          mapping[f.key] = i; used.add(i); return;
+        }
+      }
+    });
+    return mapping; // { fieldKey: headerIndex }
+  }
 
-  const { count, error: countError } = await supabase
-    .from('bets')
-    .select('*', { count: 'exact', head: true })
-    .eq('channel', 'default');
-
-  if (countError) {
-    statusText.textContent = 'Не удалось проверить базу: ' + countError.message;
-    importBtn.disabled = true;
-  } else {
-    existingCountEl.textContent = count;
-    if (count > 0) {
-      warnBox.style.display = 'block';
-      warnBox.textContent = `В базе уже есть ${count} ставок(и). Повторный запуск импорта добавит ещё ${seedBets.length} строк поверх них (дублирование). Нажимай только если уверен, что импорта ещё не было.`;
+  // ---- Разбор даты: SheetJS с cellDates:true уже отдаёт JS Date для ячеек,
+  // распознанных как даты, — берём просто год/месяц/день без переводов
+  // часовых поясов. Иначе пробуем распознать текстовые форматы вручную.
+  function parseDateCell(v) {
+    if (v instanceof Date && !isNaN(v.getTime())) {
+      const y = v.getFullYear(), m = String(v.getMonth() + 1).padStart(2, '0'), d = String(v.getDate()).padStart(2, '0');
+      return `${y}-${m}-${d}`;
     }
+    const s = (v ?? '').toString().trim();
+    if (!s) return null;
+    let m = s.match(/^(\d{4})-(\d{1,2})-(\d{1,2})/);
+    if (m) return `${m[1]}-${m[2].padStart(2, '0')}-${m[3].padStart(2, '0')}`;
+    m = s.match(/^(\d{1,2})[.\/](\d{1,2})[.\/](\d{2,4})/);
+    if (m) {
+      let [, dd, mm, yy] = m;
+      if (yy.length === 2) yy = (Number(yy) < 70 ? '20' : '19') + yy;
+      return `${yy}-${mm.padStart(2, '0')}-${dd.padStart(2, '0')}`;
+    }
+    return null;
   }
 
-  importBtn.addEventListener('click', async () => {
+  function parseNumberCell(v) {
+    if (typeof v === 'number' && !isNaN(v)) return v;
+    const s = (v ?? '').toString().trim().replace(/[^\d,.\-]/g, '').replace(',', '.');
+    if (!s) return null;
+    const n = Number(s);
+    return isNaN(n) ? null : n;
+  }
+
+  const RESULT_MAP = {
+    'win': 'Win', 'w': 'Win', 'победа': 'Win', 'выигрыш': 'Win', 'выиграл': 'Win', 'won': 'Win', '+': 'Win',
+    'loss': 'Loss', 'l': 'Loss', 'поражение': 'Loss', 'проигрыш': 'Loss', 'проиграл': 'Loss', 'lost': 'Loss', '-': 'Loss',
+    'push': 'Push', 'возврат': 'Push', 'ничья': 'Push', 'void': 'Push', 'draw': 'Push',
+    'pending': 'Pending', 'в игре': 'Pending', 'ожидание': 'Pending', 'open': 'Pending',
+    'sold': 'Sold', 'продана': 'Sold', 'продал': 'Sold', 'кэшаут': 'Sold', 'cashout': 'Sold', 'cash out': 'Sold',
+  };
+  // Незнакомое значение результата не бракует строку целиком — просто
+  // остаётся "В игре" (Pending), как и у ставки без указанного результата.
+  function normalizeResult(v) {
+    const s = (v ?? '').toString().trim().toLowerCase();
+    if (!s) return { value: 'Pending', recognized: true };
+    const mapped = RESULT_MAP[s];
+    return mapped ? { value: mapped, recognized: true } : { value: 'Pending', recognized: false };
+  }
+
+  // Значения, разрешённые CHECK-ограничением bets_bet_type_check (см.
+  // schema_milestone16.sql) — ровно то, что реально отправляет форма
+  // app.html. Всё незнакомое просто не заполняем (null), а не гадаем —
+  // отправка произвольной строки уронит insert по CHECK-ограничению в базе.
+  const BET_TYPE_MAP = {
+    'pre': 'Pre', 'pre-value': 'Pre', 'prematch': 'Pre', 'pre match': 'Pre', 'пре': 'Pre', 'до матча': 'Pre',
+    'live': 'Live', 'лайв': 'Live', 'в лайве': 'Live',
+    'хедж': 'Хедж', 'hedge': 'Хедж',
+  };
+  function normalizeBetType(v) {
+    const s = (v ?? '').toString().trim().toLowerCase();
+    if (!s) return null;
+    return BET_TYPE_MAP[s] || null;
+  }
+
+  function cellVal(row, headers, mapping, key) {
+    const idx = mapping[key];
+    if (idx === undefined) return undefined;
+    return row[headers[idx]];
+  }
+
+  // ---- Состояние между шагами ----
+  let parsedHeaders = [];
+  let parsedRows = [];
+  let mapping = {};
+  let builtRows = []; // { valid, payload?, reason? }
+
+  const dropzone = document.getElementById('dropzone');
+  const fileInput = document.getElementById('fileInput');
+  const fileChipWrap = document.getElementById('fileChipWrap');
+  const parseError = document.getElementById('parseError');
+  const mapCard = document.getElementById('mapCard');
+  const mapGrid = document.getElementById('mapGrid');
+  const fileRowsNote = document.getElementById('fileRowsNote');
+  const previewCard = document.getElementById('previewCard');
+
+  dropzone.addEventListener('click', () => fileInput.click());
+  dropzone.addEventListener('dragover', e => { e.preventDefault(); dropzone.classList.add('drag-over'); });
+  dropzone.addEventListener('dragleave', () => dropzone.classList.remove('drag-over'));
+  dropzone.addEventListener('drop', e => {
+    e.preventDefault();
+    dropzone.classList.remove('drag-over');
+    if (e.dataTransfer.files && e.dataTransfer.files[0]) handleFile(e.dataTransfer.files[0]);
+  });
+  fileInput.addEventListener('change', () => { if (fileInput.files[0]) handleFile(fileInput.files[0]); });
+
+  function handleFile(file) {
+    parseError.style.display = 'none';
+    mapCard.style.display = 'none';
+    previewCard.style.display = 'none';
+    fileChipWrap.innerHTML = `<div class="file-chip">📄 ${escapeHtml(file.name)} <button type="button" id="clearFileBtn" title="Убрать файл">✕</button></div>`;
+    document.getElementById('clearFileBtn').addEventListener('click', () => {
+      fileChipWrap.innerHTML = '';
+      mapCard.style.display = 'none';
+      previewCard.style.display = 'none';
+      fileInput.value = '';
+    });
+
+    const reader = new FileReader();
+    reader.onload = e => {
+      try {
+        const wb = XLSX.read(e.target.result, { type: 'array', cellDates: true });
+        const ws = wb.Sheets[wb.SheetNames[0]];
+        const rows = XLSX.utils.sheet_to_json(ws, { defval: '' });
+        if (!rows.length) {
+          parseError.style.display = 'block';
+          parseError.textContent = 'В файле не нашлось ни одной строки с данными (первый лист таблицы пуст).';
+          return;
+        }
+        parsedHeaders = Object.keys(rows[0]);
+        parsedRows = rows;
+        mapping = autoMapColumns(parsedHeaders);
+        renderMapGrid();
+        mapCard.style.display = '';
+        previewCard.style.display = 'none';
+      } catch (err) {
+        parseError.style.display = 'block';
+        parseError.textContent = 'Не получилось прочитать файл: ' + (err.message || err) + '. Проверь, что это действительно .xlsx/.xls/.csv, не повреждён и не запаролен.';
+      }
+    };
+    reader.onerror = () => {
+      parseError.style.display = 'block';
+      parseError.textContent = 'Не получилось прочитать файл с диска.';
+    };
+    reader.readAsArrayBuffer(file);
+  }
+
+  function renderMapGrid() {
+    fileRowsNote.textContent = `Строк в файле: ${parsedRows.length}. Колонок: ${parsedHeaders.length}.`;
+    mapGrid.innerHTML = FIELD_DEFS.map(f => {
+      const options = [`<option value="">— не импортировать —</option>`]
+        .concat(parsedHeaders.map((h, i) => `<option value="${i}"${mapping[f.key] === i ? ' selected' : ''}>${escapeHtml(h)}</option>`));
+      return `
+        <div class="map-row">
+          <div class="map-row-label">${escapeHtml(f.label)}${f.required ? '<span class="req">*</span>' : ''}</div>
+          <select data-field="${f.key}" ${f.required ? 'data-required="1"' : ''}>${options.join('')}</select>
+        </div>`;
+    }).join('');
+    mapGrid.querySelectorAll('select').forEach(sel => {
+      sel.addEventListener('change', () => {
+        const key = sel.dataset.field;
+        mapping[key] = sel.value === '' ? undefined : Number(sel.value);
+      });
+    });
+  }
+
+  document.getElementById('previewBtn').addEventListener('click', () => {
+    buildRows();
+    renderPreview();
+    previewCard.style.display = '';
+    previewCard.scrollIntoView({ behavior: 'smooth', block: 'start' });
+  });
+
+  function buildRows() {
+    builtRows = parsedRows.map((row, i) => {
+      const bet_date = parseDateCell(cellVal(row, parsedHeaders, mapping, 'bet_date'));
+      const discipline = (cellVal(row, parsedHeaders, mapping, 'discipline') ?? '').toString().trim();
+      const bookmaker = (cellVal(row, parsedHeaders, mapping, 'bookmaker') ?? '').toString().trim();
+      const matchRaw = (cellVal(row, parsedHeaders, mapping, 'match') ?? '').toString().trim();
+      let pickRaw = (cellVal(row, parsedHeaders, mapping, 'pick') ?? '').toString().trim();
+      // Если колонку "Пик" не сопоставили (или она пустая в этой строке), но
+      // есть "Матч" — используем его как пик, чтобы не терять строку из-за
+      // not-null ограничения (см. schema.sql: pick text not null).
+      const pickFallback = !pickRaw && matchRaw;
+      if (pickFallback) pickRaw = matchRaw;
+      const odds = parseNumberCell(cellVal(row, parsedHeaders, mapping, 'odds'));
+      const stake = parseNumberCell(cellVal(row, parsedHeaders, mapping, 'stake'));
+      const flatRaw = parseNumberCell(cellVal(row, parsedHeaders, mapping, 'flat_mult'));
+      const tournament = (cellVal(row, parsedHeaders, mapping, 'tournament') ?? '').toString().trim();
+      const resultRaw = normalizeResult(cellVal(row, parsedHeaders, mapping, 'result'));
+      const betType = normalizeBetType(cellVal(row, parsedHeaders, mapping, 'bet_type'));
+      const convRaw = parseNumberCell(cellVal(row, parsedHeaders, mapping, 'conviction'));
+      const conviction = (convRaw != null && Number.isInteger(convRaw) && convRaw >= 1 && convRaw <= 3) ? convRaw : null;
+      const edgeTag = (cellVal(row, parsedHeaders, mapping, 'edge_tag') ?? '').toString().trim();
+      const notes = (cellVal(row, parsedHeaders, mapping, 'notes') ?? '').toString().trim();
+      const liveRaw = (cellVal(row, parsedHeaders, mapping, 'is_live') ?? '').toString().trim().toLowerCase();
+      const isLive = ['1', 'true', 'да', 'yes', 'live', 'лайв'].includes(liveRaw);
+
+      const reasons = [];
+      if (!bet_date) reasons.push('не распознана дата');
+      if (!discipline) reasons.push('не заполнена дисциплина');
+      if (!bookmaker) reasons.push('не заполнен букмекер');
+      if (!pickRaw) reasons.push('нет ни пика, ни матча — нечего сохранять');
+      if (odds == null || !(odds > 1)) reasons.push('кэф должен быть числом больше 1');
+      if (stake == null || !(stake > 0)) reasons.push('сумма ставки должна быть положительным числом');
+
+      if (reasons.length) {
+        return { valid: false, rowIndex: i, reason: reasons.join('; ') };
+      }
+      return {
+        valid: true,
+        rowIndex: i,
+        resultUnrecognized: !resultRaw.recognized,
+        pickFallback,
+        payload: {
+          user_id: ownerUserId,
+          channel: activeChannel,
+          bet_date,
+          discipline,
+          bookmaker,
+          tournament: tournament || null,
+          match: matchRaw || null,
+          pick: pickRaw,
+          odds,
+          flat_mult: (flatRaw != null && flatRaw > 0) ? flatRaw : 1,
+          stake,
+          result: resultRaw.value,
+          bet_type: betType,
+          conviction,
+          edge_tag: edgeTag || null,
+          notes: notes || null,
+          is_live: isLive,
+        },
+      };
+    });
+  }
+
+  function renderPreview() {
+    const valid = builtRows.filter(r => r.valid);
+    const invalid = builtRows.filter(r => !r.valid);
+    document.getElementById('validCount').textContent = valid.length;
+    document.getElementById('invalidCount').textContent = invalid.length;
+    document.getElementById('targetChannelLabel').textContent = activeChannelLabel;
+
+    const skipWrap = document.getElementById('skipListWrap');
+    const skipList = document.getElementById('skipList');
+    if (invalid.length) {
+      skipWrap.style.display = '';
+      skipList.innerHTML = invalid.slice(0, 200).map(r => `<div>Строка ${r.rowIndex + 2}: ${escapeHtml(r.reason)}</div>`).join('')
+        + (invalid.length > 200 ? `<div>…и ещё ${invalid.length - 200}.</div>` : '');
+    } else {
+      skipWrap.style.display = 'none';
+    }
+
+    const softWarnings = valid.filter(r => r.resultUnrecognized).length;
+    const fallbackCount = valid.filter(r => r.pickFallback).length;
+    const notes = [];
+    if (softWarnings) notes.push(`${softWarnings} — результат не распознан, оставлен «В игре»`);
+    if (fallbackCount) notes.push(`${fallbackCount} — пик не указан отдельно, взят из колонки «Матч»`);
+
+    const previewRows = valid.slice(0, 15);
+    const table = document.getElementById('previewTable');
+    table.innerHTML = `
+      <thead><tr><th>Дата</th><th>Дисциплина</th><th>Букмекер</th><th>Матч / Пик</th><th>Кэф</th><th>Сумма</th><th>Результат</th></tr></thead>
+      <tbody>${previewRows.map(r => `
+        <tr>
+          <td class="num">${r.payload.bet_date.split('-').reverse().join('.')}</td>
+          <td>${escapeHtml(r.payload.discipline)}</td>
+          <td>${escapeHtml(r.payload.bookmaker)}</td>
+          <td>${escapeHtml(r.payload.match || r.payload.pick)}${r.payload.match && r.payload.match !== r.payload.pick ? `<div class="bd-table-sub">${escapeHtml(r.payload.pick)}</div>` : ''}</td>
+          <td class="num">${r.payload.odds.toFixed(2)}</td>
+          <td class="num">${r.payload.stake}</td>
+          <td><span class="res-pill ${{ Win: 'win', Loss: 'loss', Push: 'push', Pending: 'pending', Sold: 'sold' }[r.payload.result]}">${r.payload.result}</span></td>
+        </tr>`).join('')}</tbody>`;
+    document.getElementById('previewMoreNote').textContent = [
+      valid.length > previewRows.length ? `Показаны первые ${previewRows.length} из ${valid.length}.` : '',
+      ...notes,
+    ].filter(Boolean).join(' · ');
+
+    document.getElementById('importBtn').disabled = !valid.length;
+  }
+
+  document.getElementById('importBtn').addEventListener('click', async () => {
+    const valid = builtRows.filter(r => r.valid);
+    if (!valid.length) return;
+    const importBtn = document.getElementById('importBtn');
+    const statusText = document.getElementById('statusText');
+    const progressWrap = document.getElementById('progressWrap');
+    const progressBar = document.getElementById('progressBar');
+    const logBox = document.getElementById('logBox');
+    function log(line) { logBox.textContent += line + '\n'; logBox.scrollTop = logBox.scrollHeight; }
+
     importBtn.disabled = true;
     progressWrap.style.display = 'block';
     logBox.textContent = '';
-    const userId = session.user.id;
     const CHUNK = 50;
     let done = 0, failed = 0;
-
-    for (let i = 0; i < seedBets.length; i += CHUNK) {
-      const chunk = seedBets.slice(i, i + CHUNK).map(b => ({ ...b, user_id: userId, channel: 'default' }));
+    for (let i = 0; i < valid.length; i += CHUNK) {
+      const chunk = valid.slice(i, i + CHUNK).map(r => r.payload);
       const { error } = await supabase.from('bets').insert(chunk);
       if (error) {
         failed += chunk.length;
         log(`✗ Строки ${i + 1}–${i + chunk.length}: ${error.message}`);
       } else {
         done += chunk.length;
-        log(`✓ Загружено ${done} / ${seedBets.length}`);
+        log(`✓ Загружено ${done} / ${valid.length}`);
       }
-      progressBar.style.width = Math.round((i + chunk.length) / seedBets.length * 100) + '%';
+      progressBar.style.width = Math.round((i + chunk.length) / valid.length * 100) + '%';
       statusText.textContent = `${done} загружено, ${failed} с ошибкой…`;
     }
-
     statusText.textContent = failed
       ? `Готово с ошибками: ${done} загружено, ${failed} не удалось.`
-      : `Готово — все ${done} ставок загружены.`;
-    log(failed ? 'Есть ошибки — смотри строки выше.' : 'Импорт завершён. Можно переходить на страницу «Ставки».');
+      : `Готово — все ${done} ставок загружены в «${activeChannelLabel}».`;
+    log(failed ? 'Есть ошибки — смотри строки выше.' : `Импорт завершён. Открой «Ставки», чтобы всё увидеть.`);
     importBtn.textContent = 'Импорт завершён';
   });
 </script>

@@ -108,6 +108,7 @@
   initStatCardPopovers(statGrid);
   const appHref = channelHref('app.html', activeChannel, ownerUserId, session.user.id);
   const bankHref = channelHref('bank.html', activeChannel, ownerUserId, session.user.id);
+  const importHref = channelHref('import.html', activeChannel, ownerUserId, session.user.id);
   const setupPrompt = document.getElementById('setupPrompt');
   const dashHint = document.getElementById('dashHint');
   const asOfNote = document.getElementById('asOfNote');
@@ -268,13 +269,13 @@
       applyDashFilters();
       dashHint.innerHTML = isEditorView
         ? 'Владелец канала ещё не указал стартовый банк — показатели «Банк» и «Прирост банка» появятся после этого.'
-        : (allBets.length ? '' : 'Пусто? Есть история из старого журнала — можно <a href="import.html" style="color:var(--gold);">импортировать её сюда</a>.');
+        : (allBets.length ? '' : `Пусто? Есть история в Excel-таблице или CSV — можно <a href="${importHref}" style="color:var(--gold);">импортировать её сюда</a>.`);
       return;
     }
 
     setupPrompt.style.display = 'none';
     applyDashFilters();
-    dashHint.innerHTML = allBets.length ? '' : (isEditorView ? '' : 'Пока нет ни одной ставки — добавь их на странице «Ставки», либо <a href="import.html" style="color:var(--gold);">импортируй историю из старого журнала</a>.');
+    dashHint.innerHTML = allBets.length ? '' : (isEditorView ? '' : `Пока нет ни одной ставки — добавь их на странице «Ставки», либо <a href="${importHref}" style="color:var(--gold);">импортируй из Excel/CSV</a>.`);
   }
 
   document.getElementById('saveStartBank').addEventListener('click', async () => {

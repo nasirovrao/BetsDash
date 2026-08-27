@@ -182,7 +182,7 @@
 
 <script type="module">
   import { supabase, requireSession, isClvEnabled } from './supabase-client.js';
-  import { computeProfit, fmtMoney, getChannelParams, loadMyChannels, renderChannelSwitch, preserveChannelInNav, initEmailPrivacyToggle} from './lib.js';
+  import { computeProfit, fmtMoney, getChannelParams, loadMyChannels, renderChannelSwitch, preserveChannelInNav, initEmailPrivacyToggle, channelHref } from './lib.js';
 
   const session = await requireSession();
   if (session) {
@@ -215,6 +215,11 @@
     });
   }
   refreshChannelSwitch();
+
+  // Ссылка на импорт из ссылки в пустом состоянии ленты — с сохранением
+  // текущего канала (тот же паттерн channelHref, что и на дашборде).
+  document.getElementById('emptyState').innerHTML =
+    `Пока нет ни одной ставки — добавь первую формой выше, либо <a href="${channelHref('import.html', activeChannel, ownerUserId, session.user.id)}" style="color:var(--gold);">импортируй из Excel/CSV</a>.`;
 
   const betFeed = document.getElementById('betFeed');
   const emptyState = document.getElementById('emptyState');
