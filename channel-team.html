@@ -44,35 +44,19 @@
   <div class="wrap">
     <div class="section-head">
       <h2>Доступ к каналу</h2>
-      <div class="section-note">Попроси доступ на редактирование чужого публичного канала — или выдай его тем, кто попросил доступ к твоему.</div>
+      <div class="section-note">Приглашай конкретных людей на редактирование своего канала — или прими приглашение, если пригласили тебя. Отдельного шага «запросить доступ» больше нет: доступ появляется сразу, как только приглашённый его принимает.</div>
     </div>
 
     <div class="bet-form">
       <h3>Кого можно пригласить редактировать твой канал</h3>
-      <div class="section-note" style="margin:-4px 0 14px;">Заявку на доступ может подать только тот, чью почту ты добавишь сюда сам — остальные её даже не увидят как вариант.</div>
+      <div class="section-note" style="margin:-4px 0 14px;">Редактировать канал сможет только тот, чью почту ты добавишь сюда сам — как только он примет приглашение, доступ выдаётся сразу, без отдельного одобрения.</div>
       <div id="inviteRoot"><div class="empty-state">Загружаю…</div></div>
     </div>
 
     <div class="bet-form">
-      <h3>Запросить доступ к каналу</h3>
-      <div class="setup-row">
-        <div class="field">
-          <label for="lookupUsername">Публичное имя канала (как в ссылке /public.html?u=...)</label>
-          <input id="lookupUsername" type="text" placeholder="cybervalue" autocomplete="off">
-        </div>
-        <button class="btn btn-primary" type="button" id="lookupBtn" style="width:auto;">Найти</button>
-      </div>
-      <div id="lookupResult" style="margin-top:14px;"></div>
-    </div>
-
-    <div class="bet-form">
-      <h3>Мои заявки</h3>
-      <div id="myRequestsRoot"><div class="empty-state">Загружаю…</div></div>
-    </div>
-
-    <div class="bet-form">
-      <h3>Заявки на доступ к твоим каналам</h3>
-      <div id="pendingRoot"><div class="empty-state">Загружаю…</div></div>
+      <h3>Приглашения для тебя</h3>
+      <div class="section-note" style="margin:-4px 0 14px;">Каналы, куда тебя пригласили редактировать. Прими приглашение — и сразу получишь доступ.</div>
+      <div id="myInvitesRoot"><div class="empty-state">Загружаю…</div></div>
     </div>
 
     <div class="bet-form">
@@ -104,11 +88,7 @@
   const myUserId = session.user.id;
 
   const inviteRoot = document.getElementById('inviteRoot');
-  const lookupUsername = document.getElementById('lookupUsername');
-  const lookupBtn = document.getElementById('lookupBtn');
-  const lookupResult = document.getElementById('lookupResult');
-  const myRequestsRoot = document.getElementById('myRequestsRoot');
-  const pendingRoot = document.getElementById('pendingRoot');
+  const myInvitesRoot = document.getElementById('myInvitesRoot');
   const editorsRoot = document.getElementById('editorsRoot');
 
   function fmtDateTime(iso) {
@@ -118,10 +98,16 @@
     } catch { return ''; }
   }
 
-  // ---- Кого можно пригласить: список email'ов, которым разрешено ПОДАТЬ
-  // заявку на редактирование ТВОЕГО публичного канала (см. profile.channel —
+  // ---- Кого можно пригласить: список email'ов, которым разрешено получить
+  // доступ на редактирование ТВОЕГО публичного канала (см. profile.channel —
   // тот же самый канал, что виден по публичной ссылке). Без публичного
   // профиля приглашать некого — предлагаем сначала его настроить.
+  //
+  // Milestone 15: раньше приглашение только открывало возможность ПОДАТЬ
+  // заявку, которую владелец потом отдельно одобрял. По просьбе пользователя
+  // этот промежуточный шаг убран: сам факт приглашения — это уже решение
+  // владельца, поэтому приглашённый сразу получает доступ, просто нажав
+  // "Принять" на своей странице (см. loadMyInvites/acceptInvite ниже).
   async function loadInvites() {
     const { data: myProfile } = await supabase.from('profiles').select('*').eq('user_id', myUserId).maybeSingle();
     if (!myProfile || !myProfile.username) {
@@ -133,17 +119,17 @@
     const { data: invites, error } = await supabase
       .from('channel_invites').select('*').eq('owner_user_id', myUserId).eq('channel', ownChannel).order('created_at', { ascending: false });
     if (error && error.code === '42P01') {
-      inviteRoot.innerHTML = '<div class="empty-state">Сначала нужно выполнить schema_milestone14.sql в Supabase.</div>';
+      inviteRoot.innerHTML = '<div class="empty-state">Сначала нужно выполнить schema_milestone14.sql и schema_milestone15.sql в Supabase.</div>';
       return;
     }
     const rows = invites || [];
     inviteRoot.innerHTML = `
       <div class="setup-row">
         <div class="field">
-          <label for="inviteEmail">Email аккаунта, которому разрешаем подать заявку на «${escapeHtml(channelLabel)}»</label>
+          <label for="inviteEmail">Email аккаунта, которому даём доступ на редактирование «${escapeHtml(channelLabel)}»</label>
           <input id="inviteEmail" type="email" placeholder="friend@example.com" autocomplete="off">
         </div>
-        <button class="btn btn-primary" type="button" id="addInviteBtn" style="width:auto;">Добавить</button>
+        <button class="btn btn-primary" type="button" id="addInviteBtn" style="width:auto;">Пригласить</button>
         <span class="form-status" id="inviteStatus"></span>
       </div>
       ${rows.length ? `
@@ -168,7 +154,7 @@
       if (!email) return;
       status.textContent = 'Добавляю…';
       const { error: insErr } = await supabase.from('channel_invites').insert({
-        owner_user_id: myUserId, channel: ownChannel, invited_email: email,
+        owner_user_id: myUserId, channel: ownChannel, invited_email: email, channel_label: channelLabel,
       });
       if (insErr) {
         status.textContent = insErr.code === '23505' ? 'Этот email уже в списке.' : 'Ошибка: ' + insErr.message;
@@ -179,176 +165,79 @@
     inviteRoot.querySelectorAll('[data-uninvite]').forEach(btn => btn.addEventListener('click', async () => {
       const { error: delErr } = await supabase.from('channel_invites').delete().eq('id', btn.dataset.uninvite);
       if (delErr) { alert('Не удалось убрать: ' + delErr.message); return; }
-      loadInvites();
+      // Убрали из приглашённых — значит, и активный доступ на редактирование
+      // (если уже был принят) больше не должен оставаться действующим:
+      // иначе получится дыра — доступ есть, а права на него уже нет.
+      const uninvitedEmail = btn.closest('tr').querySelector('td').textContent.trim().toLowerCase();
+      const { data: activeAccess } = await supabase
+        .from('channel_members').select('*').eq('owner_user_id', myUserId).eq('channel', ownChannel);
+      const rowsToRevoke = (activeAccess || []).filter(m => (m.member_email || '').toLowerCase() === uninvitedEmail);
+      await Promise.all(rowsToRevoke.map(m => supabase.from('channel_members').delete().eq('id', m.id)));
+      await Promise.all([loadInvites(), loadEditors()]);
     }));
   }
 
-  // Тот же принцип "пилюли", что и res-pill у результатов ставок — просто
-  // переиспользуем готовые цвета вместо новых классов под 3 статуса заявки.
-  function statusPill(status) {
-    const map = {
-      pending: ['pending', 'На рассмотрении'],
-      approved: ['win', 'Одобрено'],
-      rejected: ['loss', 'Отклонено'],
-    };
-    const [cls, label] = map[status] || ['pending', status];
-    return `<span class="res-pill ${cls}">${label}</span>`;
-  }
-
-  // ---- Запрос доступа: ищем публичный профиль по имени канала, показываем
-  // что нашли и текущий статус заявки (если уже подавалась), либо кнопку
-  // "Запросить доступ".
-  async function doLookup() {
-    const username = lookupUsername.value.trim().toLowerCase();
-    if (!username) return;
-    lookupResult.innerHTML = '<div class="form-status">Ищу…</div>';
-    const { data: profile, error } = await supabase
-      .from('profiles').select('*').eq('username', username).eq('is_public', true).maybeSingle();
+  // ---- Приглашения для тебя: все каналы, куда тебя пригласили (я — не
+  // владелец), с кнопкой "Принять" — либо отметкой, что доступ уже принят.
+  // Никакого review-шага со стороны владельца здесь больше нет: приглашение
+  // само по себе уже решение, "Принять" сразу создаёт approved-доступ.
+  async function loadMyInvites() {
+    const [{ data: invites, error }, { data: myAccess }] = await Promise.all([
+      supabase.from('channel_invites').select('*').neq('owner_user_id', myUserId).order('created_at', { ascending: false }),
+      supabase.from('channel_members').select('*').eq('member_user_id', myUserId),
+    ]);
     if (error) {
-      lookupResult.innerHTML = `<div class="form-status">Ошибка: ${escapeHtml(error.message)}</div>`;
+      myInvitesRoot.innerHTML = `<div class="empty-state">Ошибка загрузки: ${escapeHtml(error.message)}</div>`;
       return;
     }
-    if (!profile) {
-      lookupResult.innerHTML = `<div class="form-status">Публичный канал «${escapeHtml(username)}» не найден. Проверь имя — оно берётся из ссылки на публичный профиль (/public.html?u=...).</div>`;
-      return;
-    }
-    if (profile.user_id === myUserId) {
-      lookupResult.innerHTML = `<div class="form-status">Это твой собственный канал — доступ запрашивать не нужно.</div>`;
-      return;
-    }
-    const { data: existing } = await supabase
-      .from('channel_members').select('*')
-      .eq('owner_user_id', profile.user_id).eq('channel', profile.channel).eq('member_user_id', myUserId)
-      .maybeSingle();
-    const label = escapeHtml(profile.display_name || profile.username);
-    if (existing) {
-      lookupResult.innerHTML = `
-        <div class="bd-card" style="cursor:default;">
-          <div class="bd-card-head"><div class="bd-card-name">${label}</div></div>
-          <div style="margin-top:6px;">${statusPill(existing.status)}</div>
-        </div>`;
-      return;
-    }
-    // Заявку можно подать, только если владелец сам заранее пригласил этот
-    // email (channel_invites) — иначе кнопку даже не показываем. Это не
-    // просто UI-приличие: insert в channel_members без приглашения всё
-    // равно упадёт по RLS (schema_milestone14.sql), так что показывать
-    // кнопку без приглашения было бы обманом — она бы просто не сработала.
     const myEmail = (session.user.email || '').toLowerCase();
-    const { data: invite } = await supabase
-      .from('channel_invites').select('*')
-      .eq('owner_user_id', profile.user_id).eq('channel', profile.channel).eq('invited_email', myEmail)
-      .maybeSingle();
-    if (!invite) {
-      lookupResult.innerHTML = `
-        <div class="bd-card" style="cursor:default;">
-          <div class="bd-card-head"><div class="bd-card-name">${label}</div></div>
-          <div class="form-status" style="margin-top:6px;">Владелец ещё не приглашал твою почту (${escapeHtml(session.user.email)}) на этот канал. Попроси его добавить её в список приглашённых на этой же странице.</div>
-        </div>`;
+    const rows = (invites || []).filter(r => (r.invited_email || '').toLowerCase() === myEmail);
+    if (!rows.length) {
+      myInvitesRoot.innerHTML = '<div class="empty-state">Пока никто не приглашал тебя редактировать канал.</div>';
       return;
     }
-    lookupResult.innerHTML = `
-      <div class="bd-card" style="cursor:default;">
-        <div class="bd-card-head"><div class="bd-card-name">${label}</div></div>
-        <div class="form-status" style="margin-top:6px;">Тебя пригласили на этот канал ✓</div>
-        <div class="form-actions" style="margin-top:10px;">
-          <button class="btn btn-primary" type="button" id="requestAccessBtn" style="width:auto;">Запросить доступ на редактирование</button>
-          <span class="form-status" id="requestAccessStatus"></span>
-        </div>
-      </div>`;
-    document.getElementById('requestAccessBtn').addEventListener('click', async () => {
-      const status = document.getElementById('requestAccessStatus');
-      status.textContent = 'Отправляю…';
-      const { error: insErr } = await supabase.from('channel_members').insert({
-        owner_user_id: profile.user_id,
-        channel: profile.channel,
-        channel_label: profile.display_name || profile.username,
-        member_user_id: myUserId,
-        member_email: session.user.email,
-        status: 'pending',
-      });
-      if (insErr) {
-        status.textContent = insErr.code === '23505' ? 'Заявка уже подана.' : 'Ошибка: ' + insErr.message;
-        return;
-      }
-      status.textContent = 'Заявка отправлена ✓';
-      loadMyRequests();
+    const accessByKey = new Map((myAccess || []).map(m => [`${m.owner_user_id}:${m.channel}`, m]));
+    myInvitesRoot.innerHTML = `
+      <div class="table-wrap"><div class="table-scroll">
+        <table class="bets-table">
+          <thead><tr><th>Канал</th><th>Приглашён(а)</th><th></th></tr></thead>
+          <tbody>
+            ${rows.map(r => {
+              const access = accessByKey.get(`${r.owner_user_id}:${r.channel}`);
+              return `
+              <tr>
+                <td>${escapeHtml(r.channel_label || r.channel)}</td>
+                <td class="num">${fmtDateTime(r.created_at)}</td>
+                <td>${access && access.status === 'approved'
+                  ? '<span class="res-pill win">Ты — редактор ✓</span>'
+                  : `<button class="btn btn-primary" type="button" data-accept="${r.id}" data-owner="${r.owner_user_id}" data-channel="${escapeHtml(r.channel)}" data-label="${escapeHtml(r.channel_label || r.channel)}" style="width:auto; padding:6px 14px; font-size:12.5px;">Принять</button>`}</td>
+              </tr>`;
+            }).join('')}
+          </tbody>
+        </table>
+      </div></div>`;
+    myInvitesRoot.querySelectorAll('[data-accept]').forEach(btn => btn.addEventListener('click', () => acceptInvite(btn)));
+  }
+
+  async function acceptInvite(btn) {
+    btn.disabled = true;
+    btn.textContent = 'Принимаю…';
+    const { error } = await supabase.from('channel_members').insert({
+      owner_user_id: btn.dataset.owner,
+      channel: btn.dataset.channel,
+      channel_label: btn.dataset.label,
+      member_user_id: myUserId,
+      member_email: session.user.email,
+      status: 'approved',
+      decided_at: new Date().toISOString(),
     });
-  }
-  lookupBtn.addEventListener('click', doLookup);
-  lookupUsername.addEventListener('keydown', e => { if (e.key === 'Enter') { e.preventDefault(); doLookup(); } });
-
-  // ---- Мои заявки: все строки, где заявитель — я, независимо от статуса.
-  // Отменить заявку отсюда нельзя (решение — только за владельцем канала,
-  // так же как и остальное управление доступом), поэтому кнопок здесь нет.
-  async function loadMyRequests() {
-    const { data, error } = await supabase
-      .from('channel_members').select('*').eq('member_user_id', myUserId).order('requested_at', { ascending: false });
     if (error) {
-      myRequestsRoot.innerHTML = `<div class="empty-state">Ошибка загрузки: ${escapeHtml(error.message)}</div>`;
+      btn.disabled = false;
+      btn.textContent = 'Принять';
+      alert(error.code === '23505' ? 'Доступ уже принят.' : 'Не удалось принять приглашение: ' + error.message);
       return;
     }
-    const rows = data || [];
-    if (!rows.length) {
-      myRequestsRoot.innerHTML = '<div class="empty-state">Заявок пока нет.</div>';
-      return;
-    }
-    myRequestsRoot.innerHTML = `
-      <div class="table-wrap"><div class="table-scroll">
-        <table class="bets-table">
-          <thead><tr><th>Канал</th><th>Подана</th><th>Статус</th></tr></thead>
-          <tbody>
-            ${rows.map(r => `
-              <tr>
-                <td>${escapeHtml(r.channel_label || r.channel)}</td>
-                <td class="num">${fmtDateTime(r.requested_at)}</td>
-                <td>${statusPill(r.status)}</td>
-              </tr>`).join('')}
-          </tbody>
-        </table>
-      </div></div>`;
-  }
-
-  // ---- Заявки на доступ к моим каналам (я — владелец) — только pending,
-  // с кнопками Одобрить/Отклонить.
-  async function loadPending() {
-    const { data, error } = await supabase
-      .from('channel_members').select('*').eq('owner_user_id', myUserId).eq('status', 'pending').order('requested_at', { ascending: false });
-    if (error) {
-      pendingRoot.innerHTML = `<div class="empty-state">Ошибка загрузки: ${escapeHtml(error.message)}</div>`;
-      return;
-    }
-    const rows = data || [];
-    if (!rows.length) {
-      pendingRoot.innerHTML = '<div class="empty-state">Заявок на рассмотрении нет.</div>';
-      return;
-    }
-    pendingRoot.innerHTML = `
-      <div class="table-wrap"><div class="table-scroll">
-        <table class="bets-table">
-          <thead><tr><th>Канал</th><th>Кто просит</th><th>Подана</th><th></th></tr></thead>
-          <tbody>
-            ${rows.map(r => `
-              <tr>
-                <td>${escapeHtml(r.channel_label || r.channel)}</td>
-                <td>${escapeHtml(r.member_email || r.member_user_id)}</td>
-                <td class="num">${fmtDateTime(r.requested_at)}</td>
-                <td>
-                  <button class="btn btn-primary" type="button" data-approve="${r.id}" style="width:auto; padding:6px 14px; font-size:12.5px;">Одобрить</button>
-                  <button class="row-del" type="button" data-reject="${r.id}">Отклонить</button>
-                </td>
-              </tr>`).join('')}
-          </tbody>
-        </table>
-      </div></div>`;
-    pendingRoot.querySelectorAll('[data-approve]').forEach(btn => btn.addEventListener('click', () => decide(btn.dataset.approve, 'approved')));
-    pendingRoot.querySelectorAll('[data-reject]').forEach(btn => btn.addEventListener('click', () => decide(btn.dataset.reject, 'rejected')));
-  }
-
-  async function decide(id, status) {
-    const { error } = await supabase.from('channel_members').update({ status, decided_at: new Date().toISOString() }).eq('id', id);
-    if (error) { alert('Не удалось сохранить: ' + error.message); return; }
-    await Promise.all([loadPending(), loadEditors()]);
+    await loadMyInvites();
   }
 
   // ---- Действующие редакторы моих каналов — approved, с кнопкой "Отозвать".
@@ -390,7 +279,7 @@
     loadEditors();
   }
 
-  await Promise.all([loadInvites(), loadMyRequests(), loadPending(), loadEditors()]);
+  await Promise.all([loadInvites(), loadMyInvites(), loadEditors()]);
 </script>
 
 </body>
