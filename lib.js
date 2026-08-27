@@ -583,14 +583,25 @@ export function getChannelParams() {
 //   - любой другой канал, где у пользователя есть СВОИ ставки (он владелец);
 //   - каналы, куда его одобрили редактором (channel_members, status=approved).
 export async function loadMyChannels(supabase, myUserId) {
-  const [{ data: ownBets }, { data: memberRows }] = await Promise.all([
+  const [{ data: ownBets }, { data: memberRows }, { data: myProfile }] = await Promise.all([
     supabase.from('bets').select('channel').eq('user_id', myUserId),
     supabase.from('channel_members').select('owner_user_id, channel, channel_label, status').eq('member_user_id', myUserId).eq('status', 'approved'),
+    supabase.from('profiles').select('channel, display_name, username').eq('user_id', myUserId).maybeSingle(),
   ]);
   const ownChannelSet = new Set((ownBets || []).map(b => b.channel || 'default'));
   ownChannelSet.add('default');
+  // Свой публичный канал должен быть в переключателе, даже если в нём ещё
+  // НЕТ ни одной ставки — иначе только что настроенный публичный профиль
+  // (или канал, в который просто ещё не успел ничего добавить) был бы
+  // не виден и не выбираем в UI никак, кроме как руками вбить ?channel=
+  // в адресную строку. Раньше (до динамического списка) оба канала были
+  // жёстко зашиты по умолчанию — это восстанавливает то же ощущение.
+  if (myProfile && myProfile.channel) ownChannelSet.add(myProfile.channel);
   const own = Array.from(ownChannelSet).map(ch => ({
-    channel: ch, ownerUserId: myUserId, label: ch === 'default' ? 'Личный дневник' : ch, role: 'owner',
+    channel: ch,
+    ownerUserId: myUserId,
+    label: ch === 'default' ? 'Личный дневник' : (myProfile && myProfile.channel === ch ? (myProfile.display_name || myProfile.username || ch) : ch),
+    role: 'owner',
   }));
   const shared = (memberRows || []).map(r => ({
     channel: r.channel, ownerUserId: r.owner_user_id, label: r.channel_label || r.channel, role: 'editor',
@@ -644,4 +655,180 @@ export function channelHref(pageFile, channel, ownerUserId, myUserId) {
   if (ownerUserId && ownerUserId !== myUserId) params.set('owner', ownerUserId);
   const qs = params.toString();
   return qs ? `${pageFile}?${qs}` : pageFile;
+}
+
+// ---- Скрываемая почта в шапке — клик по почте прячет её за точками
+// (например, перед демонстрацией экрана), повторный клик показывает снова.
+// Состояние в localStorage (не sessionStorage!) — сознательно: это чистая
+// UI-привычка человека, а не секрет и не серверные данные, поэтому логично,
+// чтобы выбор "прячу почту" сохранялся и переживал закрытие вкладки, как и
+// любая другая настройка интерфейса.
+const EMAIL_HIDE_KEY = 'edge_hide_email';
+export function initEmailPrivacyToggle(email) {
+  const el = document.getElementById('userEmail');
+  if (!el || !email) return;
+  el.classList.add('email-toggle');
+  el.title = 'Нажми, чтобы скрыть/показать почту';
+  function isHidden() {
+    try { return localStorage.getItem(EMAIL_HIDE_KEY) === '1'; } catch { return false; }
+  }
+  function render() {
+    el.textContent = isHidden() ? '••••••••' : email;
+  }
+  el.addEventListener('click', () => {
+    try { localStorage.setItem(EMAIL_HIDE_KEY, isHidden() ? '0' : '1'); } catch { /* приватный режим — просто не сохранится между сессиями */ }
+    render();
+  });
+  render();
+}
+
+// ---- Мини-диаграммы при наведении на карточки дашборда (Milestone 14) ----
+
+function chronoSettled(bets) {
+  return (bets || [])
+    .filter(b => b.result !== 'Pending')
+    .slice()
+    .sort((a, b) => (a.bet_date || '').localeCompare(b.bet_date || '') || (a.id - b.id));
+}
+
+// Числовой ряд для линии-спарклайна одной карточки дашборда — считается на
+// том же (уже отфильтрованном по турниру/месяцу) списке ставок, что и сама
+// карточка, чтобы поповер не расходился с цифрой под курсором.
+export function computeCardTrend(key, bets, withdrawals, startingBankroll) {
+  if (key === 'total') {
+    // Кумулятивное число ставок по мере их появления — по ВСЕМ ставкам
+    // (включая Pending), не только решённым.
+    const sorted = (bets || []).slice().sort((a, b) => (a.bet_date || '').localeCompare(b.bet_date || '') || (a.id - b.id));
+    return sorted.map((_, i) => i + 1);
+  }
+  const settled = chronoSettled(bets);
+  if (key === 'profit') {
+    let acc = 0;
+    return settled.map(b => (acc += computeProfit(b) || 0));
+  }
+  if (key === 'roi') {
+    let accProfit = 0, accStake = 0;
+    return settled.map(b => {
+      accProfit += computeProfit(b) || 0;
+      if (b.result !== 'Push') accStake += Number(b.stake) || 0;
+      return accStake ? (accProfit / accStake) * 100 : 0;
+    });
+  }
+  if (key === 'winrate') {
+    let w = 0, decided = 0;
+    return settled.filter(b => b.result === 'Win' || b.result === 'Loss').map(b => {
+      decided++;
+      if (b.result === 'Win') w++;
+      return (w / decided) * 100;
+    });
+  }
+  if (key === 'bank' || key === 'growth') {
+    const points = computeBankPoints(bets, withdrawals, startingBankroll);
+    if (!points) return [];
+    const start = Number(startingBankroll || 0);
+    return points.map(p => key === 'bank' ? p.bank : (start ? ((p.bank - start) / start) * 100 : 0));
+  }
+  return [];
+}
+
+// Топ-N ставок по профиту — для карточки "Средний кэф", вместо линии тренда
+// (там уместнее показать "вот твои лучшие заходы", а не динамику кэфа).
+export function computeTopBets(bets, n) {
+  return (bets || [])
+    .map(b => ({ b, profit: computeProfit(b) }))
+    .filter(x => x.profit != null)
+    .sort((a, b) => b.profit - a.profit)
+    .slice(0, n || 3);
+}
+
+// Маленькая линия-спарклайн без осей/подписей — только форма тренда. Цвет
+// определяется через CSS-класс (pos/neg/neu) и currentColor, а не жёстко
+// заданным stroke — так же, как и в остальном приложении (см. bd-card-bar).
+export function renderSparkline(points) {
+  if (!points || points.length < 2) {
+    return '<div class="spark-empty">Пока мало данных</div>';
+  }
+  const W = 180, H = 48, pad = 3;
+  const min = Math.min(...points), max = Math.max(...points);
+  const range = (max - min) || 1;
+  const stepX = (W - pad * 2) / (points.length - 1);
+  const xy = points.map((v, i) => [pad + i * stepX, H - pad - ((v - min) / range) * (H - pad * 2)]);
+  const linePath = xy.map((p, i) => `${i === 0 ? 'M' : 'L'} ${p[0].toFixed(1)},${p[1].toFixed(1)}`).join(' ');
+  const areaPath = `${linePath} L ${xy[xy.length - 1][0].toFixed(1)},${(H - pad).toFixed(1)} L ${xy[0][0].toFixed(1)},${(H - pad).toFixed(1)} Z`;
+  const trendCls = points[points.length - 1] > points[0] ? 'pos' : points[points.length - 1] < points[0] ? 'neg' : 'neu';
+  return `
+    <svg class="stat-spark ${trendCls}" viewBox="0 0 ${W} ${H}" preserveAspectRatio="none">
+      <path class="stat-spark-area" d="${areaPath}"></path>
+      <path class="stat-spark-line" d="${linePath}"></path>
+    </svg>`;
+}
+
+// Мини-диаграмма W/L/P — состав, а не временной ряд, поэтому три полоски-
+// пропорции вместо линии.
+export function renderWlpBars(wins, losses, pushes) {
+  const total = Math.max(1, wins + losses + pushes);
+  const seg = (n, cls, label) => n
+    ? `<div class="spark-wlp-row"><span class="spark-wlp-label">${label}</span><div class="spark-wlp-track"><div class="spark-wlp-fill ${cls}" style="width:${(n / total * 100).toFixed(1)}%;"></div></div><span class="spark-wlp-num">${n}</span></div>`
+    : '';
+  const html = seg(wins, 'w', 'W') + seg(losses, 'l', 'L') + seg(pushes, 'p', 'P');
+  return html ? `<div class="spark-wlp">${html}</div>` : '<div class="spark-empty">Пока мало данных</div>';
+}
+
+// Короткий список лучших по профиту ставок — попап для карточки "Средний кэф".
+export function renderTopBetsPop(bets, n) {
+  const top = computeTopBets(bets, n || 3);
+  if (!top.length) return '<div class="spark-empty">Пока нет сыгранных ставок</div>';
+  return `<div class="spark-topbets">${top.map(({ b, profit }) => `
+    <div class="spark-topbet-row">
+      <span class="spark-topbet-name">${escapeHtml(b.match || b.pick || '—')}</span>
+      <span class="spark-topbet-val">${fmtMoney(profit)}</span>
+    </div>`).join('')}</div>`;
+}
+
+// Единый плавающий поповер на все карточки .stat-card[data-has-pop] внутри
+// container — через делегирование на самом container (переживает любые
+// последующие innerHTML-перерисовки сетки, не нужно перевешивать слушатели
+// после каждого рендера). position:fixed — сознательно, а не absolute:
+// .stat-grid стоит с overflow:hidden (ради скруглённых углов), и поповер на
+// absolute обрезался бы этим же контейнером у крайних карточек.
+let sparkPopEl = null;
+export function initStatCardPopovers(container) {
+  if (!container) return;
+  if (!sparkPopEl) {
+    sparkPopEl = document.createElement('div');
+    sparkPopEl.className = 'stat-spark-pop';
+    document.body.appendChild(sparkPopEl);
+  }
+  const show = card => {
+    const content = card.querySelector('.stat-card-pop-content');
+    if (!content) return;
+    sparkPopEl.innerHTML = content.innerHTML;
+    const r = card.getBoundingClientRect();
+    const approxWidth = 210;
+    let left = r.left + r.width / 2;
+    left = Math.max(approxWidth / 2 + 8, Math.min(window.innerWidth - approxWidth / 2 - 8, left));
+    sparkPopEl.style.left = `${Math.round(left)}px`;
+    sparkPopEl.style.top = `${Math.round(r.top - 10)}px`;
+    sparkPopEl.classList.add('visible');
+  };
+  const hide = () => sparkPopEl.classList.remove('visible');
+  container.addEventListener('mouseover', e => {
+    const card = e.target.closest('.stat-card[data-has-pop]');
+    if (!card || !container.contains(card)) return;
+    show(card);
+  });
+  container.addEventListener('mouseout', e => {
+    const card = e.target.closest('.stat-card[data-has-pop]');
+    if (!card) return;
+    if (card.contains(e.relatedTarget)) return;
+    hide();
+  });
+  container.addEventListener('focusin', e => {
+    const card = e.target.closest('.stat-card[data-has-pop]');
+    if (card) show(card);
+  });
+  container.addEventListener('focusout', e => {
+    const card = e.target.closest('.stat-card[data-has-pop]');
+    if (card && !card.contains(e.relatedTarget)) hide();
+  });
 }

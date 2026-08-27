@@ -92,6 +92,12 @@
             <span>Профиль публичный — виден всем по ссылке, без входа в аккаунт</span>
           </label>
         </div>
+        <div class="field" style="margin-top:10px;">
+          <label class="check-row" for="p_show_bank">
+            <input id="p_show_bank" type="checkbox">
+            <span>Показывать банк и прирост банка на публичном профиле (по умолчанию скрыто — включай точечно, например на время челленджа)</span>
+          </label>
+        </div>
         <div class="form-actions">
           <button class="btn btn-primary" type="submit" id="saveBtn" style="width:auto;">Сохранить</button>
           <span class="form-status" id="formStatus"></span>
@@ -113,10 +119,11 @@
 
 <script type="module">
   import { supabase, requireSession, isClvEnabled } from './supabase-client.js';
+  import { initEmailPrivacyToggle } from './lib.js';
 
   const session = await requireSession();
   if (session) {
-    document.getElementById('userEmail').textContent = session.user.email;
+    initEmailPrivacyToggle(session.user.email);
   }
   isClvEnabled().then(on => { if (on) document.getElementById('navClvPill').style.display = ''; });
   document.getElementById('logoutBtn').addEventListener('click', async () => {
@@ -129,6 +136,7 @@
   const bioInput = document.getElementById('p_bio');
   const channelInput = document.getElementById('p_channel');
   const isPublicInput = document.getElementById('p_is_public');
+  const showBankInput = document.getElementById('p_show_bank');
   const formStatus = document.getElementById('formStatus');
   const saveBtn = document.getElementById('saveBtn');
   const publicLinkBlock = document.getElementById('publicLinkBlock');
@@ -256,6 +264,7 @@
     bioInput.value = existingProfile ? (existingProfile.bio || '') : '';
     channelInput.value = existingProfile && existingProfile.channel ? existingProfile.channel : 'cybervalue';
     isPublicInput.checked = !!(existingProfile && existingProfile.is_public);
+    showBankInput.checked = !!(existingProfile && existingProfile.show_bank);
     currentLogoUrl = existingProfile && existingProfile.logo_url ? existingProfile.logo_url : null;
     renderLogoPreview();
     renderLinkBlock();
@@ -281,6 +290,7 @@
       bio: bioInput.value.trim() || null,
       channel: channelInput.value,
       is_public: isPublicInput.checked,
+      show_bank: showBankInput.checked,
       logo_url: currentLogoUrl,
     };
     const { error } = existingProfile

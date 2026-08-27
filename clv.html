@@ -48,11 +48,11 @@
 
 <script type="module">
   import { supabase, requireSession, isClvEnabled } from './supabase-client.js';
-  import { fmtMoney, computeClv, computeClvProfit, computeClvStats, computeHedgeProfit, escapeHtml, getChannelParams, preserveChannelInNav } from './lib.js';
+  import { fmtMoney, computeClv, computeClvProfit, computeClvStats, computeHedgeProfit, escapeHtml, getChannelParams, preserveChannelInNav, initEmailPrivacyToggle} from './lib.js';
 
   const session = await requireSession();
   if (session) {
-    document.getElementById('userEmail').textContent = session.user.email;
+    initEmailPrivacyToggle(session.user.email);
   }
   document.getElementById('logoutBtn').addEventListener('click', async () => {
     await supabase.auth.signOut();

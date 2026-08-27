@@ -165,18 +165,28 @@
             { label: 'Профит', value: fmtMoney(s.totalProfit), cls: s.totalProfit > 0 ? 'pos' : s.totalProfit < 0 ? 'neg' : '', sub: '' },
             { label: 'ROI', value: s.roi == null ? '—' : s.roi.toFixed(2) + '%', cls: s.roi > 0 ? 'pos' : s.roi < 0 ? 'neg' : '', sub: '' },
             { label: 'Средний кэф', value: s.avgOdds == null ? '—' : s.avgOdds.toFixed(2), sub: '' },
-            { label: 'Банк', value: fmtMoney(s.currentBank), cls: s.currentBank > s.startingBankroll ? 'pos' : s.currentBank < s.startingBankroll ? 'neg' : '', sub: `старт ${fmtMoney(s.startingBankroll)}` },
-            { label: 'Прирост банка', value: s.bankGrowthPct == null ? '—' : s.bankGrowthPct.toFixed(1) + '%', cls: s.bankGrowthPct > 0 ? 'pos' : s.bankGrowthPct < 0 ? 'neg' : '', sub: fmtMoney(s.totalProfit) + ' по ставкам' },
           ];
-          // 9 карточек (со "В игре") ровно делятся на 3 колонки — 4-колоночная
-          // сетка по умолчанию оставила бы пустую ячейку в последнем ряду
-          // (тот же баг с "уродством", что чинили на приватном дашборде).
+          // Milestone 13: банк/прирост банка на публичном профиле — только
+          // если владелец сам включил show_bank (по умолчанию скрыто).
+          if (profile.show_bank) {
+            cards.push(
+              { label: 'Банк', value: fmtMoney(s.currentBank), cls: s.currentBank > s.startingBankroll ? 'pos' : s.currentBank < s.startingBankroll ? 'neg' : '', sub: `старт ${fmtMoney(s.startingBankroll)}` },
+              { label: 'Прирост банка', value: s.bankGrowthPct == null ? '—' : s.bankGrowthPct.toFixed(1) + '%', cls: s.bankGrowthPct > 0 ? 'pos' : s.bankGrowthPct < 0 ? 'neg' : '', sub: fmtMoney(s.totalProfit) + ' по ставкам' },
+            );
+          }
+          // Сетка — 3 колонки, число карточек должно ровно делиться на 3,
+          // иначе в последнем ряду проступает пустой серый прямоугольник
+          // (фон grid-контейнера сквозь недостающие ячейки — тот же баг,
+          // что уже чинили на приватном дашборде). С банком карточек 9 (уже
+          // кратно 3); без банка — 7, поэтому добиваем невидимыми "заглушками"
+          // до кратного 3, а не меняем раскладку каждый раз перерасчётом.
+          const padCount = (3 - cards.length % 3) % 3;
           const statHtml = `<div class="stat-grid stat-grid-3">${cards.map(c => `
             <div class="stat-card">
               <div class="stat-label">${c.label}</div>
               <div class="stat-value ${c.cls || ''}">${c.value}</div>
               ${c.sub ? `<div class="stat-sub">${c.sub}</div>` : ''}
-            </div>`).join('')}</div>`;
+            </div>`).join('')}${'<div class="stat-card" style="visibility:hidden;"></div>'.repeat(padCount)}</div>`;
 
           const { recent, streakType, streakLen } = computeStreak(allBets, 10);
           let streakHtml = '';

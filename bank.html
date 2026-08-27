@@ -85,7 +85,7 @@
           </div>
           <div class="field">
             <label for="w_note">Комментарий</label>
-            <input id="w_note" type="text" placeholder="вывод на жизнь">
+            <input id="w_note" type="text" placeholder="фиксация прибыли">
           </div>
         </div>
         <div class="form-actions">
@@ -111,11 +111,11 @@
 
 <script type="module">
   import { supabase, requireSession, isClvEnabled } from './supabase-client.js';
-  import { fmtMoney, computeStats, computeBankPoints, getChannelParams, loadMyChannels, renderChannelSwitch, preserveChannelInNav } from './lib.js';
+  import { fmtMoney, computeStats, computeBankPoints, getChannelParams, loadMyChannels, renderChannelSwitch, preserveChannelInNav, initEmailPrivacyToggle} from './lib.js';
 
   const session = await requireSession();
   if (session) {
-    document.getElementById('userEmail').textContent = session.user.email;
+    initEmailPrivacyToggle(session.user.email);
   }
   isClvEnabled().then(on => { if (on) document.getElementById('navClvPill').style.display = ''; });
   document.getElementById('logoutBtn').addEventListener('click', async () => {

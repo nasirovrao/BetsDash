@@ -53,11 +53,11 @@
 
 <script type="module">
   import { supabase, requireSession, isClvEnabled } from './supabase-client.js';
-  import { groupBetsMulti, renderGroupCards, renderBreakdownDetail, teamKeysForBet, getChannelParams, loadMyChannels, renderChannelSwitch, preserveChannelInNav, channelHref } from './lib.js';
+  import { groupBetsMulti, renderGroupCards, renderBreakdownDetail, teamKeysForBet, getChannelParams, loadMyChannels, renderChannelSwitch, preserveChannelInNav, channelHref, initEmailPrivacyToggle} from './lib.js';
 
   const session = await requireSession();
   if (session) {
-    document.getElementById('userEmail').textContent = session.user.email;
+    initEmailPrivacyToggle(session.user.email);
   }
   isClvEnabled().then(on => { if (on) document.getElementById('navClvPill').style.display = ''; });
   document.getElementById('logoutBtn').addEventListener('click', async () => {

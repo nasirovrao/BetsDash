@@ -107,3 +107,39 @@ h1,h2{ font-family:'Unbounded', -apple-system, sans-serif; font-weight:700; lett
 /* Карточки/бордеры чуть спокойнее — без резкого свечения на ховере. */
 .bd-card-link:hover{ transform: none; }
 .stat-card{ transition: background 0.15s ease, border-color 0.15s ease; }
+
+/* ---- Milestone 14: кликабельные карточки дашборда + мини-диаграммы при
+   наведении (см. initStatCardPopovers/renderSparkline в lib.js). ---- */
+a.stat-card{ text-decoration:none; color:inherit; cursor:pointer; }
+a.stat-card:hover{ background: var(--bg-raised); }
+.stat-spark-pop{
+  position:fixed; transform:translate(-50%, -100%); min-width:190px; max-width:230px;
+  background: var(--bg-raised); border:1px solid var(--line); border-radius: var(--radius);
+  padding:12px 14px 10px; box-shadow: 0 14px 32px rgba(0,0,0,0.38);
+  opacity:0; pointer-events:none; transition: opacity 0.12s ease; z-index:80;
+}
+.stat-spark-pop.visible{ opacity:1; }
+.stat-spark-pop-title{
+  font-family:'JetBrains Mono', monospace; font-size:10px; text-transform:uppercase;
+  letter-spacing:0.05em; color: var(--ink-faint); margin-bottom:8px;
+}
+.stat-spark{ width:100%; height:48px; display:block; overflow:visible; }
+.stat-spark-area{ fill: currentColor; opacity:0.14; stroke:none; }
+.stat-spark-line{ fill:none; stroke:currentColor; stroke-width:2; stroke-linecap:round; stroke-linejoin:round; }
+.stat-spark.pos{ color: var(--teal); }
+.stat-spark.neg{ color: var(--rust); }
+.stat-spark.neu{ color: var(--ink-faint); }
+.spark-empty{ font-size:11.5px; color: var(--ink-faint); padding:2px 0; }
+.spark-wlp{ display:flex; flex-direction:column; gap:6px; }
+.spark-wlp-row{ display:flex; align-items:center; gap:8px; font-family:'JetBrains Mono', monospace; font-size:11px; }
+.spark-wlp-label{ width:12px; color: var(--ink-faint); flex:none; }
+.spark-wlp-track{ flex:1; height:6px; border-radius:4px; background: var(--line-soft); overflow:hidden; }
+.spark-wlp-fill{ height:100%; border-radius:4px; }
+.spark-wlp-fill.w{ background: var(--teal); }
+.spark-wlp-fill.l{ background: var(--rust); }
+.spark-wlp-fill.p{ background: var(--ink-faint); }
+.spark-wlp-num{ width:20px; text-align:right; flex:none; color: var(--ink-dim); }
+.spark-topbets{ display:flex; flex-direction:column; gap:7px; }
+.spark-topbet-row{ display:flex; justify-content:space-between; align-items:baseline; gap:10px; font-size:11.5px; }
+.spark-topbet-name{ color: var(--ink-dim); overflow:hidden; text-overflow:ellipsis; white-space:nowrap; }
+.spark-topbet-val{ font-family:'JetBrains Mono', monospace; color: var(--teal); flex:none; }

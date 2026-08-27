@@ -61,11 +61,12 @@
 
 <script type="module">
   import { supabase, requireSession } from './supabase-client.js';
+  import { initEmailPrivacyToggle } from './lib.js';
   import { seedBets } from './bets_seed.js';
 
   const session = await requireSession();
   if (session) {
-    document.getElementById('userEmail').textContent = session.user.email;
+    initEmailPrivacyToggle(session.user.email);
   }
   document.getElementById('logoutBtn').addEventListener('click', async () => {
     await supabase.auth.signOut();
