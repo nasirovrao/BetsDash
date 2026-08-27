@@ -7,7 +7,7 @@
 <link rel="preconnect" href="https://fonts.googleapis.com">
 <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
 <link href="https://fonts.googleapis.com/css2?family=Space+Grotesk:wght@500;600;700&family=Inter:wght@400;500;600;700&family=JetBrains+Mono:wght@400;500;600&display=swap" rel="stylesheet">
-<link rel="stylesheet" href="styles.css?v=24">
+<link rel="stylesheet" href="styles.css?v=25">
 <style>
   .import-card{ max-width: 640px; margin: 48px auto; background: var(--bg-card); border: 1px solid var(--line); border-radius: var(--radius); padding: 32px; box-shadow: var(--shadow); }
   .import-card h2{ margin: 0 0 6px; }
@@ -87,7 +87,8 @@
 
   const { count, error: countError } = await supabase
     .from('bets')
-    .select('*', { count: 'exact', head: true });
+    .select('*', { count: 'exact', head: true })
+    .eq('channel', 'default');
 
   if (countError) {
     statusText.textContent = 'Не удалось проверить базу: ' + countError.message;
@@ -109,7 +110,7 @@
     let done = 0, failed = 0;
 
     for (let i = 0; i < seedBets.length; i += CHUNK) {
-      const chunk = seedBets.slice(i, i + CHUNK).map(b => ({ ...b, user_id: userId }));
+      const chunk = seedBets.slice(i, i + CHUNK).map(b => ({ ...b, user_id: userId, channel: 'default' }));
       const { error } = await supabase.from('bets').insert(chunk);
       if (error) {
         failed += chunk.length;

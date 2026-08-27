@@ -616,3 +616,12 @@ table.clv-table tbody tr.clv-row:hover .clv-match{ color: var(--gold); }
   padding: 22px 24px;
 }
 .public-footer-cta span{ font-size:14px; color: var(--ink-dim); }
+
+.channel-switch{ display:flex; gap:8px; margin-bottom:24px; flex-wrap:wrap; }
+.channel-pill{
+  font-family:'JetBrains Mono', monospace; font-size:12.5px; text-transform:uppercase; letter-spacing:0.04em;
+  color: var(--ink-dim); text-decoration:none; background: var(--bg-card); border:1px solid var(--line);
+  border-radius: 20px; padding:8px 16px; transition: all 0.15s ease;
+}
+.channel-pill:hover{ color: var(--ink); border-color: var(--ink-faint); }
+.channel-pill.active{ color: var(--gold-ink); background: var(--gold); border-color: var(--gold); }

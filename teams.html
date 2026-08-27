@@ -7,7 +7,7 @@
 <link rel="preconnect" href="https://fonts.googleapis.com">
 <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
 <link href="https://fonts.googleapis.com/css2?family=Space+Grotesk:wght@500;600;700&family=Inter:wght@400;500;600;700&family=JetBrains+Mono:wght@400;500;600&display=swap" rel="stylesheet">
-<link rel="stylesheet" href="styles.css?v=24">
+<link rel="stylesheet" href="styles.css?v=25">
 </head>
 <body>
 
@@ -64,7 +64,7 @@
   const root = document.getElementById('breakdownRoot');
   const keyParam = new URLSearchParams(location.search).get('key');
 
-  const { data, error } = await supabase.from('bets').select('*');
+  const { data, error } = await supabase.from('bets').select('*').eq('channel', 'default');
   if (error) {
     root.innerHTML = `<div class="empty-state">Ошибка загрузки: ${error.message}</div>`;
   } else {

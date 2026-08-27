@@ -7,7 +7,7 @@
 <link rel="preconnect" href="https://fonts.googleapis.com">
 <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
 <link href="https://fonts.googleapis.com/css2?family=Space+Grotesk:wght@500;600;700&family=Inter:wght@400;500;600;700&family=JetBrains+Mono:wght@400;500;600&display=swap" rel="stylesheet">
-<link rel="stylesheet" href="styles.css?v=24">
+<link rel="stylesheet" href="styles.css?v=25">
 </head>
 <body>
 
@@ -42,6 +42,11 @@
     <div class="section-head">
       <h2>Ставки</h2>
       <div class="section-note" id="countNote"></div>
+    </div>
+
+    <div class="channel-switch" id="channelSwitch">
+      <a class="channel-pill" data-channel="default" href="app.html?channel=default">Личный дневник</a>
+      <a class="channel-pill" data-channel="cybervalue" href="app.html?channel=cybervalue">Cybervalue</a>
     </div>
 
     <div class="bet-form" id="betFormBlock">
@@ -188,6 +193,15 @@
   document.getElementById('logoutBtn').addEventListener('click', async () => {
     await supabase.auth.signOut();
     window.location.href = 'index.html';
+  });
+
+  // Личный дневник и канал Cybervalue — два независимых набора ставок в
+  // одном аккаунте (см. schema_milestone8.sql), переключаются прямо в URL
+  // (?channel=cybervalue), поэтому оба режима можно держать открытыми
+  // одновременно в двух вкладках браузера.
+  const activeChannel = new URLSearchParams(location.search).get('channel') === 'cybervalue' ? 'cybervalue' : 'default';
+  document.querySelectorAll('#channelSwitch .channel-pill').forEach(a => {
+    a.classList.toggle('active', a.dataset.channel === activeChannel);
   });
 
   const betFeed = document.getElementById('betFeed');
@@ -725,9 +739,10 @@
       supabase
         .from('bets')
         .select('*')
+        .eq('channel', activeChannel)
         .order('bet_date', { ascending: false })
         .order('created_at', { ascending: false }),
-      supabase.from('edges').select('name'),
+      supabase.from('edges').select('name').eq('channel', activeChannel),
     ]);
 
     if (error) {
@@ -735,7 +750,8 @@
       return;
     }
     allBets = data || [];
-    countNote.textContent = allBets.length + (allBets.length === 1 ? ' ставка' : ' ставок');
+    const channelLabel = activeChannel === 'cybervalue' ? 'Cybervalue' : 'Личный дневник';
+    countNote.textContent = `${channelLabel} · ${allBets.length} ${allBets.length === 1 ? 'ставка' : 'ставок'}`;
     updateBookmakerList(allBets);
     // Реестр edges может ещё не существовать (пока не выполнена
     // schema_milestone6.sql) — тогда просто используем только теги из ставок,
@@ -873,6 +889,7 @@
 
     const payload = {
       user_id: session.user.id,
+      channel: activeChannel,
       bet_date: document.getElementById('f_date').value,
       discipline: document.getElementById('f_discipline').value,
       bookmaker: document.getElementById('f_bookmaker').value.trim(),

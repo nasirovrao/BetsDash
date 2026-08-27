@@ -7,7 +7,7 @@
 <link rel="preconnect" href="https://fonts.googleapis.com">
 <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
 <link href="https://fonts.googleapis.com/css2?family=Space+Grotesk:wght@500;600;700&family=Inter:wght@400;500;600;700&family=JetBrains+Mono:wght@400;500;600&display=swap" rel="stylesheet">
-<link rel="stylesheet" href="styles.css?v=24">
+<link rel="stylesheet" href="styles.css?v=25">
 </head>
 <body>
 
@@ -100,11 +100,12 @@
       // иначе на публичной странице могли бы перемешаться данные разных
       // капперов, если публичных профилей станет больше одного.
       const uid = profile.user_id;
+      const channel = profile.channel || 'cybervalue';
       const [{ data: bets, error: betsErr }, { data: withdrawals }, { data: settings }, { data: edgeDefs }] = await Promise.all([
-        supabase.from('bets').select('*').eq('user_id', uid),
-        supabase.from('withdrawals').select('*').eq('user_id', uid),
-        supabase.from('settings').select('*').eq('user_id', uid).maybeSingle(),
-        supabase.from('edges').select('*').eq('user_id', uid).order('created_at', { ascending: false }),
+        supabase.from('bets').select('*').eq('user_id', uid).eq('channel', channel),
+        supabase.from('withdrawals').select('*').eq('user_id', uid).eq('channel', channel),
+        supabase.from('settings').select('*').eq('user_id', uid).eq('channel', channel).maybeSingle(),
+        supabase.from('edges').select('*').eq('user_id', uid).eq('channel', channel).order('created_at', { ascending: false }),
       ]);
 
       if (betsErr) {
@@ -124,7 +125,8 @@
         function renderDashboardTab() {
           const s = computeStats(allBets, allWithdrawals, startingBankroll);
           const cards = [
-            { label: 'Всего ставок', value: s.total, sub: s.pending ? `${s.pending} в ожидании` : '' },
+            { label: 'Всего ставок', value: s.total, sub: '' },
+            { label: 'В игре', value: s.pending, cls: s.pending ? 'pos' : '', sub: s.pending ? 'ждут результата' : '' },
             { label: 'W / L / P', value: renderWLP(s.wins, s.losses, s.pushes), sub: '' },
             { label: 'Винрейт', value: s.winrate == null ? '—' : s.winrate.toFixed(1) + '%', sub: (s.wins + s.losses) ? `${s.wins + s.losses} решённых` : '' },
             { label: 'Профит', value: fmtMoney(s.totalProfit), cls: s.totalProfit > 0 ? 'pos' : s.totalProfit < 0 ? 'neg' : '', sub: '' },
@@ -133,7 +135,10 @@
             { label: 'Банк', value: fmtMoney(s.currentBank), cls: s.currentBank > s.startingBankroll ? 'pos' : s.currentBank < s.startingBankroll ? 'neg' : '', sub: `старт ${fmtMoney(s.startingBankroll)}` },
             { label: 'Прирост банка', value: s.bankGrowthPct == null ? '—' : s.bankGrowthPct.toFixed(1) + '%', cls: s.bankGrowthPct > 0 ? 'pos' : s.bankGrowthPct < 0 ? 'neg' : '', sub: fmtMoney(s.totalProfit) + ' по ставкам' },
           ];
-          const statHtml = `<div class="stat-grid">${cards.map(c => `
+          // 9 карточек (со "В игре") ровно делятся на 3 колонки — 4-колоночная
+          // сетка по умолчанию оставила бы пустую ячейку в последнем ряду
+          // (тот же баг с "уродством", что чинили на приватном дашборде).
+          const statHtml = `<div class="stat-grid stat-grid-3">${cards.map(c => `
             <div class="stat-card">
               <div class="stat-label">${c.label}</div>
               <div class="stat-value ${c.cls || ''}">${c.value}</div>
@@ -163,7 +168,9 @@
                 <div class="streak-dots">${dots}</div>
               </div>`;
           }
-          return statHtml + streakHtml;
+          const emptyNote = s.total === 0
+            ? `<div class="empty-state">В этом канале пока нет ставок — они появятся здесь по мере публикации.</div>` : '';
+          return statHtml + streakHtml + emptyNote;
         }
 
         function renderBreakdownTab(labelHeader, groups, keyLabel2, hideBookmakerCol) {

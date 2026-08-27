@@ -7,7 +7,7 @@
 <link rel="preconnect" href="https://fonts.googleapis.com">
 <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
 <link href="https://fonts.googleapis.com/css2?family=Space+Grotesk:wght@500;600;700&family=Inter:wght@400;500;600;700&family=JetBrains+Mono:wght@400;500;600&display=swap" rel="stylesheet">
-<link rel="stylesheet" href="styles.css?v=24">
+<link rel="stylesheet" href="styles.css?v=25">
 </head>
 <body>
 
@@ -41,7 +41,7 @@
   <div class="wrap">
     <div class="section-head">
       <h2>Публичный профиль</h2>
-      <div class="section-note">Включи публичность — и любой человек по ссылке увидит твой дашборд и все разбивки в режиме только для чтения, без входа в аккаунт. Ты по-прежнему один(на) вносишь ставки как обычно на странице «Ставки» — публичная страница просто зеркалит твои данные.</div>
+      <div class="section-note">Включи публичность — и любой человек по ссылке увидит дашборд и все разбивки выбранного ниже канала в режиме только для чтения, без входа в аккаунт. Личный дневник и канал Cybervalue — независимые наборы ставок; публично виден только тот, что выбран.</div>
     </div>
 
     <div class="bet-form">
@@ -60,6 +60,13 @@
         <div class="field" style="margin-top:14px;">
           <label for="p_bio">Описание (необязательно)</label>
           <input id="p_bio" type="text" placeholder="в двух словах — что это за канал" autocomplete="off">
+        </div>
+        <div class="field" style="margin-top:14px;">
+          <label for="p_channel">Какой канал показывать публично</label>
+          <select id="p_channel">
+            <option value="cybervalue">Cybervalue</option>
+            <option value="default">Личный дневник</option>
+          </select>
         </div>
         <div class="field" style="margin-top:16px;">
           <label class="check-row" for="p_is_public">
@@ -102,6 +109,7 @@
   const usernameInput = document.getElementById('p_username');
   const displayNameInput = document.getElementById('p_display_name');
   const bioInput = document.getElementById('p_bio');
+  const channelInput = document.getElementById('p_channel');
   const isPublicInput = document.getElementById('p_is_public');
   const formStatus = document.getElementById('formStatus');
   const saveBtn = document.getElementById('saveBtn');
@@ -155,6 +163,7 @@
     usernameInput.value = existingProfile ? (existingProfile.username || '') : '';
     displayNameInput.value = existingProfile ? (existingProfile.display_name || '') : '';
     bioInput.value = existingProfile ? (existingProfile.bio || '') : '';
+    channelInput.value = existingProfile && existingProfile.channel ? existingProfile.channel : 'cybervalue';
     isPublicInput.checked = !!(existingProfile && existingProfile.is_public);
     renderLinkBlock();
   }
@@ -172,6 +181,7 @@
       username: username || null,
       display_name: displayNameInput.value.trim() || null,
       bio: bioInput.value.trim() || null,
+      channel: channelInput.value,
       is_public: isPublicInput.checked,
     };
     const { error } = existingProfile

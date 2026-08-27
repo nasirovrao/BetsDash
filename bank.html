@@ -7,7 +7,7 @@
 <link rel="preconnect" href="https://fonts.googleapis.com">
 <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
 <link href="https://fonts.googleapis.com/css2?family=Space+Grotesk:wght@500;600;700&family=Inter:wght@400;500;600;700&family=JetBrains+Mono:wght@400;500;600&display=swap" rel="stylesheet">
-<link rel="stylesheet" href="styles.css?v=24">
+<link rel="stylesheet" href="styles.css?v=25">
 </head>
 <body>
 
@@ -366,9 +366,9 @@
 
   async function load() {
     const [{ data: bets, error: betsErr }, { data: withdrawals, error: wErr }, { data: settings, error: sErr }] = await Promise.all([
-      supabase.from('bets').select('*'),
-      supabase.from('withdrawals').select('*').order('w_date', { ascending: false }),
-      supabase.from('settings').select('*').maybeSingle(),
+      supabase.from('bets').select('*').eq('channel', 'default'),
+      supabase.from('withdrawals').select('*').eq('channel', 'default').order('w_date', { ascending: false }),
+      supabase.from('settings').select('*').eq('channel', 'default').maybeSingle(),
     ]);
 
     if (betsErr || wErr || sErr) {
@@ -398,8 +398,8 @@
     if (!val || val < 0) return;
     startBankStatus.textContent = 'Сохраняю…';
     const { error } = currentSettings
-      ? await supabase.from('settings').update({ starting_bankroll: val }).eq('user_id', session.user.id)
-      : await supabase.from('settings').insert({ user_id: session.user.id, starting_bankroll: val });
+      ? await supabase.from('settings').update({ starting_bankroll: val }).eq('user_id', session.user.id).eq('channel', 'default')
+      : await supabase.from('settings').insert({ user_id: session.user.id, channel: 'default', starting_bankroll: val });
     if (error) {
       startBankStatus.textContent = 'Ошибка: ' + error.message;
       return;
@@ -430,6 +430,7 @@
 
     const payload = {
       user_id: session.user.id,
+      channel: 'default',
       w_date: document.getElementById('w_date').value,
       amount: Number(document.getElementById('w_amount').value),
       note: document.getElementById('w_note').value.trim() || null,

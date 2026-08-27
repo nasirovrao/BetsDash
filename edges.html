@@ -7,7 +7,7 @@
 <link rel="preconnect" href="https://fonts.googleapis.com">
 <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
 <link href="https://fonts.googleapis.com/css2?family=Space+Grotesk:wght@500;600;700&family=Inter:wght@400;500;600;700&family=JetBrains+Mono:wght@400;500;600&display=swap" rel="stylesheet">
-<link rel="stylesheet" href="styles.css?v=24">
+<link rel="stylesheet" href="styles.css?v=25">
 </head>
 <body>
 
@@ -95,8 +95,8 @@
   // как раньше (эджи только из тегов ставок).
   async function loadAndRender() {
     const [{ data: bets, error: betsErr }, edgesRes] = await Promise.all([
-      supabase.from('bets').select('*'),
-      supabase.from('edges').select('*').order('created_at', { ascending: false }),
+      supabase.from('bets').select('*').eq('channel', 'default'),
+      supabase.from('edges').select('*').eq('channel', 'default').order('created_at', { ascending: false }),
     ]);
     if (betsErr) {
       root.innerHTML = `<div class="empty-state">Ошибка загрузки: ${betsErr.message}</div>`;
@@ -122,7 +122,7 @@
     const description = document.getElementById('ne_desc').value.trim() || null;
     addEdgeBtn.disabled = true;
     newEdgeStatus.textContent = 'Сохраняю…';
-    const { error } = await supabase.from('edges').insert({ name, description });
+    const { error } = await supabase.from('edges').insert({ name, description, channel: 'default' });
     addEdgeBtn.disabled = false;
     if (error) {
       if (error.code === '23505') {
