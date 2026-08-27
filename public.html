@@ -1,0 +1,210 @@
+<!doctype html>
+<html lang="ru">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>Публичный профиль — EDGE</title>
+<link rel="preconnect" href="https://fonts.googleapis.com">
+<link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
+<link href="https://fonts.googleapis.com/css2?family=Space+Grotesk:wght@500;600;700&family=Inter:wght@400;500;600;700&family=JetBrains+Mono:wght@400;500;600&display=swap" rel="stylesheet">
+<link rel="stylesheet" href="styles.css?v=24">
+</head>
+<body>
+
+<div class="topbar">
+  <div class="wrap">
+    <a class="brand" href="index.html"><svg class="brand-mark" viewBox="0 0 32 32" width="20" height="20" aria-hidden="true"><path d="M16 2L28 12L22 30H10L4 12Z" fill="var(--gold)" opacity="0.16"/><path d="M16 2L28 12L16 18L4 12Z" fill="var(--gold)"/><path d="M16 18L28 12L22 30H16Z" fill="var(--gold)" opacity="0.55"/><path d="M16 18L4 12L10 30H16Z" fill="var(--gold)" opacity="0.75"/></svg>EDGE<span>.</span></a>
+    <div class="topbar-user">
+      <a class="topbar-link" href="index.html">Войти в EDGE</a>
+    </div>
+  </div>
+</div>
+
+<section>
+  <div class="wrap">
+    <div id="profileHero"><div class="empty-state">Загружаю…</div></div>
+    <nav class="app-nav public-tabs" id="publicTabs" style="display:none;"></nav>
+    <div id="tabRoot"></div>
+  </div>
+</section>
+
+<div class="public-footer-cta" id="footerCta" style="display:none;">
+  <div class="wrap">
+    <span>Хочешь такой же публичный, верифицируемый профиль ставок?</span>
+    <a class="btn btn-primary" href="index.html" style="width:auto;">Начать в EDGE →</a>
+  </div>
+</div>
+
+<script type="module">
+  import { supabase } from './supabase-client.js';
+  import {
+    fmtMoney, computeStats, computeStreak, renderWLP, escapeHtml,
+    groupBets, groupBetsMulti, renderGroupCards, renderBreakdownDetail,
+    classifyMarket, teamKeysForBet, mergeEdgeGroups,
+  } from './lib.js';
+
+  const params = new URLSearchParams(location.search);
+  const username = (params.get('u') || '').trim().toLowerCase();
+  const activeTab = params.get('tab') || 'dashboard';
+  const keyParam = params.get('key');
+
+  const profileHero = document.getElementById('profileHero');
+  const publicTabs = document.getElementById('publicTabs');
+  const tabRoot = document.getElementById('tabRoot');
+  const footerCta = document.getElementById('footerCta');
+
+  const TABS = [
+    { id: 'dashboard', label: 'Дашборд' },
+    { id: 'disciplines', label: 'По дисциплинам' },
+    { id: 'bookmakers', label: 'По букмекерам' },
+    { id: 'markets', label: 'Рынки' },
+    { id: 'teams', label: 'Команды' },
+    { id: 'segmentation', label: 'Сегментация' },
+    { id: 'edges', label: 'Найденные эджи' },
+  ];
+
+  function notFound(message) {
+    profileHero.innerHTML = `<div class="empty-state">${escapeHtml(message)}</div>`;
+  }
+
+  if (!username) {
+    notFound('Не указан профиль — ссылка неполная.');
+  } else {
+    const { data: profile, error: profileErr } = await supabase
+      .from('profiles').select('*').eq('username', username).eq('is_public', true).maybeSingle();
+
+    if (profileErr || !profile) {
+      notFound('Такого публичного профиля не существует — либо ссылка устарела, либо владелец скрыл его.');
+    } else {
+      // "ruCount" — русское склонение числительных (1 ставка / 2 ставки / 5 ставок),
+      // тот же helper, что и на дашборде в личном кабинете.
+      const ruCount = (n, one, few, many) => {
+        const m10 = n % 10, m100 = n % 100;
+        if (m10 === 1 && m100 !== 11) return one;
+        if (m10 >= 2 && m10 <= 4 && !(m100 >= 12 && m100 <= 14)) return few;
+        return many;
+      };
+
+      profileHero.innerHTML = `
+        <div class="profile-hero">
+          <div class="profile-hero-top">
+            <div class="profile-hero-name">${escapeHtml(profile.display_name || profile.username)}</div>
+            <span class="profile-badge">Публичный профиль · верифицированные данные · только чтение</span>
+          </div>
+          ${profile.bio ? `<div class="profile-hero-bio">${escapeHtml(profile.bio)}</div>` : ''}
+        </div>`;
+
+      // ВАЖНО: RLS-политика "select public …" разрешает видеть строки ЛЮБОГО
+      // пользователя с is_public = true, а не только этого профиля — поэтому
+      // каждый запрос ниже обязательно фильтруется по user_id профиля явно,
+      // иначе на публичной странице могли бы перемешаться данные разных
+      // капперов, если публичных профилей станет больше одного.
+      const uid = profile.user_id;
+      const [{ data: bets, error: betsErr }, { data: withdrawals }, { data: settings }, { data: edgeDefs }] = await Promise.all([
+        supabase.from('bets').select('*').eq('user_id', uid),
+        supabase.from('withdrawals').select('*').eq('user_id', uid),
+        supabase.from('settings').select('*').eq('user_id', uid).maybeSingle(),
+        supabase.from('edges').select('*').eq('user_id', uid).order('created_at', { ascending: false }),
+      ]);
+
+      if (betsErr) {
+        tabRoot.innerHTML = `<div class="empty-state">Ошибка загрузки: ${escapeHtml(betsErr.message)}</div>`;
+      } else {
+        const allBets = bets || [];
+        const allWithdrawals = withdrawals || [];
+        const startingBankroll = settings ? settings.starting_bankroll : 0;
+
+        publicTabs.style.display = '';
+        publicTabs.innerHTML = `<div class="wrap">${TABS.map(t => `
+          <a class="nav-pill${t.id === activeTab ? ' active' : ''}" href="public.html?u=${encodeURIComponent(username)}&tab=${t.id}">${escapeHtml(t.label)}</a>
+        `).join('')}</div>`;
+
+        const pageFile = `public.html?u=${encodeURIComponent(username)}&tab=${activeTab}`;
+
+        function renderDashboardTab() {
+          const s = computeStats(allBets, allWithdrawals, startingBankroll);
+          const cards = [
+            { label: 'Всего ставок', value: s.total, sub: s.pending ? `${s.pending} в ожидании` : '' },
+            { label: 'W / L / P', value: renderWLP(s.wins, s.losses, s.pushes), sub: '' },
+            { label: 'Винрейт', value: s.winrate == null ? '—' : s.winrate.toFixed(1) + '%', sub: (s.wins + s.losses) ? `${s.wins + s.losses} решённых` : '' },
+            { label: 'Профит', value: fmtMoney(s.totalProfit), cls: s.totalProfit > 0 ? 'pos' : s.totalProfit < 0 ? 'neg' : '', sub: '' },
+            { label: 'ROI', value: s.roi == null ? '—' : s.roi.toFixed(2) + '%', cls: s.roi > 0 ? 'pos' : s.roi < 0 ? 'neg' : '', sub: '' },
+            { label: 'Средний кэф', value: s.avgOdds == null ? '—' : s.avgOdds.toFixed(2), sub: '' },
+            { label: 'Банк', value: fmtMoney(s.currentBank), cls: s.currentBank > s.startingBankroll ? 'pos' : s.currentBank < s.startingBankroll ? 'neg' : '', sub: `старт ${fmtMoney(s.startingBankroll)}` },
+            { label: 'Прирост банка', value: s.bankGrowthPct == null ? '—' : s.bankGrowthPct.toFixed(1) + '%', cls: s.bankGrowthPct > 0 ? 'pos' : s.bankGrowthPct < 0 ? 'neg' : '', sub: fmtMoney(s.totalProfit) + ' по ставкам' },
+          ];
+          const statHtml = `<div class="stat-grid">${cards.map(c => `
+            <div class="stat-card">
+              <div class="stat-label">${c.label}</div>
+              <div class="stat-value ${c.cls || ''}">${c.value}</div>
+              ${c.sub ? `<div class="stat-sub">${c.sub}</div>` : ''}
+            </div>`).join('')}</div>`;
+
+          const { recent, streakType, streakLen } = computeStreak(allBets, 10);
+          let streakHtml = '';
+          if (recent.length) {
+            const cls = streakType === 'W' ? 'pos' : streakType === 'L' ? 'neg' : 'neu';
+            const headline = streakType == null ? 'Нет активной серии'
+              : streakType === 'W' ? `${streakLen} ${ruCount(streakLen, 'победа', 'победы', 'побед')} подряд`
+              : `${streakLen} ${ruCount(streakLen, 'поражение', 'поражения', 'поражений')} подряд`;
+            const dots = recent.map((r, i) => {
+              const dotCls = r.outcome === 'W' ? 'w' : r.outcome === 'L' ? 'l' : 'p';
+              const isLast = i === recent.length - 1;
+              const dateLabel = r.bet.bet_date ? r.bet.bet_date.split('-').reverse().join('.') : '';
+              return `<span class="streak-dot ${dotCls}${isLast ? ' last' : ''}" title="${dateLabel}: ${r.outcome === 'W' ? 'Win' : r.outcome === 'L' ? 'Loss' : 'Push'}"></span>`;
+            }).join('');
+            streakHtml = `
+              <div class="streak-block">
+                <div class="streak-info">
+                  <div class="streak-label">Текущая серия</div>
+                  <div class="streak-value ${cls}">${headline}</div>
+                  <div class="streak-sub">по последним ${recent.length} ${ruCount(recent.length, 'сыгранной ставке', 'сыгранным ставкам', 'сыгранным ставкам')}</div>
+                </div>
+                <div class="streak-dots">${dots}</div>
+              </div>`;
+          }
+          return statHtml + streakHtml;
+        }
+
+        function renderBreakdownTab(labelHeader, groups, keyLabel2, hideBookmakerCol) {
+          if (keyParam) {
+            const group = groups.find(g => g.key === keyParam);
+            return renderBreakdownDetail(labelHeader, keyParam, group, pageFile, !!hideBookmakerCol);
+          }
+          return renderGroupCards(groups, labelHeader, pageFile);
+        }
+
+        let html = '';
+        switch (activeTab) {
+          case 'disciplines':
+            html = renderGroupCards(groupBets(allBets, b => b.discipline), 'Дисциплина');
+            break;
+          case 'bookmakers':
+            html = renderBreakdownTab('Букмекер', groupBets(allBets, b => b.bookmaker), null, true);
+            break;
+          case 'markets':
+            html = renderBreakdownTab('Рынок', groupBets(allBets, classifyMarket));
+            break;
+          case 'teams':
+            html = renderBreakdownTab('Команда', groupBetsMulti(allBets, teamKeysForBet));
+            break;
+          case 'segmentation':
+            html = renderGroupCards(groupBets(allBets, b => b.bet_type), 'Тип ставки');
+            break;
+          case 'edges':
+            html = renderBreakdownTab('Эдж-паттерн', mergeEdgeGroups(edgeDefs || [], groupBets(allBets, b => b.edge_tag)));
+            break;
+          case 'dashboard':
+          default:
+            html = renderDashboardTab();
+            break;
+        }
+        tabRoot.innerHTML = html;
+        footerCta.style.display = '';
+      }
+    }
+  }
+</script>
+
+</body>
+</html>

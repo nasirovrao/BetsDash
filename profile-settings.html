@@ -1,0 +1,198 @@
+<!doctype html>
+<html lang="ru">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>Публичный профиль — EDGE</title>
+<link rel="preconnect" href="https://fonts.googleapis.com">
+<link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
+<link href="https://fonts.googleapis.com/css2?family=Space+Grotesk:wght@500;600;700&family=Inter:wght@400;500;600;700&family=JetBrains+Mono:wght@400;500;600&display=swap" rel="stylesheet">
+<link rel="stylesheet" href="styles.css?v=24">
+</head>
+<body>
+
+<div class="topbar">
+  <div class="wrap">
+    <a class="brand" href="dashboard.html"><svg class="brand-mark" viewBox="0 0 32 32" width="20" height="20" aria-hidden="true"><path d="M16 2L28 12L22 30H10L4 12Z" fill="var(--gold)" opacity="0.16"/><path d="M16 2L28 12L16 18L4 12Z" fill="var(--gold)"/><path d="M16 18L28 12L22 30H16Z" fill="var(--gold)" opacity="0.55"/><path d="M16 18L4 12L10 30H16Z" fill="var(--gold)" opacity="0.75"/></svg>EDGE<span>.</span></a>
+    <div class="topbar-user">
+      <a class="topbar-link" href="profile-settings.html">Публичный профиль</a>
+      <span id="userEmail">…</span>
+      <button id="logoutBtn" type="button">Выйти</button>
+    </div>
+  </div>
+</div>
+
+<nav class="app-nav">
+  <div class="wrap">
+    <a class="nav-pill" href="dashboard.html">Дашборд</a>
+    <a class="nav-pill" href="app.html">Ставки</a>
+    <a class="nav-pill" href="bank.html">Выводы и банк</a>
+    <a class="nav-pill" href="disciplines.html">По дисциплинам</a>
+    <a class="nav-pill" href="bookmakers.html">По букмекерам</a>
+    <a class="nav-pill" href="markets.html">Рынки</a>
+    <a class="nav-pill" href="teams.html">Команды</a>
+    <a class="nav-pill" href="segmentation.html">Сегментация</a>
+    <a class="nav-pill" href="edges.html">Найденные эджи</a>
+    <a class="nav-pill" id="navClvPill" href="clv.html" style="display:none;">CLV Tracker</a>
+  </div>
+</nav>
+
+<section>
+  <div class="wrap">
+    <div class="section-head">
+      <h2>Публичный профиль</h2>
+      <div class="section-note">Включи публичность — и любой человек по ссылке увидит твой дашборд и все разбивки в режиме только для чтения, без входа в аккаунт. Ты по-прежнему один(на) вносишь ставки как обычно на странице «Ставки» — публичная страница просто зеркалит твои данные.</div>
+    </div>
+
+    <div class="bet-form">
+      <h3>Настройки</h3>
+      <form id="profileForm">
+        <div class="form-grid form-grid-2">
+          <div class="field">
+            <label for="p_username">Юзернейм (для ссылки)</label>
+            <input id="p_username" type="text" placeholder="cybervalue" pattern="[a-z0-9_-]{3,32}" title="Латиница, цифры, дефис, подчёркивание, 3–32 символа" autocomplete="off">
+          </div>
+          <div class="field">
+            <label for="p_display_name">Отображаемое имя</label>
+            <input id="p_display_name" type="text" placeholder="Cybervalue" autocomplete="off">
+          </div>
+        </div>
+        <div class="field" style="margin-top:14px;">
+          <label for="p_bio">Описание (необязательно)</label>
+          <input id="p_bio" type="text" placeholder="в двух словах — что это за канал" autocomplete="off">
+        </div>
+        <div class="field" style="margin-top:16px;">
+          <label class="check-row" for="p_is_public">
+            <input id="p_is_public" type="checkbox">
+            <span>Профиль публичный — виден всем по ссылке, без входа в аккаунт</span>
+          </label>
+        </div>
+        <div class="form-actions">
+          <button class="btn btn-primary" type="submit" id="saveBtn" style="width:auto;">Сохранить</button>
+          <span class="form-status" id="formStatus"></span>
+        </div>
+      </form>
+    </div>
+
+    <div class="bet-form" id="publicLinkBlock" style="display:none;">
+      <h3>Публичная ссылка</h3>
+      <div class="public-link-row">
+        <code class="public-link-value" id="publicLinkValue"></code>
+        <button class="btn btn-ghost" type="button" id="copyLinkBtn" style="width:auto;">Скопировать</button>
+        <a class="btn btn-ghost" id="openLinkBtn" href="#" target="_blank" rel="noopener" style="width:auto;">Открыть →</a>
+      </div>
+      <span class="form-status" id="copyStatus"></span>
+    </div>
+  </div>
+</section>
+
+<script type="module">
+  import { supabase, requireSession, isClvEnabled } from './supabase-client.js';
+
+  const session = await requireSession();
+  if (session) {
+    document.getElementById('userEmail').textContent = session.user.email;
+  }
+  isClvEnabled().then(on => { if (on) document.getElementById('navClvPill').style.display = ''; });
+  document.getElementById('logoutBtn').addEventListener('click', async () => {
+    await supabase.auth.signOut();
+    window.location.href = 'index.html';
+  });
+
+  const usernameInput = document.getElementById('p_username');
+  const displayNameInput = document.getElementById('p_display_name');
+  const bioInput = document.getElementById('p_bio');
+  const isPublicInput = document.getElementById('p_is_public');
+  const formStatus = document.getElementById('formStatus');
+  const saveBtn = document.getElementById('saveBtn');
+  const publicLinkBlock = document.getElementById('publicLinkBlock');
+  const publicLinkValue = document.getElementById('publicLinkValue');
+  const openLinkBtn = document.getElementById('openLinkBtn');
+  const copyLinkBtn = document.getElementById('copyLinkBtn');
+  const copyStatus = document.getElementById('copyStatus');
+
+  let existingProfile = null;
+
+  function publicUrlFor(username) {
+    return `${location.origin}${location.pathname.replace(/profile-settings\.html$/, '')}public.html?u=${encodeURIComponent(username)}`;
+  }
+
+  function renderLinkBlock() {
+    const username = (usernameInput.value || '').trim();
+    if (isPublicInput.checked && username) {
+      const url = publicUrlFor(username);
+      publicLinkBlock.style.display = 'block';
+      publicLinkValue.textContent = url;
+      openLinkBtn.href = url;
+    } else {
+      publicLinkBlock.style.display = 'none';
+    }
+  }
+  usernameInput.addEventListener('input', renderLinkBlock);
+  isPublicInput.addEventListener('change', renderLinkBlock);
+
+  copyLinkBtn.addEventListener('click', async () => {
+    try {
+      await navigator.clipboard.writeText(publicLinkValue.textContent);
+      copyStatus.textContent = 'Скопировано ✓';
+    } catch {
+      copyStatus.textContent = 'Не удалось скопировать — выдели и скопируй вручную.';
+    }
+    setTimeout(() => { copyStatus.textContent = ''; }, 2500);
+  });
+
+  async function load() {
+    const { data, error } = await supabase.from('profiles').select('*').eq('user_id', session.user.id).maybeSingle();
+    if (error && error.code !== '42P01') {
+      formStatus.textContent = 'Ошибка загрузки: ' + error.message;
+      return;
+    }
+    if (error && error.code === '42P01') {
+      formStatus.textContent = 'Сначала нужно создать таблицу profiles — выполни schema_milestone7.sql в Supabase.';
+      return;
+    }
+    existingProfile = data || null;
+    usernameInput.value = existingProfile ? (existingProfile.username || '') : '';
+    displayNameInput.value = existingProfile ? (existingProfile.display_name || '') : '';
+    bioInput.value = existingProfile ? (existingProfile.bio || '') : '';
+    isPublicInput.checked = !!(existingProfile && existingProfile.is_public);
+    renderLinkBlock();
+  }
+
+  document.getElementById('profileForm').addEventListener('submit', async (e) => {
+    e.preventDefault();
+    const username = usernameInput.value.trim().toLowerCase();
+    if (isPublicInput.checked && !username) {
+      formStatus.textContent = 'Для публичного профиля нужен юзернейм.';
+      return;
+    }
+    saveBtn.disabled = true;
+    formStatus.textContent = 'Сохраняю…';
+    const payload = {
+      username: username || null,
+      display_name: displayNameInput.value.trim() || null,
+      bio: bioInput.value.trim() || null,
+      is_public: isPublicInput.checked,
+    };
+    const { error } = existingProfile
+      ? await supabase.from('profiles').update(payload).eq('user_id', session.user.id)
+      : await supabase.from('profiles').insert({ user_id: session.user.id, ...payload });
+    saveBtn.disabled = false;
+    if (error) {
+      if (error.code === '23505') {
+        formStatus.textContent = 'Этот юзернейм уже занят — выбери другой.';
+      } else {
+        formStatus.textContent = 'Ошибка: ' + error.message;
+      }
+      return;
+    }
+    formStatus.textContent = 'Сохранено ✓';
+    setTimeout(() => { formStatus.textContent = ''; }, 2500);
+    await load();
+  });
+
+  load();
+</script>
+
+</body>
+</html>

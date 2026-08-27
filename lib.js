@@ -353,7 +353,11 @@ export function renderGroupCards(groups, labelHeader, pageFile) {
       ${pageFile ? '<div class="bd-card-arrow">→</div>' : ''}
     `;
     if (pageFile) {
-      const href = `${pageFile}?key=${encodeURIComponent(g.key)}`;
+      // pageFile обычно просто "bookmakers.html", но публичная страница
+      // профиля (public.html?u=имя&tab=bookmakers) уже приходит со своей
+      // строкой параметров — дописываем через "&", а не всегда через "?".
+      const sep = pageFile.includes('?') ? '&' : '?';
+      const href = `${pageFile}${sep}key=${encodeURIComponent(g.key)}`;
       return `<a class="bd-card bd-card-link" href="${href}">${inner}</a>`;
     }
     return `<div class="bd-card">${inner}</div>`;
