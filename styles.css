@@ -245,6 +245,10 @@ table.bets-table tbody tr:hover td.num{ color: var(--gold); }
 .res-pill.push, .res-pill.pending{ background: var(--line-soft); color: var(--ink-faint); }
 .res-pill.sold{ background: rgba(124,108,255,0.14); color: var(--gold); }
 .res-pill.hedged{ background: var(--teal-soft); color: var(--teal); }
+.edited-badge{
+  font-family:'JetBrains Mono', monospace; font-size:10px; font-weight:600; text-transform:uppercase; letter-spacing:0.02em;
+  color: var(--rust); margin-left:6px; cursor:help; white-space:nowrap;
+}
 .tag-chip{
   font-family:'JetBrains Mono', monospace; font-size:11px; background: var(--gold); color: var(--gold-ink);
   padding:2px 7px; border-radius:20px;
@@ -604,13 +608,20 @@ table.clv-table tbody tr.clv-row:hover .clv-match{ color: var(--gold); }
   border:2px solid var(--gold); background: var(--bg-card);
   box-shadow: 0 0 0 4px rgba(124,108,255,0.12);
 }
-.profile-hero-headline{ display:flex; flex-direction:column; gap:8px; }
+.profile-hero-headline{ display:flex; flex-direction:column; gap:8px; min-width:0; }
 .profile-hero-name{ font-family:'Space Grotesk', sans-serif; font-weight:700; font-size:26px; color: var(--ink); letter-spacing:-0.015em; line-height:1.15; }
 .profile-badge{
   font-family:'JetBrains Mono', monospace; font-size:10.5px; text-transform:uppercase; letter-spacing:0.05em;
   color: var(--teal); background: var(--teal-soft); border-radius:20px; padding:5px 11px; white-space:nowrap; width:fit-content;
+  max-width:100%; overflow:hidden; text-overflow:ellipsis;
 }
 .profile-hero-bio{ font-size:14px; color: var(--ink-dim); max-width:640px; line-height:1.6; margin-bottom:6px; }
+.trust-note{
+  display:flex; align-items:flex-start; gap:9px; max-width:620px; margin-top:14px;
+  font-size:12.5px; line-height:1.55; color: var(--ink-faint);
+  background: var(--bg-card); border:1px solid var(--line); border-radius:8px; padding:11px 14px;
+}
+.trust-note-mark{ flex-shrink:0; color: var(--teal); font-size:14px; line-height:1.4; }
 
 /* ---- logo upload (profile-settings.html) ---- */
 .logo-upload-row{ display:flex; align-items:center; gap:16px; flex-wrap:wrap; }

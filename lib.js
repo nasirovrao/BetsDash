@@ -405,6 +405,27 @@ export function renderBreakdownDetail(labelHeader, keyLabel, group, backHref, hi
 // ещё, где нужен просто список ставок с ключевыми полями. opts.hideBookmaker
 // прячет колонку «Букмекер», когда сама разбивка уже идёт по букмекеру
 // (там она была бы одинаковой в каждой строке и просто дублировала бы шапку).
+// Дата+время в человеческом виде для тултипов с тайм-стемпами (см. ниже) —
+// например "07.08.2026, 14:32".
+function fmtDateTime(iso) {
+  if (!iso) return '';
+  try {
+    return new Date(iso).toLocaleString('ru-RU', { day: '2-digit', month: '2-digit', year: 'numeric', hour: '2-digit', minute: '2-digit' });
+  } catch { return ''; }
+}
+
+// "Сигнал доверия" (не криптографическое доказательство, но ловит основной
+// паттерн жульничества капперов — тихо переписать историю ПОСЛЕ того, как
+// матч прошёл): settled_at проставляется один раз, в момент первого выхода
+// из Pending (см. триггер bets_touch_timestamps в schema_milestone10.sql).
+// Если updated_at заметно (>5 сек — запас на саму операцию сохранения)
+// позже settled_at, значит строку трогали ЕЩЁ раз уже после того, как
+// исход был известен.
+function wasEditedAfterSettle(b) {
+  if (!b.settled_at || !b.updated_at) return false;
+  return new Date(b.updated_at).getTime() - new Date(b.settled_at).getTime() > 5000;
+}
+
 export function renderBetsFlatTable(bets, opts) {
   if (!bets || !bets.length) {
     return '<div class="empty-state">Ставок не найдено.</div>';
@@ -415,14 +436,19 @@ export function renderBetsFlatTable(bets, opts) {
     const profit = computeProfit(b);
     const profitCls = profit == null ? '' : profit > 0 ? 'pos-text' : profit < 0 ? 'neg-text' : '';
     const title = b.match || b.pick || '—';
+    const addedTitle = b.created_at ? `Добавлено в систему: ${fmtDateTime(b.created_at)}` : '';
+    const edited = wasEditedAfterSettle(b);
+    const editedBadge = edited
+      ? `<span class="edited-badge" title="Расcчитана: ${fmtDateTime(b.settled_at)} · последняя правка: ${fmtDateTime(b.updated_at)} — запись меняли уже после того, как исход стал известен">✎ изменено</span>`
+      : '';
     return `
       <tr>
-        <td class="num">${b.bet_date ? b.bet_date.split('-').reverse().join('.') : '—'}</td>
+        <td class="num" title="${escapeHtml(addedTitle)}">${b.bet_date ? b.bet_date.split('-').reverse().join('.') : '—'}</td>
         <td>${escapeHtml(title)}</td>
         <td>${escapeHtml(b.discipline || '—')}</td>
         ${hideBookmaker ? '' : `<td>${escapeHtml(b.bookmaker || '—')}</td>`}
         <td class="num">${b.odds != null ? Number(b.odds).toFixed(2) : '—'}</td>
-        <td><span class="res-pill ${{ Win: 'win', Loss: 'loss', Push: 'push', Pending: 'pending', Sold: 'sold' }[b.result] || 'pending'}">${escapeHtml(b.result)}</span></td>
+        <td><span class="res-pill ${{ Win: 'win', Loss: 'loss', Push: 'push', Pending: 'pending', Sold: 'sold' }[b.result] || 'pending'}">${escapeHtml(b.result)}</span>${editedBadge}</td>
         <td class="num ${profitCls}">${profit == null ? '—' : fmtMoney(profit)}</td>
       </tr>`;
   }).join('');

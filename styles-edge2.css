@@ -1,0 +1,109 @@
+/* ===========================================================
+   EDGE 2.0 — премиальный рестайлинг, ПОДКЛЮЧЕН ТОЛЬКО на
+   public.html как образец, показать пользователю перед тем как
+   катить на остальные ~20 страниц. Файл styles.css НЕ трогаем —
+   это отдельный слой, который загружается ПОСЛЕ него и
+   переопределяет только переменные и часть компонентов.
+
+   Что изменилось и почему (на основе разбора Stripe/Mercury/
+   Linear/Ramp/Wise/Vercel/Attio/Raycast):
+   — индиго (#7c6cff) → настоящее золото (#c6a15a): "цвет = состояние,
+     а не украшение" — акцент один и сдержанный, а не ярко-фиолетовый;
+   — фон чуть глубже в чёрный, карточки менее "пластиковые";
+   — Space Grotesk/Inter → Unbounded/Golos Text: оба реально
+     спроектированы под кириллицу (проверено файлами шрифтов,
+     не наугад), плюс более "дорогой" плотный дисплейный жирный
+     заголовок вместо гротеска общего назначения;
+   — .nav-pill.active: было заливкой, стало подчёркиванием —
+     сдержанность вместо "закрашенной таблетки" на каждой странице;
+   — везде, где в styles.css остался цвет СТАРОГО акцента, зашитый
+     напрямую в rgba() (тени, glow), — переопределено на новый золотой.
+=========================================================== */
+
+:root{
+  --bg: #08090b;
+  --bg-raised: #111318;
+  --bg-card: #16181e;
+  --line: #26282f;
+  --line-soft: #1b1d23;
+  --ink: #f0f1f4;
+  --ink-dim: #9698a6;
+  --ink-faint: #5c5f6d;
+  --gold: #c6a15a;
+  --gold-ink: #14110c;
+  --teal: #34c398;
+  --teal-soft: rgba(52,195,152,0.12);
+  --rust: #ef5c74;
+  --rust-soft: rgba(239,92,116,0.12);
+  --shadow: 0 20px 44px rgba(0,0,0,0.55);
+  --radius: 10px;
+}
+
+body{ font-family:'Golos Text', -apple-system, "Segoe UI", sans-serif; position:relative; }
+
+/* Динамичный фон — медленная "аврора" в верхней зоне страницы (золото + teal,
+   размыто, очень медленное движение). Один слой на body::before — не требует
+   правок разметки, значит работает сразу на всех страницах, куда подключён
+   этот файл. Отключается для reduced-motion и не мешает кликам (pointer-events:none). */
+body::before{
+  content:""; position:fixed; top:0; left:0; right:0; height:520px; z-index:0;
+  pointer-events:none;
+  background:
+    radial-gradient(circle at 18% 20%, rgba(198,161,90,0.16), transparent 46%),
+    radial-gradient(circle at 82% 55%, rgba(52,195,152,0.09), transparent 42%),
+    radial-gradient(circle at 50% 5%, rgba(198,161,90,0.08), transparent 40%);
+  filter: blur(50px);
+  animation: edgeAurora 26s ease-in-out infinite alternate;
+}
+@keyframes edgeAurora{
+  0%{ transform: translate(0,0) scale(1); }
+  50%{ transform: translate(2%,-3%) scale(1.06); }
+  100%{ transform: translate(-3%,2%) scale(1.02); }
+}
+@media (prefers-reduced-motion: reduce){ body::before{ animation:none; } }
+/* Контент — поверх фонового слоя. .topbar/.wrap и т.д. рендерятся в обычном
+   потоке без position, поэтому поднимаем именно секции верхнего уровня. */
+.topbar, .app-nav, section, .auth-shell, .public-footer-cta{ position:relative; z-index:1; }
+
+h1,h2{ font-family:'Unbounded', -apple-system, sans-serif; font-weight:700; letter-spacing:-0.01em; }
+
+.brand{ font-family:'Unbounded', sans-serif; font-weight:700; font-size:17px; letter-spacing:-0.01em; }
+.profile-hero-name{ font-family:'Unbounded', sans-serif; font-weight:700; font-size:24px; letter-spacing:-0.01em; }
+.streak-value{ font-family:'Unbounded', sans-serif; font-weight:700; }
+.bd-card-name{ font-family:'Unbounded', sans-serif; font-weight:600; font-size:15px; }
+.bd-detail-name{ font-family:'Unbounded', sans-serif; }
+
+.btn,
+.field input,
+.filter-search,
+.feed-filters select,
+.note-textarea{ font-family:'Golos Text', sans-serif; }
+.btn{ text-decoration:none; display:inline-flex; align-items:center; justify-content:center; }
+
+/* Навигация — подчёркивание вместо заливки: сдержаннее, ближе к
+   Linear/Vercel, чем плашка-таблетка на золотом фоне на каждой вкладке. */
+.nav-pill{ border-radius:0; padding:7px 2px; margin-right:18px; border:none; border-bottom:2px solid transparent; }
+.nav-pill:hover{ color: var(--ink); border-color: var(--line); background:none; }
+.nav-pill.active{ color: var(--ink); background:none; border-bottom-color: var(--gold); }
+.app-nav .wrap{ gap:0; }
+
+/* Старые тени/glow были зашиты как rgba() старого индигового акцента —
+   переносим на новый золотой, иначе вокруг лого/полосок останется
+   фиолетовое свечение, которое больше не соответствует палитре. */
+.profile-hero-logo{ box-shadow: 0 0 0 4px rgba(198,161,90,0.14); }
+.streak-dot.last{ box-shadow: 0 0 0 3px rgba(198,161,90,0.30); }
+.res-pill.sold{ background: rgba(198,161,90,0.16); color: var(--gold); }
+.bet-card-edit:hover{ color: var(--gold); background: rgba(198,161,90,0.14); }
+.auth-feature:hover{ background: rgba(198,161,90,0.08); }
+.auth-feature:hover .dot{ box-shadow: 0 0 0 5px rgba(198,161,90,0.22); }
+.auth-feature .dot{ box-shadow: 0 0 0 3px rgba(198,161,90,0.16); }
+.auth-hero{
+  background:
+    radial-gradient(circle at 22% 18%, rgba(198,161,90,0.16), transparent 55%),
+    radial-gradient(circle at 85% 80%, rgba(52,195,152,0.10), transparent 50%),
+    var(--bg);
+}
+
+/* Карточки/бордеры чуть спокойнее — без резкого свечения на ховере. */
+.bd-card-link:hover{ transform: none; }
+.stat-card{ transition: background 0.15s ease, border-color 0.15s ease; }
