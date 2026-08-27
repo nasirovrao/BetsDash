@@ -7,7 +7,7 @@
 <link rel="preconnect" href="https://fonts.googleapis.com">
 <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
 <link href="https://fonts.googleapis.com/css2?family=Space+Grotesk:wght@500;600;700&family=Inter:wght@400;500;600;700&family=JetBrains+Mono:wght@400;500;600&display=swap" rel="stylesheet">
-<link rel="stylesheet" href="styles.css?v=25">
+<link rel="stylesheet" href="styles.css?v=28">
 </head>
 <body>
 
@@ -69,6 +69,21 @@
           </select>
         </div>
         <div class="field" style="margin-top:16px;">
+          <label>Логотип канала (необязательно)</label>
+          <div class="logo-upload-row">
+            <div class="logo-preview-wrap">
+              <img id="logoPreviewImg" class="logo-preview-img" style="display:none;" alt="Логотип">
+              <div class="logo-preview-placeholder" id="logoPreviewPlaceholder">нет лого</div>
+            </div>
+            <div class="logo-upload-actions">
+              <label class="btn btn-ghost" for="p_logo_file" style="width:auto; cursor:pointer;">Загрузить изображение</label>
+              <input id="p_logo_file" type="file" accept="image/png,image/jpeg,image/webp,image/svg+xml" style="display:none;">
+              <button class="btn btn-ghost" type="button" id="removeLogoBtn" style="width:auto; display:none;">Удалить</button>
+              <span class="form-status" id="logoStatus"></span>
+            </div>
+          </div>
+        </div>
+        <div class="field" style="margin-top:16px;">
           <label class="check-row" for="p_is_public">
             <input id="p_is_public" type="checkbox">
             <span>Профиль публичный — виден всем по ссылке, без входа в аккаунт</span>
@@ -118,8 +133,68 @@
   const openLinkBtn = document.getElementById('openLinkBtn');
   const copyLinkBtn = document.getElementById('copyLinkBtn');
   const copyStatus = document.getElementById('copyStatus');
+  const logoFileInput = document.getElementById('p_logo_file');
+  const logoPreviewImg = document.getElementById('logoPreviewImg');
+  const logoPreviewPlaceholder = document.getElementById('logoPreviewPlaceholder');
+  const removeLogoBtn = document.getElementById('removeLogoBtn');
+  const logoStatus = document.getElementById('logoStatus');
 
   let existingProfile = null;
+  let currentLogoUrl = null;
+
+  function renderLogoPreview() {
+    if (currentLogoUrl) {
+      logoPreviewImg.src = currentLogoUrl;
+      logoPreviewImg.style.display = '';
+      logoPreviewPlaceholder.style.display = 'none';
+      removeLogoBtn.style.display = '';
+    } else {
+      logoPreviewImg.removeAttribute('src');
+      logoPreviewImg.style.display = 'none';
+      logoPreviewPlaceholder.style.display = '';
+      removeLogoBtn.style.display = 'none';
+    }
+  }
+
+  logoFileInput.addEventListener('change', async () => {
+    const file = logoFileInput.files[0];
+    if (!file) return;
+    if (!file.type.startsWith('image/')) {
+      logoStatus.textContent = 'Нужен файл изображения (PNG, JPG, WebP или SVG).';
+      logoFileInput.value = '';
+      return;
+    }
+    if (file.size > 2 * 1024 * 1024) {
+      logoStatus.textContent = 'Файл больше 2 МБ — выбери изображение поменьше.';
+      logoFileInput.value = '';
+      return;
+    }
+    logoStatus.textContent = 'Загружаю…';
+    const ext = (file.name.split('.').pop() || 'png').toLowerCase().replace(/[^a-z0-9]/g, '') || 'png';
+    const path = `${session.user.id}/logo.${ext}`;
+    const { error: upErr } = await supabase.storage.from('profile-logos').upload(path, file, { upsert: true, cacheControl: '3600' });
+    logoFileInput.value = '';
+    if (upErr) {
+      logoStatus.textContent = 'Не удалось загрузить: ' + upErr.message;
+      return;
+    }
+    const { data: urlData } = supabase.storage.from('profile-logos').getPublicUrl(path);
+    // Кэшбастер — иначе браузер может показать старую картинку по тому же
+    // пути после upsert-перезаписи. Пропускаем для data:-URL (в проде их не
+    // бывает — Storage всегда отдаёт https://…, но так безопаснее): у data:
+    // нет query-части, «?t=…» ломает саму строку и картинка не грузится.
+    currentLogoUrl = urlData.publicUrl.startsWith('data:')
+      ? urlData.publicUrl
+      : urlData.publicUrl + (urlData.publicUrl.includes('?') ? '&' : '?') + 't=' + Date.now();
+    renderLogoPreview();
+    logoStatus.textContent = 'Загружено ✓ — не забудь нажать «Сохранить»';
+  });
+
+  removeLogoBtn.addEventListener('click', () => {
+    currentLogoUrl = null;
+    renderLogoPreview();
+    logoStatus.textContent = 'Лого будет удалено при сохранении.';
+  });
 
   function publicUrlFor(username) {
     return `${location.origin}${location.pathname.replace(/profile-settings\.html$/, '')}public.html?u=${encodeURIComponent(username)}`;
@@ -165,6 +240,8 @@
     bioInput.value = existingProfile ? (existingProfile.bio || '') : '';
     channelInput.value = existingProfile && existingProfile.channel ? existingProfile.channel : 'cybervalue';
     isPublicInput.checked = !!(existingProfile && existingProfile.is_public);
+    currentLogoUrl = existingProfile && existingProfile.logo_url ? existingProfile.logo_url : null;
+    renderLogoPreview();
     renderLinkBlock();
   }
 
@@ -183,6 +260,7 @@
       bio: bioInput.value.trim() || null,
       channel: channelInput.value,
       is_public: isPublicInput.checked,
+      logo_url: currentLogoUrl,
     };
     const { error } = existingProfile
       ? await supabase.from('profiles').update(payload).eq('user_id', session.user.id)

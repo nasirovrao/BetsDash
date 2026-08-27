@@ -7,7 +7,7 @@
 <link rel="preconnect" href="https://fonts.googleapis.com">
 <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
 <link href="https://fonts.googleapis.com/css2?family=Space+Grotesk:wght@500;600;700&family=Inter:wght@400;500;600;700&family=JetBrains+Mono:wght@400;500;600&display=swap" rel="stylesheet">
-<link rel="stylesheet" href="styles.css?v=25">
+<link rel="stylesheet" href="styles.css?v=28">
 </head>
 <body>
 
@@ -88,8 +88,11 @@
       profileHero.innerHTML = `
         <div class="profile-hero">
           <div class="profile-hero-top">
-            <div class="profile-hero-name">${escapeHtml(profile.display_name || profile.username)}</div>
-            <span class="profile-badge">Публичный профиль · верифицированные данные · только чтение</span>
+            ${profile.logo_url ? `<img class="profile-hero-logo" src="${escapeHtml(profile.logo_url)}" alt="${escapeHtml(profile.display_name || profile.username)}">` : ''}
+            <div class="profile-hero-headline">
+              <div class="profile-hero-name">${escapeHtml(profile.display_name || profile.username)}</div>
+              <span class="profile-badge">Публичный профиль · верифицированные данные · только чтение</span>
+            </div>
           </div>
           ${profile.bio ? `<div class="profile-hero-bio">${escapeHtml(profile.bio)}</div>` : ''}
         </div>`;

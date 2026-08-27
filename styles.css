@@ -598,13 +598,30 @@ table.clv-table tbody tr.clv-row:hover .clv-match{ color: var(--gold); }
 }
 
 .profile-hero{ padding: 28px 0 8px; }
-.profile-hero-top{ display:flex; align-items:center; gap:14px; flex-wrap:wrap; margin-bottom:8px; }
-.profile-hero-name{ font-family:'Space Grotesk', sans-serif; font-weight:700; font-size:26px; color: var(--ink); letter-spacing:-0.015em; }
+.profile-hero-top{ display:flex; align-items:center; gap:16px; flex-wrap:wrap; margin-bottom:8px; }
+.profile-hero-logo{
+  width:88px; height:88px; border-radius:50%; object-fit:contain; flex-shrink:0;
+  border:2px solid var(--gold); background: var(--bg-card);
+  box-shadow: 0 0 0 4px rgba(124,108,255,0.12);
+}
+.profile-hero-headline{ display:flex; flex-direction:column; gap:8px; }
+.profile-hero-name{ font-family:'Space Grotesk', sans-serif; font-weight:700; font-size:26px; color: var(--ink); letter-spacing:-0.015em; line-height:1.15; }
 .profile-badge{
   font-family:'JetBrains Mono', monospace; font-size:10.5px; text-transform:uppercase; letter-spacing:0.05em;
-  color: var(--teal); background: var(--teal-soft); border-radius:20px; padding:5px 11px; white-space:nowrap;
+  color: var(--teal); background: var(--teal-soft); border-radius:20px; padding:5px 11px; white-space:nowrap; width:fit-content;
 }
 .profile-hero-bio{ font-size:14px; color: var(--ink-dim); max-width:640px; line-height:1.6; margin-bottom:6px; }
+
+/* ---- logo upload (profile-settings.html) ---- */
+.logo-upload-row{ display:flex; align-items:center; gap:16px; flex-wrap:wrap; }
+.logo-preview-wrap{
+  width:88px; height:88px; border-radius:50%; flex-shrink:0; overflow:hidden;
+  border:1px dashed var(--line); background: var(--bg-raised);
+  display:flex; align-items:center; justify-content:center;
+}
+.logo-preview-img{ width:100%; height:100%; object-fit:contain; display:block; }
+.logo-preview-placeholder{ font-family:'JetBrains Mono', monospace; font-size:9px; text-transform:uppercase; color: var(--ink-faint); text-align:center; padding:0 6px; letter-spacing:0.03em; }
+.logo-upload-actions{ display:flex; align-items:center; gap:10px; flex-wrap:wrap; }
 
 .public-tabs{ margin-top:6px; }
 
