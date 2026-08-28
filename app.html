@@ -69,8 +69,15 @@
           </div>
           <div class="field">
             <label for="f_discipline">Дисциплина</label>
-            <input id="f_discipline" type="text" placeholder="Dota2" list="disciplineList" required autocomplete="off">
-            <datalist id="disciplineList"></datalist>
+            <div class="discipline-select-row">
+              <select id="f_discipline" required></select>
+              <button type="button" id="disciplineAddBtn" class="discipline-add-btn" title="Добавить новую дисциплину" aria-label="Добавить новую дисциплину">+</button>
+            </div>
+            <div class="discipline-add-row" id="disciplineAddRow">
+              <input type="text" id="disciplineNewInput" placeholder="Например: LoL Wild Rift" autocomplete="off">
+              <button type="button" id="disciplineConfirmBtn" class="btn btn-primary discipline-add-confirm">Добавить</button>
+              <button type="button" id="disciplineCancelBtn" class="discipline-add-cancel" title="Отмена" aria-label="Отмена">✕</button>
+            </div>
           </div>
           <div class="field">
             <label for="f_bookmaker">Букмекер</label>
@@ -231,9 +238,20 @@
     if (!flatVal || flatVal <= 0) return;
     stakeInput.value = (flatVal * defaultFlatSize).toFixed(2);
   }
-  supabase.from('settings').select('default_flat_size').eq('user_id', ownerUserId).eq('channel', activeChannel).maybeSingle()
+  // Своих дисциплин (добавленных кнопкой "+" у поля "Дисциплина") тоже
+  // нет смысла перегружать при каждом loadBets() — читаем один раз вместе
+  // с флетом по умолчанию. settingsRowExists помнит, есть ли вообще
+  // строка settings под этот канал — update() на несуществующую строку
+  // молча не делает ничего (0 строк, без ошибки), поэтому для первого
+  // сохранения нужен именно insert(), а не update().
+  let customDisciplines = [];
+  let settingsRowExists = false;
+  supabase.from('settings').select('default_flat_size, custom_disciplines').eq('user_id', ownerUserId).eq('channel', activeChannel).maybeSingle()
     .then(({ data }) => {
+      settingsRowExists = !!data;
       defaultFlatSize = data && data.default_flat_size != null ? Number(data.default_flat_size) : null;
+      customDisciplines = data && Array.isArray(data.custom_disciplines) ? data.custom_disciplines : [];
+      renderDisciplineOptions();
       // Подставляем сразу при открытии формы "Добавить ставку" (флет там
       // по умолчанию уже "1×" в разметке) — только если сумму ещё никто не
       // тронул, чтобы не перебить то, что пользователь уже успел ввести
@@ -256,7 +274,12 @@
   const countNote = document.getElementById('countNote');
   const formStatus = document.getElementById('formStatus');
   const bookmakerList = document.getElementById('bookmakerList');
-  const disciplineList = document.getElementById('disciplineList');
+  const disciplineSelect = document.getElementById('f_discipline');
+  const disciplineAddBtn = document.getElementById('disciplineAddBtn');
+  const disciplineAddRow = document.getElementById('disciplineAddRow');
+  const disciplineNewInput = document.getElementById('disciplineNewInput');
+  const disciplineConfirmBtn = document.getElementById('disciplineConfirmBtn');
+  const disciplineCancelBtn = document.getElementById('disciplineCancelBtn');
   const tournamentList = document.getElementById('tournamentList');
   const edgeList = document.getElementById('edgeList');
   const betForm = document.getElementById('betForm');
@@ -808,7 +831,7 @@
     const editorTag = isEditorView ? ' (ты — редактор)' : '';
     countNote.textContent = `${channelLabel}${editorTag} · ${allBets.length} ${allBets.length === 1 ? 'ставка' : 'ставок'}`;
     updateBookmakerList(allBets);
-    updateDisciplineList(allBets);
+    renderDisciplineOptions();
     updateTournamentList(allBets);
     // Реестр edges может ещё не существовать (пока не выполнена
     // schema_milestone6.sql) — тогда просто используем только теги из ставок,
@@ -827,17 +850,74 @@
     bookmakerList.innerHTML = names.map(n => `<option value="${escapeHtml(n)}"></option>`).join('');
   }
 
-  // Дисциплина раньше была жёстким <select> с 4 вариантами (Dota2/CS2/
-  // Hockey/Other) — любые свои значения приходилось прописывать прямо в
-  // HTML, а при каждом обновлении сайта (новый zip) эти правки затирались
-  // обратно на дефолтные 4. Теперь — как букмекер: свободный текст +
-  // подсказки из уже введённых своих же ставок, ничего не сбрасывается и
-  // не требует правок кода для новой дисциплины.
-  const DEFAULT_DISCIPLINES = ['Dota2', 'CS2', 'Hockey'];
-  function updateDisciplineList(data){
-    const used = data.map(b => (b.discipline || '').trim()).filter(Boolean);
-    const names = Array.from(new Set([...DEFAULT_DISCIPLINES, ...used])).sort();
-    disciplineList.innerHTML = names.map(n => `<option value="${escapeHtml(n)}"></option>`).join('');
+  // Дисциплина — снова выпадающий список (как было изначально), но теперь
+  // из трёх источников сразу: фиксированный базовый набор ниже + свои,
+  // сохранённые через кнопку "+" (settings.custom_disciplines,
+  // schema_milestone20.sql) + то, что уже встречается в самих ставках
+  // (старые/импортированные записи со значением вне обоих списков —
+  // чтобы их можно было открыть на редактирование, не теряя значение).
+  // Раньше это был жёстко зашитый в HTML <select> на 4 варианта — расширить
+  // его можно было только правкой кода, и любые ручные правки в самом файле
+  // сайта слетали при каждом обновлении (следующем zip).
+  const DEFAULT_DISCIPLINES = ['Dota2', 'CS2', 'LOL', 'Valorant', 'Hockey', 'Football', 'Tennis', 'Table Tennis', 'Basketball', 'Volleyball', 'Handball'];
+  function renderDisciplineOptions(){
+    const used = allBets.map(b => (b.discipline || '').trim()).filter(Boolean);
+    const all = new Set([...DEFAULT_DISCIPLINES, ...customDisciplines, ...used]);
+    // Порядок: сперва фиксированный базовый набор в заданном порядке, затем
+    // всё остальное (своё + встретившееся в данных) по алфавиту — так
+    // список не скачет местами при каждом перерендере.
+    const extra = Array.from(all).filter(n => !DEFAULT_DISCIPLINES.includes(n)).sort((a, b) => a.localeCompare(b, 'ru'));
+    const ordered = [...DEFAULT_DISCIPLINES, ...extra];
+    const prevValue = disciplineSelect.value;
+    disciplineSelect.innerHTML = ordered.map(n => `<option value="${escapeHtml(n)}">${escapeHtml(n)}</option>`).join('');
+    if (prevValue && ordered.includes(prevValue)) disciplineSelect.value = prevValue;
+  }
+  renderDisciplineOptions();
+
+  disciplineAddBtn.addEventListener('click', () => {
+    disciplineAddRow.classList.add('is-open');
+    disciplineAddBtn.style.display = 'none';
+    disciplineNewInput.value = '';
+    disciplineNewInput.focus();
+  });
+  function closeDisciplineAddRow(){
+    disciplineAddRow.classList.remove('is-open');
+    disciplineAddBtn.style.display = '';
+  }
+  disciplineCancelBtn.addEventListener('click', closeDisciplineAddRow);
+  disciplineNewInput.addEventListener('keydown', e => {
+    if (e.key === 'Enter') { e.preventDefault(); confirmAddDiscipline(); }
+    if (e.key === 'Escape') { e.preventDefault(); closeDisciplineAddRow(); }
+  });
+  disciplineConfirmBtn.addEventListener('click', confirmAddDiscipline);
+  async function confirmAddDiscipline(){
+    const name = disciplineNewInput.value.trim();
+    if (!name) return;
+    const exists = [...DEFAULT_DISCIPLINES, ...customDisciplines].some(n => n.toLowerCase() === name.toLowerCase());
+    if (exists) {
+      // Уже есть в списке (свой или базовый) — просто выбираем её, ничего
+      // заново сохранять не нужно.
+      renderDisciplineOptions();
+      disciplineSelect.value = [...DEFAULT_DISCIPLINES, ...customDisciplines].find(n => n.toLowerCase() === name.toLowerCase());
+      closeDisciplineAddRow();
+      return;
+    }
+    disciplineConfirmBtn.disabled = true;
+    const updated = [...customDisciplines, name];
+    const payload = { custom_disciplines: updated };
+    const { error } = settingsRowExists
+      ? await supabase.from('settings').update(payload).eq('user_id', ownerUserId).eq('channel', activeChannel)
+      : await supabase.from('settings').insert({ user_id: ownerUserId, channel: activeChannel, ...payload });
+    disciplineConfirmBtn.disabled = false;
+    if (error) {
+      formStatus.textContent = 'Не удалось сохранить новую дисциплину: ' + error.message;
+      return;
+    }
+    settingsRowExists = true;
+    customDisciplines = updated;
+    renderDisciplineOptions();
+    disciplineSelect.value = name;
+    closeDisciplineAddRow();
   }
 
   // Турнир — та же идея: раньше это было чистое текстовое поле без всякого
