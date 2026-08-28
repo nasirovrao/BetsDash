@@ -26,7 +26,26 @@ export async function requireSession() {
 // settings.clv_tracker_enabled (флаг ставит администратор вручную в Supabase
 // Table Editor). Используется, чтобы показать/скрыть пункт "CLV Tracker" в
 // навигации на всех страницах, а также на самой clv.html.
+//
+// ВАЖНО: settings — таблица НЕ "один пользователь = одна строка", а "один
+// пользователь = одна строка НА КАЖДЫЙ канал" (личный дневник + Cybervalue +
+// любые дополнительные каналы, см. channel-архитектуру). Раньше здесь был
+// select().maybeSingle() совсем без фильтра — как только у пользователя
+// появлялась вторая строка settings (второй канал), Supabase возвращал
+// больше одной строки, maybeSingle() расценивал это как ошибку (PGRST116,
+// "нужно 0 или 1 строк") и молча отдавал data:null — флаг выглядел
+// выключенным, даже если админ честно проставил TRUE в нужной строке.
+// Теперь — явный фильтр по текущему пользователю и проверка "включено ли
+// ХОТЯ БЫ в одной из его строк" вместо ожидания ровно одной строки.
 export async function isClvEnabled() {
-  const { data } = await supabase.from('settings').select('clv_tracker_enabled').maybeSingle();
-  return !!(data && data.clv_tracker_enabled);
+  const { data: { session } } = await supabase.auth.getSession();
+  const uid = session && session.user && session.user.id;
+  if (!uid) return false;
+  const { data } = await supabase
+    .from('settings')
+    .select('clv_tracker_enabled')
+    .eq('user_id', uid)
+    .eq('clv_tracker_enabled', true)
+    .limit(1);
+  return !!(data && data.length);
 }
