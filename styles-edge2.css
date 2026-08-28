@@ -81,11 +81,40 @@ h1,h2{ font-family:'Unbounded', -apple-system, sans-serif; font-weight:700; lett
 .btn{ text-decoration:none; display:inline-flex; align-items:center; justify-content:center; }
 
 /* Навигация — подчёркивание вместо заливки: сдержаннее, ближе к
-   Linear/Vercel, чем плашка-таблетка на золотом фоне на каждой вкладке. */
-.nav-pill{ border-radius:0; padding:7px 2px; margin-right:18px; border:none; border-bottom:2px solid transparent; }
+   Linear/Vercel, чем плашка-таблетка на золотом фоне на каждой вкладке.
+
+   Шрифт пунктов меню — AST №19 (Анастасия Прогацкая, распространяется
+   автором свободно, см. vendor/fonts/ast19-normal.woff2), брусковая
+   антиква вместо JetBrains Mono. Файл вендорится локально (как и xlsx —
+   см. import.html), а не грузится с Яндекс.Диска: у автора это личная
+   раздача, а не CDN, и не предназначена для прямых hotlink-запросов с
+   чужого сайта. В шрифте только одно начертание (Regular) — жирность
+   нигде не переопределяем, иначе браузер даст "жирнее" синтетическим
+   растолщением, а для брусковой антиквы это выглядит грязно. */
+@font-face{
+  font-family:'AST19'; font-weight:400; font-style:normal; font-display:swap;
+  src:url('vendor/fonts/ast19-normal.woff2') format('woff2');
+}
+.nav-pill{
+  border-radius:0; padding:7px 2px; margin-right:5px; border:none; border-bottom:2px solid transparent;
+  font-family:'AST19', 'JetBrains Mono', monospace; font-weight:400;
+}
 .nav-pill:hover{ color: var(--ink); border-color: var(--line); background:none; }
 .nav-pill.active{ color: var(--ink); background:none; border-bottom-color: var(--gold); }
 .app-nav .wrap{ gap:0; }
+
+/* AST19 заметно шире JetBrains Mono по символам — на 1440px пункты меню
+   уже не помещались бы в одну строку без сокращения зазора (margin-right
+   18px→13px выше). Список вкладок будет расти дальше, так что на узких
+   экранах меню всё равно уйдёт в горизонтальный скролл — он уже есть
+   (overflow-x:auto, styles.css), просто не видно, что можно докрутить.
+   Затухание с края через mask-image добавлять не стали: оно постоянно
+   съедало бы последний пункт, даже когда меню и так помещается целиком
+   (нечестный визуальный сигнал "тут ещё что-то есть", когда на самом
+   деле нет) — а условно включать его только при реальном overflow
+   потребовало бы JS на каждой из ~20 страниц ради второстепенного
+   штриха. Сокращения отступов достаточно для актуального списка вкладок;
+   если список вырастет ещё — переоценить тогда. */
 
 /* Старые тени/glow были зашиты как rgba() старого индигового акцента —
    переносим на новый золотой, иначе вокруг лого/полосок останется
