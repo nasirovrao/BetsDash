@@ -822,12 +822,22 @@ export function initStatCardPopovers(container) {
     sparkPopEl.classList.add('visible');
   };
   const hide = () => sparkPopEl.classList.remove('visible');
+  // На устройствах с настоящим наведением мышью (hover:hover + pointer:fine)
+  // тот же .stat-card-pop-content теперь раскрывается прямо внутри самой
+  // укрупняющейся карточки через CSS (см. #statGrid в styles-edge3.css) —
+  // плавающий поповер там же дублировал бы то же самое, поэтому по mouseover
+  // его не показываем. На тач/грубом указателе такого CSS-эффекта нет —
+  // там поповер остаётся единственным способом увидеть детали, mouseover
+  // всё равно почти не срабатывает на тач-устройствах без реальной мыши.
+  const finePointerHover = window.matchMedia('(hover: hover) and (pointer: fine)').matches;
   container.addEventListener('mouseover', e => {
+    if (finePointerHover) return;
     const card = e.target.closest('.stat-card[data-has-pop]');
     if (!card || !container.contains(card)) return;
     show(card);
   });
   container.addEventListener('mouseout', e => {
+    if (finePointerHover) return;
     const card = e.target.closest('.stat-card[data-has-pop]');
     if (!card) return;
     if (card.contains(e.relatedTarget)) return;

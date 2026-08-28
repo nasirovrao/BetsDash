@@ -1,0 +1,160 @@
+/* =========================================================================
+   EDGE 3.0 — "ICE SLATE" + фокус-режим дашборда (ui-ux-pro-max)
+   =========================================================================
+   Третий слой поверх styles.css → styles-edge2.css, тот же принцип: только
+   переопределения, ничего не выпиливаем из предыдущих слоёв. Выбранный
+   пользователем из 4 вариантов ("удиви меня") — самый холодный и самый
+   сдержанный: без blur/glow/теней вообще, ставка на воздух и волосяные
+   линии (Minimalism & Swiss Style + Space Tech color, из ui-ux-pro-max).
+
+   Плюс два отдельных фикса по фидбеку:
+   1) .nav-pill — было margin-right:5px, пункты меню визуально сливались
+      в один блок текста (AST19 и так плотная брусковая антиква без
+      просветов между словами) — увеличено с явным разделителем.
+   2) #statGrid (только дашборд, id уникален для этой страницы) — при
+      наведении на любую из 8 карточек остальные 7 гаснут и сжимаются,
+      наведённая укрупняется и раскрывает уже существующий скрытый
+      .stat-card-pop-content (тот же HTML, что раньше уходил в плавающий
+      .stat-spark-pop — теперь показывается прямо внутри карточки, без
+      floating-поповера, см. lib.js initStatCardPopovers). ========= */
+
+:root{
+  --bg: #090b10;
+  --bg-raised: #10131a;
+  --bg-card: #10131a;
+  --line: #232a36;
+  --line-soft: #171c24;
+  --ink: #eef2f8;
+  --gold: #7fb3ff;
+  --gold-ink: #071018;
+  --teal: #4fd6c4;
+  --teal-soft: rgba(79,214,196,0.10);
+  --rust: #f2637a;
+  --rust-soft: rgba(242,99,122,0.10);
+}
+
+body::before{
+  background:
+    radial-gradient(circle at 25% 10%, rgba(127,179,255,0.09), transparent 46%),
+    radial-gradient(circle at 80% 70%, rgba(79,214,196,0.05), transparent 44%);
+  filter: blur(80px);
+  animation-duration: 34s;
+}
+
+.stat-card, .bd-card-link, .bet-card, .setup-card, .wlp-pill, .stat-spark-pop{
+  box-shadow: none !important;
+  backdrop-filter: none !important;
+  border: 1px solid var(--line) !important;
+  border-radius: 4px !important;
+  background: var(--bg-card) !important;
+}
+a.stat-card:hover, .bd-card-link:hover{ border-color: var(--gold) !important; background: var(--bg-raised) !important; }
+
+.stat-grid{ gap: 14px; background: transparent; border: none; }
+.stat-card{ padding: 26px 24px 22px !important; }
+.bd-grid{ gap: 20px; }
+.bd-card-link{ padding: 22px 22px 20px !important; }
+
+.stat-label, .bd-card-stat-label, .wlp-pill{ letter-spacing: 0.12em; font-weight: 400; }
+.stat-value{ font-weight: 600; letter-spacing: -0.01em; }
+
+.stat-value.pos, .bd-card-stat-value.pos-text{ color: var(--teal); }
+.stat-value.neg, .bd-card-stat-value.neg-text{ color: var(--rust); }
+.wlp-w{ background: transparent; border: 1px solid var(--teal); color: var(--teal); }
+.wlp-l{ background: transparent; border: 1px solid var(--rust); color: var(--rust); }
+.wlp-p{ background: transparent; border: 1px solid var(--line); }
+
+.bd-card-bar{ background: var(--line); height: 2px; }
+.bd-card-bar-fill.pos{ background: var(--teal); }
+.bd-card-bar-fill.neg{ background: var(--rust); }
+
+.nav-pill.active{ border-bottom-color: var(--gold); }
+h1{ font-weight: 600; }
+
+/* -------------------------------------------------------------------------
+   Фикс 1: пункты меню — явный интервал вместо "слитого" текста.
+   AST19 сама по себе плотная (брусковая антиква без открытых форм), было
+   margin-right:5px — увеличено втрое + добавлен тонкий разделитель-точка
+   посередине зазора (не съедает клик-зону пункта, чисто визуальный якорь,
+   поэтому pointer-events:none и стоит на самом .nav-pill, не на общем
+   контейнере). ------------------------------------------------------- */
+.nav-pill{ margin-right: 22px; position: relative; }
+.nav-pill:not(:last-child)::after{
+  content:""; position:absolute; top:50%; right:-13px; width:3px; height:3px;
+  border-radius:50%; background: var(--line); transform: translateY(-50%);
+  pointer-events:none;
+}
+
+/* -------------------------------------------------------------------------
+   Фикс 2 (новое): фокус-режим на #statGrid дашборда.
+   Только на устройствах с настоящим наведением (hover:hover, pointer:fine)
+   — на тач-экранах сетка остаётся обычной (см. общий .stat-grid выше),
+   ничего не ломается, обычный клик по карточке всё так же ведёт на
+   app.html/bank.html. ------------------------------------------------- */
+@media (hover:hover) and (pointer:fine){
+  #statGrid{
+    display:flex; flex-wrap:wrap; align-items:flex-start;
+    /* .stat-grid (базовое правило) стоит с overflow:hidden ради скруглённых
+       углов исходной сплошной сетки-плашки — здесь фон уже прозрачный
+       (карточки сами себе рамка), а overflow:hidden обрезал бы снизу
+       карточку из нижнего ряда, когда она увеличивается с центра: расти
+       вверх есть куда (там верхний ряд), расти вниз некуда — упирается
+       в границу контейнера и не открытый низ спарклайна отрезает. */
+    overflow: visible !important;
+  }
+  #statGrid .stat-card{
+    flex: 1 1 calc(25% - 11px);
+    transition: transform 0.4s cubic-bezier(.22,.85,.32,1), opacity 0.3s ease, border-color 0.3s ease;
+    transform-origin: center;
+    /* стаггер-анимация появления (.stat-grid .stat-card, styles-edge2.css)
+       держит transform/opacity в своём финальном кадре через fill-mode:both
+       даже после того как доиграла — на уровне каскада "animation" всегда
+       старше обычного правила той же специфичности для того же свойства,
+       поэтому наши :hover-transform/:opacity ниже иначе тихо игнорировались
+       бы. #statGrid специфичнее (id), чем .stat-grid в исходном правиле —
+       animation:none здесь чисто отключает её именно на этой сетке. */
+    animation: none;
+  }
+  #statGrid.stat-grid-3 .stat-card{ flex-basis: calc(33.333% - 10px); }
+  #statGrid .stat-card:nth-child(4n+1){ transform-origin: left center; }
+  #statGrid .stat-card:nth-child(4n){ transform-origin: right center; }
+  #statGrid.stat-grid-3 .stat-card:nth-child(3n+1){ transform-origin: left center; }
+  #statGrid.stat-grid-3 .stat-card:nth-child(3n){ transform-origin: right center; }
+
+  #statGrid:hover .stat-card:not(:hover):not(:focus-within),
+  #statGrid:focus-within .stat-card:not(:hover):not(:focus-within){
+    opacity: 0.15;
+    transform: scale(0.9);
+  }
+  #statGrid .stat-card:hover,
+  #statGrid .stat-card:focus-within{
+    transform: scale(1.42);
+    z-index: 6;
+    border-color: var(--gold) !important;
+    background: var(--bg-raised) !important;
+    overflow: hidden;
+    padding-bottom: 20px !important;
+  }
+
+  /* содержимое, которое раньше уходило только в floating .stat-spark-pop —
+     теперь дополнительно раскрывается прямо в теле укрупнённой карточки.
+     Переопределяем нативный атрибут hidden обычным правилом display —
+     авторские стили всегда старше UA-стилей независимо от специфичности,
+     так что [hidden] тут можно просто выключить. */
+  #statGrid .stat-card:hover .stat-card-pop-content,
+  #statGrid .stat-card:focus-within .stat-card-pop-content{
+    display:block; margin-top:16px; padding-top:14px; border-top:1px solid var(--line);
+  }
+  #statGrid .stat-card .stat-card-pop-content .stat-spark-pop-title{ display:none; }
+  #statGrid .stat-card:hover .stat-spark,
+  #statGrid .stat-card:focus-within .stat-spark{ height:56px; }
+
+  /* Плавающий поповер сам по себе не скрывается тут CSS'ом — за то, что
+     он не дублируется с новым inline-раскрытием при наведении МЫШЬЮ,
+     отвечает JS-гейт в initStatCardPopovers (mouseover ничего не
+     показывает на таких устройствах). focusin в том же initStatCardPopovers
+     специально оставлен безусловным — клавиатурная фокусировка на карточке
+     должна по-прежнему поднимать .stat-spark-pop (readable a11y-фолбэк),
+     и блокировать его тут через display:none было бы неправильно: CSS не
+     может отличить, что вызвало .visible — mouseover или focusin. */
+}
