@@ -141,7 +141,13 @@ h1{ font-weight: 600; }
     overflow: visible !important;
   }
   #statGrid .stat-card{
-    flex: 1 1 calc(25% - 11px);
+    /* flex-grow:0 (не 1) — раньше рост на пустые заглушки в неполном ряду
+       был незаметен (пустые ячейки сами были flex-элементами и забирали
+       рост на себя). После того как заглушки убрали (см. dashboard.html),
+       без этой правки одинокая карточка, оставшаяся одна в последнем ряду,
+       растягивалась бы на всю ширину строки вместо того чтобы остаться
+       того же размера, что и остальные, — тоже не то, что нужно. */
+    flex: 0 1 calc(25% - 11px);
     transition: transform 0.4s cubic-bezier(.22,.85,.32,1), opacity 0.3s ease, border-color 0.3s ease;
     transform-origin: center;
     /* стаггер-анимация появления (.stat-grid .stat-card, styles-edge2.css)
