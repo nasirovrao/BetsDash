@@ -2,6 +2,7 @@
 <html lang="ru">
 <head>
 <meta charset="utf-8">
+<script>(function(){try{if(localStorage.getItem('edge-theme')==='light')document.documentElement.setAttribute('data-theme','light');}catch(e){}})();</script>
 <meta name="viewport" content="width=device-width, initial-scale=1">
 <title>Ставки — EDGE</title>
 <link rel="preconnect" href="https://fonts.googleapis.com">
@@ -11,6 +12,7 @@
 <!-- EDGE 2.0 — новая дизайн-система (палитра/типографика/фон), см. styles-edge2.css -->
 <link rel="stylesheet" href="styles-edge2.css?v=1">
 <link rel="stylesheet" href="styles-edge3.css?v=1">
+<script src="theme-toggle.js" defer></script>
 </head>
 <body>
 
@@ -69,14 +71,8 @@
             <label for="f_discipline">Дисциплина</label>
             <select id="f_discipline" required>
               <option value="Dota2">Dota2</option>
-              <option value="Handball">Handball</option>
               <option value="CS2">CS2</option>
               <option value="Hockey">Hockey</option>
-              <option value="Football">Football</option>
-              <option value="Tennis">Tennis</option>
-              <option value="TableTennis">TableTennis</option>
-              <option value="Volleyball">Volleyball</option>
-              <option value="Basketball">Basketball</option>
               <option value="Other">Другое</option>
             </select>
           </div>

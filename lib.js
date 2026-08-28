@@ -194,12 +194,12 @@ export function classifyMarket(bet) {
   if (p.includes('экспресс') || p.includes('parlay')) return 'Экспресс';
   if (p.includes('индивидуальный')) return 'Индивидуальный тотал';
   if (p.includes('мегакрип')) return 'Мегакрипы (спец.)';
-  if (p.includes('фора') || p.includes('handicap') || p.includes('гандикап')) return 'Фора / гандикап';
+  if (p.includes('фора') || p.includes('handicap') || p.includes('гандикап')) return 'Фора / гандикап';
   if (p.includes('тотал') || p.includes(' ou') || p.includes('total')) return 'Тотал (килы)';
   if (p.includes('продолжительност')) return 'Продолжительность карты';
   if (p.includes('первые 10') || p.includes('first to reach') || p.includes('kill') || p.includes('первую кровь') || p.includes('first blood')) return 'Гонка до N-го килла';
   if (p.includes('башн') || p.includes('tower')) return 'Разрушение построек';
-  if (p.includes('победитель') || p.includes('1x2') || p.includes('исход') || p.includes('результат матча') || p.includes('ничья') || /(^|\s)п[12](\s|:|$)/.test(p)) return 'Победитель (матч/карта)';
+  if (p.includes('победитель') || p.includes('1x2') || p.includes('исход') || p.includes('результат матча') || p.includes('ничья') || /(^|\s)п[12](\s|:|$)/.test(p)) return 'Победитель (матч⁠/⁠карта)';
   return 'Другое';
 }
 

@@ -2,6 +2,7 @@
 <html lang="ru">
 <head>
 <meta charset="utf-8">
+<script>(function(){try{if(localStorage.getItem('edge-theme')==='light')document.documentElement.setAttribute('data-theme','light');}catch(e){}})();</script>
 <meta name="viewport" content="width=device-width, initial-scale=1">
 <title>Публичный профиль — EDGE</title>
 <meta name="description" content="Публичный, верифицируемый профиль ставок на EDGE — метки времени на каждой записи, без правок задним числом.">
@@ -35,6 +36,7 @@
 <!-- EDGE 2.0 — новая дизайн-система (палитра/типографика/фон), см. styles-edge2.css -->
 <link rel="stylesheet" href="styles-edge2.css?v=1">
 <link rel="stylesheet" href="styles-edge3.css?v=1">
+<script src="theme-toggle.js" defer></script>
 </head>
 <body>
 
@@ -70,7 +72,8 @@
   import {
     fmtMoney, computeStats, computeStreak, renderWLP, escapeHtml,
     groupBets, groupBetsMulti, renderGroupCards, renderBreakdownDetail,
-    classifyMarket, teamKeysForBet,
+    classifyMarket, teamKeysForBet, renderBetsFlatTable,
+    computeCardTrend, renderSparkline, renderWlpBars, initStatCardPopovers,
   } from './lib.js';
 
   const params = new URLSearchParams(location.search);
@@ -85,6 +88,7 @@
 
   const TABS = [
     { id: 'dashboard', label: 'Дашборд' },
+    { id: 'bets', label: 'Ставки' },
     { id: 'disciplines', label: 'По дисциплинам' },
     { id: 'bookmakers', label: 'По букмекерам' },
     { id: 'markets', label: 'Рынки' },
@@ -155,16 +159,17 @@
         `).join('')}</div>`;
 
         const pageFile = `public.html?u=${encodeURIComponent(username)}&tab=${activeTab}`;
+        const betsHref = `public.html?u=${encodeURIComponent(username)}&tab=bets`;
 
         function renderDashboardTab() {
           const s = computeStats(allBets, allWithdrawals, startingBankroll);
           const cards = [
-            { label: 'Всего ставок', value: s.total, sub: '' },
-            { label: 'В игре', value: s.pending, cls: s.pending ? 'pos' : '', sub: s.pending ? 'ждут результата' : '' },
-            { label: 'W / L / P', value: renderWLP(s.wins, s.losses, s.pushes), sub: '' },
-            { label: 'Винрейт', value: s.winrate == null ? '—' : s.winrate.toFixed(1) + '%', sub: (s.wins + s.losses) ? `${s.wins + s.losses} решённых` : '' },
-            { label: 'Профит', value: fmtMoney(s.totalProfit), cls: s.totalProfit > 0 ? 'pos' : s.totalProfit < 0 ? 'neg' : '', sub: '' },
-            { label: 'ROI', value: s.roi == null ? '—' : s.roi.toFixed(2) + '%', cls: s.roi > 0 ? 'pos' : s.roi < 0 ? 'neg' : '', sub: '' },
+            { label: 'Всего ставок', value: s.total, sub: '', href: betsHref, pop: () => renderSparkline(computeCardTrend('total', allBets)) },
+            { label: 'В игре', value: s.pending, cls: s.pending ? 'pos' : '', sub: s.pending ? 'ждут результата' : '', href: betsHref },
+            { label: 'W / L / P', value: renderWLP(s.wins, s.losses, s.pushes), sub: '', href: betsHref, pop: () => renderWlpBars(s.wins, s.losses, s.pushes) },
+            { label: 'Винрейт', value: s.winrate == null ? '—' : s.winrate.toFixed(1) + '%', sub: (s.wins + s.losses) ? `${s.wins + s.losses} решённых` : '', href: betsHref, pop: () => renderSparkline(computeCardTrend('winrate', allBets)) },
+            { label: 'Профит', value: fmtMoney(s.totalProfit), cls: s.totalProfit > 0 ? 'pos' : s.totalProfit < 0 ? 'neg' : '', sub: '', href: betsHref, pop: () => renderSparkline(computeCardTrend('profit', allBets)) },
+            { label: 'ROI', value: s.roi == null ? '—' : s.roi.toFixed(2) + '%', cls: s.roi > 0 ? 'pos' : s.roi < 0 ? 'neg' : '', sub: '', href: betsHref, pop: () => renderSparkline(computeCardTrend('roi', allBets)) },
           ];
           // "Средний кэф" сознательно убран отсюда (был здесь): без банка
           // это давало 7 карточек — не делится ровно на 3 колонки, снизу
@@ -176,8 +181,8 @@
           // если владелец сам включил show_bank (по умолчанию скрыто).
           if (profile.show_bank) {
             cards.push(
-              { label: 'Банк', value: fmtMoney(s.currentBank), cls: s.currentBank > s.startingBankroll ? 'pos' : s.currentBank < s.startingBankroll ? 'neg' : '', sub: `старт ${fmtMoney(s.startingBankroll)}` },
-              { label: 'Прирост банка', value: s.bankGrowthPct == null ? '—' : s.bankGrowthPct.toFixed(1) + '%', cls: s.bankGrowthPct > 0 ? 'pos' : s.bankGrowthPct < 0 ? 'neg' : '', sub: fmtMoney(s.totalProfit) + ' по ставкам' },
+              { label: 'Банк', value: fmtMoney(s.currentBank), cls: s.currentBank > s.startingBankroll ? 'pos' : s.currentBank < s.startingBankroll ? 'neg' : '', sub: `старт ${fmtMoney(s.startingBankroll)}`, pop: () => renderSparkline(computeCardTrend('bank', allBets, allWithdrawals, startingBankroll)) },
+              { label: 'Прирост банка', value: s.bankGrowthPct == null ? '—' : s.bankGrowthPct.toFixed(1) + '%', cls: s.bankGrowthPct > 0 ? 'pos' : s.bankGrowthPct < 0 ? 'neg' : '', sub: fmtMoney(s.totalProfit) + ' по ставкам', pop: () => renderSparkline(computeCardTrend('growth', allBets, allWithdrawals, startingBankroll)) },
             );
           }
           // Сетка — 3 колонки, число карточек должно ровно делиться на 3,
@@ -193,12 +198,26 @@
           // карточка (bg-card), просто без содержимого — визуально пустая
           // ячейка в тон остальным, а не цветная плашка.
           const padCount = (3 - cards.length % 3) % 3;
-          const statHtml = `<div class="stat-grid stat-grid-3">${cards.map(c => `
-            <div class="stat-card">
+          // id="statGrid" — тот же селектор, что в styles-edge3.css даёт
+          // приватному дашборду hover-эффект (укрупнение карточки + раскрытие
+          // .stat-card-pop-content с мини-графиком); data-has-pop + сама
+          // разметка ниже воспроизводят паттерн dashboard.html, чтобы
+          // публичный профиль вёл себя так же при наведении.
+          const statHtml = `<div class="stat-grid stat-grid-3" id="statGrid">${cards.map(c => {
+            const tag = c.href ? 'a' : 'div';
+            const hrefAttr = c.href ? ` href="${c.href}"` : '';
+            const hasPopAttr = c.pop ? ' data-has-pop' : '';
+            return `
+            <${tag} class="stat-card"${hrefAttr}${hasPopAttr}>
               <div class="stat-label">${c.label}</div>
               <div class="stat-value ${c.cls || ''}">${c.value}</div>
               ${c.sub ? `<div class="stat-sub">${c.sub}</div>` : ''}
-            </div>`).join('')}${'<div class="stat-card" aria-hidden="true"></div>'.repeat(padCount)}</div>`;
+              ${c.pop ? `<div class="stat-card-pop-content" hidden>
+                <div class="stat-spark-pop-title">${c.label}</div>
+                ${c.pop()}
+              </div>` : ''}
+            </${tag}>`;
+          }).join('')}${'<div class="stat-card" aria-hidden="true"></div>'.repeat(padCount)}</div>`;
 
           const { recent, streakType, streakLen } = computeStreak(allBets, 10);
           let streakHtml = '';
@@ -238,8 +257,11 @@
 
         let html = '';
         switch (activeTab) {
+          case 'bets':
+            html = renderBetsFlatTable(allBets);
+            break;
           case 'disciplines':
-            html = renderGroupCards(groupBets(allBets, b => b.discipline), 'Дисциплина');
+            html = renderBreakdownTab('Дисциплина', groupBets(allBets, b => b.discipline));
             break;
           case 'bookmakers':
             html = renderBreakdownTab('Букмекер', groupBets(allBets, b => b.bookmaker), null, true);
@@ -257,6 +279,9 @@
         }
         tabRoot.innerHTML = html;
         footerCta.style.display = '';
+        if ((activeTab === 'dashboard' || !activeTab)) {
+          initStatCardPopovers(document.getElementById('statGrid'));
+        }
       }
     }
   }

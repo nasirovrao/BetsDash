@@ -285,4 +285,86 @@ table.clv-table tbody tr.clv-row:has(.res-pill.loss) td:first-child{ box-shadow:
 .streak-dot.w{ box-shadow: 0 0 7px var(--teal-glow); }
 .streak-dot.l{ box-shadow: 0 0 7px var(--rust-glow); }
 .streak-dot.w.last{ box-shadow: 0 0 0 3px var(--teal-glow), 0 0 12px var(--teal-glow); }
+
+/* ===========================================================================
+   Светлая тема — переключатель сверху справа (topbar), см. theme-toggle.js.
+   Выбор применяется через [data-theme="light"] на <html> (ставится и рано,
+   инлайн-скриптом в <head> каждой страницы — чтобы не было "мигания" тёмной
+   темой перед переключением, и повторно здесь самой кнопкой).
+
+   Все компоненты сайта уже построены на CSS-переменных (--bg/--ink/--gold/
+   --teal/--rust/...), поэтому светлая тема — это ПОЛНОСТЬЮ новый набор
+   значений тех же токенов, без переопределения самих компонентов. Акцентные
+   цвета (violet/mint/magenta/blue/amber) остались той же палитры VIOLET
+   TICKER, но затемнены/насыщены под контраст текста на светлом фоне —
+   исходные неоново-светлые оттенки (#a78bfa/#6ee7a0/#fb5aa4/...) достаточно
+   яркие для текста НА тёмном фоне, но проваливаются по контрасту на белом.
+
+   --teal-glow/--rust-glow отдельно приглушены (не занулены совсем — лёгкое
+   свечение на Win/Loss остаётся, просто гораздо слабее): те же токены везде
+   управляют text-shadow/box-shadow "неона", так что здесь не нужно трогать
+   ни один из самих неоновых селекторов выше — приглушение работает само,
+   через переопределение только значения токена.
+   ========================================================================= */
+:root[data-theme="light"]{
+  --bg: #f6f4fb;
+  --bg-raised: #ffffff;
+  --bg-card: #ffffff;
+  --line: #e2ddf0;
+  --line-soft: #ece8f7;
+  --ink: #1c1a2b;
+  --ink-dim: #6b6580;
+  --ink-faint: #a29cb8;
+
+  --gold: #7c3aed;
+  --gold-ink: #ffffff;
+
+  --teal: #15803d;
+  --teal-soft: rgba(21,128,61,0.12);
+  --teal-glow: rgba(21,128,61,0.22);
+  --teal-glow-edge: rgba(21,128,61,0.14);
+
+  --rust: #db2777;
+  --rust-soft: rgba(219,39,119,0.12);
+  --rust-glow: rgba(219,39,119,0.22);
+  --rust-glow-edge: rgba(219,39,119,0.14);
+
+  --info: #0284c7;
+  --info-soft: rgba(2,132,199,0.12);
+  --warn: #a16207;
+  --warn-soft: rgba(161,98,7,0.12);
+
+  --shadow: 0 16px 36px rgba(28,26,43,0.12);
+}
+
+/* Фоновая "аврора" (body::before) — на тёмном фоне читается как мягкое
+   свечение; на белом те же радиальные пятна выглядели бы как грязные
+   разводы, поэтому на светлой теме — гораздо более лёгкая, почти
+   незаметная версия того же эффекта (тот же приём, что и с --teal-glow
+   выше: не убираем совсем, просто сильно приглушаем). */
+:root[data-theme="light"] body::before{
+  background:
+    radial-gradient(circle at 18% 20%, rgba(124,58,237,0.07), transparent 46%),
+    radial-gradient(circle at 82% 55%, rgba(21,128,61,0.05), transparent 42%),
+    radial-gradient(circle at 50% 5%, rgba(124,58,237,0.04), transparent 40%);
+}
+
+/* Кнопка-переключатель темы — маленькая круглая иконка слева от остальных
+   элементов topbar-user (или в начале .topbar .wrap на страницах без
+   topbar-user, см. theme-toggle.js). */
+/* Специфичность .topbar-user .theme-toggle-btn (не просто .theme-toggle-btn)
+   намеренно — иначе общее правило ".topbar-user button{ padding:7px 12px; }"
+   (styles.css) той же/старшей специфичности перебивает padding:0 здесь и
+   сжимает круглую кнопку с иконкой внутри до нескольких пикселей (paddings
+   съедают почти всю фиксированную ширину/высоту 30px при box-sizing:border-box). */
+.topbar-user .theme-toggle-btn, .theme-toggle-btn{
+  display:inline-flex; align-items:center; justify-content:center;
+  width:30px; height:30px; padding:0; margin-right:4px; flex-shrink:0;
+  border:1px solid var(--line); border-radius:50%;
+  background: var(--bg-card); color: var(--ink-dim);
+  cursor:pointer; transition: color 0.2s ease, border-color 0.2s ease, transform 0.2s ease;
+}
+.theme-toggle-btn:hover{ color: var(--gold); border-color: var(--gold); transform: rotate(12deg); }
+.theme-toggle-btn:focus-visible{ outline: 2px solid var(--gold); outline-offset: 2px; }
+@media (prefers-reduced-motion: reduce){ .theme-toggle-btn{ transition:none; } .theme-toggle-btn:hover{ transform:none; } }
 .streak-dot.l.last{ box-shadow: 0 0 0 3px var(--rust-glow), 0 0 12px var(--rust-glow); }
