@@ -219,6 +219,36 @@
   }
   refreshChannelSwitch();
 
+  // "Флет по умолчанию" ($, необязательно, задаётся на bank.html) — если
+  // задан, сумма ставки подставляется сама при изменении множителя
+  // "Флет (×)", чтобы не вписывать одно и то же число (например 100$)
+  // вручную в каждую ставку. Загружается один раз при открытии страницы —
+  // сама по себе редко меняется, перезагружать при каждом добавлении ставки
+  // незачем (в отличие от loadBets()).
+  let defaultFlatSize = null;
+  const flatInput = document.getElementById('f_flat');
+  const stakeInput = document.getElementById('f_stake');
+  function applyDefaultFlatToStake() {
+    if (!defaultFlatSize) return;
+    const flatVal = Number(flatInput.value);
+    if (!flatVal || flatVal <= 0) return;
+    stakeInput.value = (flatVal * defaultFlatSize).toFixed(2);
+  }
+  supabase.from('settings').select('default_flat_size').eq('user_id', ownerUserId).eq('channel', activeChannel).maybeSingle()
+    .then(({ data }) => {
+      defaultFlatSize = data && data.default_flat_size != null ? Number(data.default_flat_size) : null;
+      // Подставляем сразу при открытии формы "Добавить ставку" (флет там
+      // по умолчанию уже "1×" в разметке) — только если сумму ещё никто не
+      // тронул, чтобы не перебить то, что пользователь уже успел ввести
+      // за время этого асинхронного запроса.
+      if (!stakeInput.value) applyDefaultFlatToStake();
+    });
+  // Программная простановка значения (enterEditMode при редактировании
+  // существующей ставки) НЕ порождает событие 'input' — так что автоподстановка
+  // здесь срабатывает только когда флет меняет именно пользователь, и не
+  // перебивает сумму, которая была явно сохранена в отредактированной ставке.
+  flatInput.addEventListener('input', applyDefaultFlatToStake);
+
   // Ссылка на импорт из ссылки в пустом состоянии ленты — с сохранением
   // текущего канала (тот же паттерн channelHref, что и на дашборде).
   document.getElementById('emptyState').innerHTML =
@@ -871,6 +901,11 @@
     editIdField.value = '';
     document.getElementById('f_flat').value = 1;
     document.getElementById('f_date').value = todayLocalStr();
+    // betForm.reset() возвращает f_stake к HTML-дефолту (пусто) — если флет
+    // по умолчанию задан, сразу подставляем сумму заново, как и при первом
+    // открытии страницы (см. выше), а не оставляем поле пустым до первого
+    // изменения множителя.
+    applyDefaultFlatToStake();
     manualProfitField.style.display = 'none';
     manualProfitInput.required = false;
     clearExpressLegs();

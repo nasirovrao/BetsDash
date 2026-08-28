@@ -32,6 +32,45 @@ export function computeProfit(bet) {
   return null;
 }
 
+// Профит по одной ставке в ФЛЕТАХ (не в $) — та же формула, что computeProfit,
+// только вместо bet.stake считает от bet.flat_mult (сколько флетов было
+// поставлено). Смысл отдельно от $-профита: флет — единица ставки, заданная
+// не в деньгах, а "во сколько раз больше/меньше обычной ставки" — она не
+// плывёт вместе с ростом банка (проставил 10 лет по 1-2 флета — сумма в $ за
+// это время могла вырасти в разы просто потому, что банк вырос, а "доходность
+// по флетам" всё равно сравнивает похожее с похожим). Продана/закрыта
+// досрочно (Sold) — manual_profit введён в $, конвертируем в флеты через
+// фактическую "цену одного флета" именно в ЭТОЙ ставке (stake/flat_mult), а
+// не через текущий default_flat_size — тот мог с тех пор измениться.
+export function computeProfitInFlats(bet) {
+  const flat = Number(bet.flat_mult);
+  if (!flat) return null;
+  if (bet.result === 'Win') return flat * (Number(bet.odds) - 1);
+  if (bet.result === 'Loss') return -flat;
+  if (bet.result === 'Push') return 0;
+  if (bet.result === 'Sold') {
+    if (bet.manual_profit == null) return 0;
+    const stake = Number(bet.stake);
+    if (!stake) return null;
+    return Number(bet.manual_profit) * flat / stake;
+  }
+  return null;
+}
+
+// Доходность по флетам — тот же ROI, что computeStats().roi, только знаменатель
+// и профит считаются в флетах, а не в $ (см. комментарий у computeProfitInFlats
+// выше). flatsProfit — суммарный профит в флетах (например "+14.2 флета"),
+// flatRoi — он же в процентах от суммарно поставленных флетов.
+export function computeFlatStats(bets) {
+  const settled = (bets || []).filter(b => b.result !== 'Pending' && b.flat_mult);
+  const flatsStaked = settled
+    .filter(b => b.result !== 'Push')
+    .reduce((s, b) => s + Number(b.flat_mult || 0), 0);
+  const flatsProfit = settled.reduce((s, b) => s + (computeProfitInFlats(b) || 0), 0);
+  const flatRoi = flatsStaked ? (flatsProfit / flatsStaked * 100) : null;
+  return { flatsStaked, flatsProfit, flatRoi };
+}
+
 // Точки кривой банка по дням: старт → каждый день с решённой ставкой и/или
 // выводом → накопительный банк на этот момент. Используется для графика
 // "Динамика банка" на странице bank.html. Pending-ставки в кривую не входят
@@ -730,6 +769,14 @@ export function computeCardTrend(key, bets, withdrawals, startingBankroll) {
       decided++;
       if (b.result === 'Win') w++;
       return (w / decided) * 100;
+    });
+  }
+  if (key === 'flatRoi') {
+    let accProfit = 0, accFlats = 0;
+    return settled.filter(b => b.flat_mult).map(b => {
+      accProfit += computeProfitInFlats(b) || 0;
+      if (b.result !== 'Push') accFlats += Number(b.flat_mult) || 0;
+      return accFlats ? (accProfit / accFlats) * 100 : 0;
     });
   }
   if (key === 'bank' || key === 'growth') {

@@ -81,7 +81,7 @@
 
 <script type="module">
   import { supabase, requireSession, isClvEnabled } from './supabase-client.js';
-  import { fmtMoney, computeStats, computeStreak, escapeHtml, monthKeyOf, monthLabelOf, renderWLP, getChannelParams, loadMyChannels, renderChannelSwitch, preserveChannelInNav, initEmailPrivacyToggle, channelHref, computeCardTrend, renderSparkline, renderWlpBars, renderTopBetsPop, initStatCardPopovers } from './lib.js';
+  import { fmtMoney, computeStats, computeStreak, computeFlatStats, escapeHtml, monthKeyOf, monthLabelOf, renderWLP, getChannelParams, loadMyChannels, renderChannelSwitch, preserveChannelInNav, initEmailPrivacyToggle, channelHref, computeCardTrend, renderSparkline, renderWlpBars, renderTopBetsPop, initStatCardPopovers } from './lib.js';
 
   const session = await requireSession();
   if (session) {
@@ -173,6 +173,7 @@
   // передан в computeStats() для расчёта s — нужен здесь отдельно, чтобы
   // построить мини-диаграммы по ТОЙ ЖЕ выборке, а не заново по всем данным.
   function renderStats(s, hideBankCards, filteredBets) {
+    const flatStats = computeFlatStats(filteredBets);
     const cards = [
       { label: 'Всего ставок', value: s.total, sub: s.pending ? `${s.pending} в ожидании` : '', href: appHref, pop: () => renderSparkline(computeCardTrend('total', filteredBets)) },
       { label: 'W / L / P', value: renderWLP(s.wins, s.losses, s.pushes), sub: '', href: appHref, pop: () => renderWlpBars(s.wins, s.losses, s.pushes) },
@@ -180,6 +181,11 @@
       { label: 'Профит', value: fmtMoney(s.totalProfit), cls: s.totalProfit > 0 ? 'pos' : s.totalProfit < 0 ? 'neg' : '', sub: '', href: appHref, pop: () => renderSparkline(computeCardTrend('profit', filteredBets)) },
       { label: 'ROI', value: s.roi == null ? '—' : s.roi.toFixed(2) + '%', cls: s.roi > 0 ? 'pos' : s.roi < 0 ? 'neg' : '', sub: '', href: appHref, pop: () => renderSparkline(computeCardTrend('roi', filteredBets)) },
       { label: 'Средний кэф', value: s.avgOdds == null ? '—' : s.avgOdds.toFixed(2), sub: '', href: appHref, pop: () => renderTopBetsPop(filteredBets, 3) },
+      // Доходность по флетам — тот же ROI, но в единицах "флет" (см.
+      // computeFlatStats в lib.js), а не в $: не плывёт вместе с ростом
+      // банка/размера ставки со временем, поэтому сравнивает всю историю
+      // на равных — стандартная метрика трек-рекорда у капперов ("юниты").
+      { label: 'Доходность по флетам', value: flatStats.flatRoi == null ? '—' : flatStats.flatRoi.toFixed(2) + '%', cls: flatStats.flatRoi > 0 ? 'pos' : flatStats.flatRoi < 0 ? 'neg' : '', sub: flatStats.flatsStaked ? `${flatStats.flatsProfit >= 0 ? '+' : ''}${flatStats.flatsProfit.toFixed(2)} флета` : '', href: appHref, pop: () => renderSparkline(computeCardTrend('flatRoi', filteredBets)) },
     ];
     if (!hideBankCards) {
       cards.push(
@@ -187,10 +193,15 @@
         { label: 'Прирост банка', value: s.bankGrowthPct == null ? '—' : s.bankGrowthPct.toFixed(1) + '%', cls: s.bankGrowthPct > 0 ? 'pos' : s.bankGrowthPct < 0 ? 'neg' : '', sub: fmtMoney(s.totalProfit) + ' по ставкам', href: bankHref, pop: () => renderSparkline(computeCardTrend('growth', filteredBets, allWithdrawals, startingBankroll)) },
       );
     }
-    // 6 карточек (без банка) ровно делятся на 3 колонки — без этого в
-    // стандартной 4-колоночной сетке снизу справа висел пустой серый
-    // прямоугольник (фон контейнера, проступающий через недостающие ячейки).
-    statGrid.className = hideBankCards ? 'stat-grid stat-grid-3' : 'stat-grid';
+    // Раньше здесь было 6/8 карточек, которые ровно делились на 3/4 колонки
+    // без остатка — с добавлением "Доходность по флетам" (7/9 карточек) это
+    // больше не так ни для одной фиксированной раскладки, поэтому теперь —
+    // всегда 3 колонки (как на public.html) + подсчёт недостающих ячеек до
+    // кратного 3, дорисованных пустыми карточками того же фона (НЕ
+    // visibility:hidden — фон .stat-grid для линий-разделителей иначе
+    // просвечивает поверх "невидимой" ячейки сплошным прямоугольником).
+    statGrid.className = 'stat-grid stat-grid-3';
+    const padCount = (3 - cards.length % 3) % 3;
     // Карточка кликабельна (ведёт в «Ставки»/«Банк», с сохранением текущего
     // канала) и при наведении показывает мини-диаграмму — попап рисуется
     // один раз общим initStatCardPopovers() через делегирование, здесь
@@ -208,7 +219,7 @@
           ${c.pop ? c.pop() : ''}
         </div>
       </${tag}>`;
-    }).join('');
+    }).join('') + '<div class="stat-card" aria-hidden="true"></div>'.repeat(padCount);
   }
 
   // Турниры/месяцы — не отдельные страницы, а фильтры прямо здесь: выбрал

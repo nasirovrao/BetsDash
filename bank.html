@@ -69,9 +69,14 @@
           <label for="startBank">Сумма ($)</label>
           <input id="startBank" type="number" step="0.01" min="0" placeholder="5500">
         </div>
+        <div class="field">
+          <label for="defaultFlat">Флет по умолчанию ($, необязательно)</label>
+          <input id="defaultFlat" type="number" step="0.01" min="0.01" placeholder="100">
+        </div>
         <button class="btn btn-primary" type="button" id="saveStartBank" style="width:auto;">Сохранить</button>
         <span class="form-status" id="startBankStatus"></span>
       </div>
+      <div class="section-note" style="margin:10px 0 0;">Если задан — на странице «Ставки» сумма ставки подставится сама при изменении множителя «Флет (×)», без необходимости вписывать её отдельно.</div>
     </div>
 
     <div class="bet-form" id="withdrawFormBlock">
@@ -405,6 +410,7 @@
 
     currentSettings = settings;
     document.getElementById('startBank').value = settings ? settings.starting_bankroll : '';
+    document.getElementById('defaultFlat').value = settings && settings.default_flat_size != null ? settings.default_flat_size : '';
 
     renderBankStats(computeStats(bets || [], withdrawals || [], settings ? settings.starting_bankroll : 0));
     renderBankChart(bets || [], withdrawals || [], settings ? settings.starting_bankroll : 0);
@@ -425,10 +431,17 @@
   document.getElementById('saveStartBank').addEventListener('click', async () => {
     const val = Number(document.getElementById('startBank').value);
     if (!val || val < 0) return;
+    const flatRaw = document.getElementById('defaultFlat').value.trim();
+    const flatVal = flatRaw ? Number(flatRaw) : null;
+    if (flatRaw && (!flatVal || flatVal <= 0)) {
+      startBankStatus.textContent = 'Флет по умолчанию должен быть положительным числом (или оставь поле пустым).';
+      return;
+    }
     startBankStatus.textContent = 'Сохраняю…';
+    const payload = { starting_bankroll: val, default_flat_size: flatVal };
     const { error } = currentSettings
-      ? await supabase.from('settings').update({ starting_bankroll: val }).eq('user_id', ownerUserId).eq('channel', activeChannel)
-      : await supabase.from('settings').insert({ user_id: ownerUserId, channel: activeChannel, starting_bankroll: val });
+      ? await supabase.from('settings').update(payload).eq('user_id', ownerUserId).eq('channel', activeChannel)
+      : await supabase.from('settings').insert({ user_id: ownerUserId, channel: activeChannel, ...payload });
     if (error) {
       startBankStatus.textContent = 'Ошибка: ' + error.message;
       return;

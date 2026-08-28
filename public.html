@@ -70,7 +70,7 @@
 <script type="module">
   import { supabase } from './supabase-client.js';
   import {
-    fmtMoney, computeStats, computeStreak, renderWLP, escapeHtml,
+    fmtMoney, computeStats, computeStreak, computeFlatStats, renderWLP, escapeHtml,
     groupBets, groupBetsMulti, renderGroupCards, renderBreakdownDetail,
     classifyMarket, teamKeysForBet, renderBetsFlatTable,
     computeCardTrend, renderSparkline, renderWlpBars, initStatCardPopovers,
@@ -163,6 +163,7 @@
 
         function renderDashboardTab() {
           const s = computeStats(allBets, allWithdrawals, startingBankroll);
+          const flatStats = computeFlatStats(allBets);
           const cards = [
             { label: 'Всего ставок', value: s.total, sub: '', href: betsHref, pop: () => renderSparkline(computeCardTrend('total', allBets)) },
             { label: 'В игре', value: s.pending, cls: s.pending ? 'pos' : '', sub: s.pending ? 'ждут результата' : '', href: betsHref },
@@ -170,6 +171,9 @@
             { label: 'Винрейт', value: s.winrate == null ? '—' : s.winrate.toFixed(1) + '%', sub: (s.wins + s.losses) ? `${s.wins + s.losses} решённых` : '', href: betsHref, pop: () => renderSparkline(computeCardTrend('winrate', allBets)) },
             { label: 'Профит', value: fmtMoney(s.totalProfit), cls: s.totalProfit > 0 ? 'pos' : s.totalProfit < 0 ? 'neg' : '', sub: '', href: betsHref, pop: () => renderSparkline(computeCardTrend('profit', allBets)) },
             { label: 'ROI', value: s.roi == null ? '—' : s.roi.toFixed(2) + '%', cls: s.roi > 0 ? 'pos' : s.roi < 0 ? 'neg' : '', sub: '', href: betsHref, pop: () => renderSparkline(computeCardTrend('roi', allBets)) },
+            // Доходность по флетам — см. подробный комментарий у
+            // computeFlatStats/computeProfitInFlats в lib.js.
+            { label: 'Доходность по флетам', value: flatStats.flatRoi == null ? '—' : flatStats.flatRoi.toFixed(2) + '%', cls: flatStats.flatRoi > 0 ? 'pos' : flatStats.flatRoi < 0 ? 'neg' : '', sub: flatStats.flatsStaked ? `${flatStats.flatsProfit >= 0 ? '+' : ''}${flatStats.flatsProfit.toFixed(2)} флета` : '', href: betsHref, pop: () => renderSparkline(computeCardTrend('flatRoi', allBets)) },
           ];
           // "Средний кэф" сознательно убран отсюда (был здесь): без банка
           // это давало 7 карточек — не делится ровно на 3 колонки, снизу
