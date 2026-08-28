@@ -79,7 +79,8 @@
           </div>
           <div class="field">
             <label for="f_tournament">Турнир</label>
-            <input id="f_tournament" type="text" placeholder="Esports World Cup">
+            <input id="f_tournament" type="text" placeholder="Esports World Cup" list="tournamentList" autocomplete="off">
+            <datalist id="tournamentList"></datalist>
           </div>
           <div class="field" id="f_matchField">
             <label for="f_match">Матч</label>
@@ -256,6 +257,7 @@
   const formStatus = document.getElementById('formStatus');
   const bookmakerList = document.getElementById('bookmakerList');
   const disciplineList = document.getElementById('disciplineList');
+  const tournamentList = document.getElementById('tournamentList');
   const edgeList = document.getElementById('edgeList');
   const betForm = document.getElementById('betForm');
   const betFormBlock = document.getElementById('betFormBlock');
@@ -807,6 +809,7 @@
     countNote.textContent = `${channelLabel}${editorTag} · ${allBets.length} ${allBets.length === 1 ? 'ставка' : 'ставок'}`;
     updateBookmakerList(allBets);
     updateDisciplineList(allBets);
+    updateTournamentList(allBets);
     // Реестр edges может ещё не существовать (пока не выполнена
     // schema_milestone6.sql) — тогда просто используем только теги из ставок,
     // как и раньше.
@@ -835,6 +838,16 @@
     const used = data.map(b => (b.discipline || '').trim()).filter(Boolean);
     const names = Array.from(new Set([...DEFAULT_DISCIPLINES, ...used])).sort();
     disciplineList.innerHTML = names.map(n => `<option value="${escapeHtml(n)}"></option>`).join('');
+  }
+
+  // Турнир — та же идея: раньше это было чистое текстовое поле без всякого
+  // автодополнения, каждый турнир приходилось перепечатывать с нуля. Теперь
+  // подсказки из уже введённых своих же турниров (без дефолтного набора —
+  // в отличие от дисциплины, тут нет разумного фиксированного стартового
+  // списка, всё приходит из данных).
+  function updateTournamentList(data){
+    const names = Array.from(new Set(data.map(b => (b.tournament || '').trim()).filter(Boolean))).sort();
+    tournamentList.innerHTML = names.map(n => `<option value="${escapeHtml(n)}"></option>`).join('');
   }
 
   // Эдж-паттерны — та же идея, что и с букмекерами: вводишь метку один раз,
