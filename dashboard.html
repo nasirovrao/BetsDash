@@ -181,11 +181,14 @@
       { label: 'Профит', value: fmtMoney(s.totalProfit), cls: s.totalProfit > 0 ? 'pos' : s.totalProfit < 0 ? 'neg' : '', sub: '', href: appHref, pop: () => renderSparkline(computeCardTrend('profit', filteredBets)) },
       { label: 'ROI', value: s.roi == null ? '—' : s.roi.toFixed(2) + '%', cls: s.roi > 0 ? 'pos' : s.roi < 0 ? 'neg' : '', sub: '', href: appHref, pop: () => renderSparkline(computeCardTrend('roi', filteredBets)) },
       { label: 'Средний кэф', value: s.avgOdds == null ? '—' : s.avgOdds.toFixed(2), sub: '', href: appHref, pop: () => renderTopBetsPop(filteredBets, 3) },
-      // Доходность по флетам — тот же ROI, но в единицах "флет" (см.
-      // computeFlatStats в lib.js), а не в $: не плывёт вместе с ростом
-      // банка/размера ставки со временем, поэтому сравнивает всю историю
-      // на равных — стандартная метрика трек-рекорда у капперов ("юниты").
-      { label: 'Доходность по флетам', value: flatStats.flatRoi == null ? '—' : flatStats.flatRoi.toFixed(2) + '%', cls: flatStats.flatRoi > 0 ? 'pos' : flatStats.flatRoi < 0 ? 'neg' : '', sub: flatStats.flatsStaked ? `${flatStats.flatsProfit >= 0 ? '+' : ''}${flatStats.flatsProfit.toFixed(2)} флета` : '', href: appHref, pop: () => renderSparkline(computeCardTrend('flatRoi', filteredBets)) },
+      // Профит по флетам — то же самое, что и ROI выше, только в единицах
+      // "флет" (см. computeFlatStats в lib.js), а не в $ и не в %: не
+      // плывёт вместе с ростом банка/размера ставки со временем, поэтому
+      // сравнивает всю историю на равных — стандартная метрика
+      // трек-рекорда у капперов ("юниты"). По просьбе Рустама показываем
+      // сырое количество флетов, а не доходность в процентах (та же цифра,
+      // что раньше была в sub-подписи, теперь основное значение карточки).
+      { label: 'Профит по флетам', value: flatStats.flatsStaked ? `${flatStats.flatsProfit >= 0 ? '+' : ''}${flatStats.flatsProfit.toFixed(2)}` : '—', cls: flatStats.flatsProfit > 0 ? 'pos' : flatStats.flatsProfit < 0 ? 'neg' : '', sub: flatStats.flatsStaked ? `из ${flatStats.flatsStaked.toFixed(2)} флета` : '', href: appHref, pop: () => renderSparkline(computeCardTrend('flatsProfit', filteredBets)) },
     ];
     if (!hideBankCards) {
       cards.push(

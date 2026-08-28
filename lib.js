@@ -779,6 +779,14 @@ export function computeCardTrend(key, bets, withdrawals, startingBankroll) {
       return accFlats ? (accProfit / accFlats) * 100 : 0;
     });
   }
+  // Кумулятивный профит в флетах (не в %, не в $) — тот же принцип, что и
+  // 'profit' выше, только в единицах "флет" вместо доллара. Используется
+  // карточкой "Профит по флетам" на дашборде, которая показывает сырое
+  // количество флетов, а не доходность в процентах.
+  if (key === 'flatsProfit') {
+    let acc = 0;
+    return settled.filter(b => b.flat_mult).map(b => (acc += computeProfitInFlats(b) || 0));
+  }
   if (key === 'bank' || key === 'growth') {
     const points = computeBankPoints(bets, withdrawals, startingBankroll);
     if (!points) return [];

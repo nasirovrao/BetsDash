@@ -171,9 +171,11 @@
             { label: 'Винрейт', value: s.winrate == null ? '—' : s.winrate.toFixed(1) + '%', sub: (s.wins + s.losses) ? `${s.wins + s.losses} решённых` : '', href: betsHref, pop: () => renderSparkline(computeCardTrend('winrate', allBets)) },
             { label: 'Профит', value: fmtMoney(s.totalProfit), cls: s.totalProfit > 0 ? 'pos' : s.totalProfit < 0 ? 'neg' : '', sub: '', href: betsHref, pop: () => renderSparkline(computeCardTrend('profit', allBets)) },
             { label: 'ROI', value: s.roi == null ? '—' : s.roi.toFixed(2) + '%', cls: s.roi > 0 ? 'pos' : s.roi < 0 ? 'neg' : '', sub: '', href: betsHref, pop: () => renderSparkline(computeCardTrend('roi', allBets)) },
-            // Доходность по флетам — см. подробный комментарий у
-            // computeFlatStats/computeProfitInFlats в lib.js.
-            { label: 'Доходность по флетам', value: flatStats.flatRoi == null ? '—' : flatStats.flatRoi.toFixed(2) + '%', cls: flatStats.flatRoi > 0 ? 'pos' : flatStats.flatRoi < 0 ? 'neg' : '', sub: flatStats.flatsStaked ? `${flatStats.flatsProfit >= 0 ? '+' : ''}${flatStats.flatsProfit.toFixed(2)} флета` : '', href: betsHref, pop: () => renderSparkline(computeCardTrend('flatRoi', allBets)) },
+            // Профит по флетам — см. подробный комментарий у
+            // computeFlatStats/computeProfitInFlats в lib.js. Сырое
+            // количество флетов, а не доходность в процентах (см. ту же
+            // правку в dashboard.html).
+            { label: 'Профит по флетам', value: flatStats.flatsStaked ? `${flatStats.flatsProfit >= 0 ? '+' : ''}${flatStats.flatsProfit.toFixed(2)}` : '—', cls: flatStats.flatsProfit > 0 ? 'pos' : flatStats.flatsProfit < 0 ? 'neg' : '', sub: flatStats.flatsStaked ? `из ${flatStats.flatsStaked.toFixed(2)} флета` : '', href: betsHref, pop: () => renderSparkline(computeCardTrend('flatsProfit', allBets)) },
           ];
           // "Средний кэф" сознательно убран отсюда (был здесь): без банка
           // это давало 7 карточек — не делится ровно на 3 колонки, снизу
