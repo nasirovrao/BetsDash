@@ -54,7 +54,7 @@
 
 <script type="module">
   import { supabase, requireSession, isClvEnabled } from './supabase-client.js';
-  import { groupBets, renderGroupCards, getChannelParams, loadMyChannels, renderChannelSwitch, preserveChannelInNav, initEmailPrivacyToggle} from './lib.js';
+  import { groupBets, renderGroupCards, renderBreakdownDetail, getChannelParams, loadMyChannels, renderChannelSwitch, preserveChannelInNav, channelHref, initEmailPrivacyToggle} from './lib.js';
 
   const session = await requireSession();
   if (session) {
@@ -69,6 +69,7 @@
   const { channel: activeChannel, owner: ownerParam } = getChannelParams();
   const ownerUserId = ownerParam || session.user.id;
   preserveChannelInNav(activeChannel, ownerUserId, session.user.id);
+  const pageFile = channelHref('disciplines.html', activeChannel, ownerUserId, session.user.id);
 
   loadMyChannels(supabase, session.user.id).then(channels => {
     document.getElementById('channelSwitch').innerHTML =
@@ -76,13 +77,19 @@
   });
 
   const root = document.getElementById('breakdownRoot');
+  const keyParam = new URLSearchParams(location.search).get('key');
 
   const { data, error } = await supabase.from('bets').select('*').eq('user_id', ownerUserId).eq('channel', activeChannel);
   if (error) {
     root.innerHTML = `<div class="empty-state">Ошибка загрузки: ${error.message}</div>`;
   } else {
     const groups = groupBets(data, b => b.discipline);
-    root.innerHTML = renderGroupCards(groups, 'Дисциплина');
+    if (keyParam) {
+      const group = groups.find(g => g.key === keyParam);
+      root.innerHTML = renderBreakdownDetail('Дисциплина', keyParam, group, pageFile);
+    } else {
+      root.innerHTML = renderGroupCards(groups, 'Дисциплина', pageFile);
+    }
   }
 </script>
 

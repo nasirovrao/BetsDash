@@ -59,7 +59,7 @@
 
 <script type="module">
   import { supabase, requireSession, isClvEnabled } from './supabase-client.js';
-  import { groupBets, renderGroupCards, getChannelParams, loadMyChannels, renderChannelSwitch, preserveChannelInNav, initEmailPrivacyToggle} from './lib.js';
+  import { groupBets, renderGroupCards, renderBreakdownDetail, getChannelParams, loadMyChannels, renderChannelSwitch, preserveChannelInNav, channelHref, initEmailPrivacyToggle} from './lib.js';
 
   const session = await requireSession();
   if (session) {
@@ -74,6 +74,7 @@
   const { channel: activeChannel, owner: ownerParam } = getChannelParams();
   const ownerUserId = ownerParam || session.user.id;
   preserveChannelInNav(activeChannel, ownerUserId, session.user.id);
+  const pageFile = channelHref('segmentation.html', activeChannel, ownerUserId, session.user.id);
 
   loadMyChannels(supabase, session.user.id).then(channels => {
     document.getElementById('channelSwitch').innerHTML =
@@ -81,6 +82,7 @@
   });
 
   const byTypeRoot = document.getElementById('byTypeRoot');
+  const keyParam = new URLSearchParams(location.search).get('key');
 
   // Разбивка по уверенности временно убрана — оставили пока только тип ставки.
   const { data, error } = await supabase.from('bets').select('*').eq('user_id', ownerUserId).eq('channel', activeChannel);
@@ -88,7 +90,12 @@
     byTypeRoot.innerHTML = `<div class="empty-state">Ошибка загрузки: ${error.message}</div>`;
   } else {
     const byType = groupBets(data, b => b.bet_type);
-    byTypeRoot.innerHTML = renderGroupCards(byType, 'Тип ставки');
+    if (keyParam) {
+      const group = byType.find(g => g.key === keyParam);
+      byTypeRoot.innerHTML = renderBreakdownDetail('Тип ставки', keyParam, group, pageFile);
+    } else {
+      byTypeRoot.innerHTML = renderGroupCards(byType, 'Тип ставки', pageFile);
+    }
   }
 </script>
 
