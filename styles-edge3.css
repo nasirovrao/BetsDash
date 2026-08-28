@@ -36,9 +36,23 @@
   --teal: #6ee7a0;
   --teal-soft: rgba(110,231,160,0.10);
   --teal-glow: rgba(110,231,160,0.55);
+  /* Более тёмный/приглушённый вариант того же зелёного — специально для
+     ambient-подсветки края карточки/строки (см. фикс ниже), чтобы не
+     получалось двух разных на вид зелёных рядом. */
+  --teal-glow-edge: rgba(110,231,160,0.32);
   --rust: #fb5aa4;
   --rust-soft: rgba(251,90,164,0.10);
   --rust-glow: rgba(251,90,164,0.55);
+  --rust-glow-edge: rgba(251,90,164,0.32);
+  /* Pending ("в игре"/нерасчитано) и Push (возврат) — раньше оба были
+     нейтрально-серыми (не W, не L). По фидбеку — свой цвет каждому,
+     тоже приглушённо-неоновый (без text/box-shadow glow — это не победа
+     и не поражение, см. секцию про неон ниже), тон в тон с остальной
+     VIOLET TICKER-палитрой. */
+  --info: #38bdf8;
+  --info-soft: rgba(56,189,248,0.10);
+  --warn: #facc15;
+  --warn-soft: rgba(250,204,21,0.10);
 }
 
 body::before{
@@ -168,21 +182,61 @@ h1{ font-weight: 600; }
 }
 
 /* -------------------------------------------------------------------------
-   Полоса-статус слева (win/loss/sold) — понравилась на одном из ранних
-   вариантов (bold-preview), накатана везде, где встречается .res-pill:
-   лента ставок (app.html), общая таблица .bets-table (используется на
-   детальных страницах По букмекерам/Рынкам/Командам/Найденным эджам —
-   renderBetsTable в lib.js), CLV Tracker (свои .clv-row). Плоско, без
-   свечения — тон в тон остальному EDGE 3.0 (там сознательно нет теней).
-   Push/Pending — нейтральный результат, не W и не L, полосы не получает.
-   На <tr> border-left/box-shadow ненадёжно рендерится кросс-браузерно
-   (табличная модель), поэтому для строк красим первую <td>, а не саму tr;
-   на .bet-card (обычный блочный div) — border-left напрямую. ----------- */
-.bet-card{ border-left: 3px solid transparent; }
-.bet-card:has(.res-pill.win){ border-left-color: var(--teal); }
-.bet-card:has(.res-pill.loss){ border-left-color: var(--rust); }
-.bet-card:has(.res-pill.sold){ border-left-color: var(--gold); }
-.bet-card:has(.res-pill.hedged){ border-left-color: var(--gold); }
+   Полоса-статус (win/loss/sold/pending/push) — понравилась на одном из
+   ранних вариантов (bold-preview), накатана везде, где встречается
+   .res-pill: лента ставок (app.html), общая таблица .bets-table
+   (используется на детальных страницах По букмекерам/Рынкам/Командам/
+   Найденным эджам — renderBetsTable в lib.js), CLV Tracker (свои
+   .clv-row). На <tr> border-left/box-shadow ненадёжно рендерится
+   кросс-браузерно (табличная модель), поэтому для строк красим первую
+   <td>, а не саму tr — этот кусок ниже работает как обычный border-left
+   и НЕ задет багом, описанным дальше.
+
+   На .bet-card (обычный блочный div) всё иначе, и это отдельная история
+   бага, а не дизайна: САМАЯ ПЕРВАЯ секция этого файла (см. выше,
+   ".stat-card, .bd-card-link, .bet-card, ... { border: 1px solid
+   var(--line) !important; }") вешает на .bet-card сплошной !important
+   border на ВСЕ четыре стороны разом. border — шорткод, раскрывается в
+   том числе в border-left-color/border-top-color !important — а !important
+   всегда бьёт обычное объявление независимо от порядка и специфичности.
+   Поэтому и border-left-color, и border-top-color, которые тут стояли
+   раньше (без !important), тихо ПОЛНОСТЬЮ игнорировались браузером —
+   ставки были без подсветки вообще, а слабый цветной проблеск, который
+   было видно на скринах — это был только inset box-shadow ниже (он один
+   реально применялся, потому что тоже !important и стоит в файле позже).
+   Отсюда и жалоба "разные оттенки" (крупная часть эффекта — блёклый
+   glow, не сплошной цвет) и следом "подсветки вообще нет" (когда убрал
+   glow-часть и понадеялся на чистый border-top — а он молча не применялся
+   ни разу).
+
+   ФИКС: подсветка целиком через box-shadow (0 blur/spread = выглядит как
+   обычная сплошная линия, но это уже не border → !important гарантированно
+   применяется, т.к. более поздний !important бьёт более ранний !important
+   той же специфичности) — верхняя грань `0 -2px 0 0 <цвет>`, левая грань
+   `-3px 0 0 0 <цвет>`, у win/loss ещё и мягкое inset-свечение того же
+   тона (см. секцию про неон было раньше — теперь всё в одном месте).
+   Pending/Push получают свой цвет по фидбеку — нерасчитанная ставка
+   (Pending, ещё "в игре") голубым (--info), возврат (Push) жёлтым
+   (--warn), без неона — это не W и не L.
+   .bet-card:has(.pending-select) ловит карточку именно в живом
+   Pending-состоянии — там результат ещё не .res-pill, а сам выпадающий
+   список (см. app.html wirePendingControl).
+
+   Сознательно ТОЛЬКО верхняя грань, без левой полосы и без glow — левую
+   версию (с доп. inset-свечением у win/loss) по пути пробовали, но inset
+   с blur всё равно приминается от ВСЕХ четырёх сторон формы (offset тут
+   лишь сдвигает акцент, а не ограничивает стороны), и на невысокой
+   карточке 10px blur оказывался виден и на правом краю, и снизу — то же
+   "расползание", с которым уже боролись, просто в новом месте. Чистая
+   линия без blur (как на референс-скрине пользователя) физически не
+   может расползтись — этим и хороша. ------------------------------------ */
+.bet-card:has(.res-pill.win){ box-shadow: 0 -2px 0 0 var(--teal) !important; }
+.bet-card:has(.res-pill.loss){ box-shadow: 0 -2px 0 0 var(--rust) !important; }
+.bet-card:has(.res-pill.sold),
+.bet-card:has(.res-pill.hedged){ box-shadow: 0 -2px 0 0 var(--gold) !important; }
+.bet-card:has(.res-pill.push){ box-shadow: 0 -2px 0 0 var(--warn) !important; }
+.bet-card:has(.pending-select),
+.bet-card:has(.res-pill.pending){ box-shadow: 0 -2px 0 0 var(--info) !important; }
 
 table.bets-table tbody tr td:first-child,
 table.clv-table tbody tr.clv-row td:first-child{ border-left: 3px solid transparent; }
@@ -193,30 +247,40 @@ table.clv-table tbody tr.clv-row:has(.res-pill.loss) td:first-child{ border-left
 table.bets-table tbody tr:has(.res-pill.sold) td:first-child,
 table.clv-table tbody tr.clv-row:has(.res-pill.sold) td:first-child{ border-left-color: var(--gold); }
 table.clv-table tbody tr.clv-row:has(.res-pill.hedged) td:first-child{ border-left-color: var(--gold); }
+table.bets-table tbody tr:has(.res-pill.push) td:first-child,
+table.clv-table tbody tr.clv-row:has(.res-pill.push) td:first-child{ border-left-color: var(--warn); }
+table.bets-table tbody tr:has(.res-pill.pending) td:first-child,
+table.clv-table tbody tr.clv-row:has(.res-pill.pending) td:first-child{ border-left-color: var(--info); }
+
+/* Сами бейджи и выпадающий список Pending — фон/текст в тот же цвет, что
+   и полоса выше (было общее серое .res-pill.push, .res-pill.pending из
+   styles.css — здесь узко переопределяем каждый под свой цвет). */
+.res-pill.push{ background: var(--warn-soft); color: var(--warn); }
+.res-pill.pending{ background: var(--info-soft); color: var(--info); }
+.pending-select{ border-color: var(--info); color: var(--info); }
+.pending-select:hover, .pending-select:focus{ border-color: var(--info); }
 
 /* -------------------------------------------------------------------------
    Неон на win/loss (по фидбеку — переопределяет "плоско, без свечения"
    из блока выше именно для сигналов победы/поражения, остальной EDGE 3.0
-   по-прежнему без теней). Победа — зелёным неоном (--teal, теперь
-   мятно-зелёный из VIOLET TICKER), поражение — красным/маджента неоном
-   (--rust). Реализовано как text-shadow на бейджах/цифрах и box-shadow на
-   полосах-статусах и стрик-точках — оба варианта glow одного порядка
-   яркости (--teal-glow/--rust-glow, alpha 0.55), чтобы бейдж, полоса и
-   точка читались как один и тот же сигнал по всему сайту. Push/Pending/
-   Sold/Hedged свечения не получают — это не W и не L. ------------------ */
+   по-прежнему без теней, включая Pending/Push/Sold/Hedged — это не W и
+   не L). Победа — зелёным неоном (--teal, мятно-зелёный из VIOLET
+   TICKER), поражение — красным/маджента неоном (--rust). Реализовано как
+   text-shadow на бейджах/цифрах/стрик-точках. Свечение самой .bet-card —
+   уже задано в блоке "Полоса-статус" выше (inset-часть общего box-shadow
+   там же, вместе со сплошными верх/лево-линиями — не дублируем тут,
+   иначе более позднее правило того же селектора/свойства просто тихо
+   перебило бы то, что задано раньше). ----------------------------------- */
 .res-pill.win{ text-shadow: 0 0 10px var(--teal-glow); }
 .res-pill.loss{ text-shadow: 0 0 10px var(--rust-glow); }
 
 .wlp-w{ text-shadow: 0 0 10px var(--teal-glow); }
 .wlp-l{ text-shadow: 0 0 10px var(--rust-glow); }
 
-.bet-card:has(.res-pill.win){ box-shadow: -3px 0 12px -2px var(--teal-glow) !important; }
-.bet-card:has(.res-pill.loss){ box-shadow: -3px 0 12px -2px var(--rust-glow) !important; }
-
 table.bets-table tbody tr:has(.res-pill.win) td:first-child,
-table.clv-table tbody tr.clv-row:has(.res-pill.win) td:first-child{ box-shadow: inset 2px 0 8px -2px var(--teal-glow); }
+table.clv-table tbody tr.clv-row:has(.res-pill.win) td:first-child{ box-shadow: inset 2px 0 8px -3px var(--teal-glow-edge); }
 table.bets-table tbody tr:has(.res-pill.loss) td:first-child,
-table.clv-table tbody tr.clv-row:has(.res-pill.loss) td:first-child{ box-shadow: inset 2px 0 8px -2px var(--rust-glow); }
+table.clv-table tbody tr.clv-row:has(.res-pill.loss) td:first-child{ box-shadow: inset 2px 0 8px -3px var(--rust-glow-edge); }
 
 .streak-dot.w{ box-shadow: 0 0 7px var(--teal-glow); }
 .streak-dot.l{ box-shadow: 0 0 7px var(--rust-glow); }
