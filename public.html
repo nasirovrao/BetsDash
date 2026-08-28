@@ -165,8 +165,13 @@
             { label: 'Винрейт', value: s.winrate == null ? '—' : s.winrate.toFixed(1) + '%', sub: (s.wins + s.losses) ? `${s.wins + s.losses} решённых` : '' },
             { label: 'Профит', value: fmtMoney(s.totalProfit), cls: s.totalProfit > 0 ? 'pos' : s.totalProfit < 0 ? 'neg' : '', sub: '' },
             { label: 'ROI', value: s.roi == null ? '—' : s.roi.toFixed(2) + '%', cls: s.roi > 0 ? 'pos' : s.roi < 0 ? 'neg' : '', sub: '' },
-            { label: 'Средний кэф', value: s.avgOdds == null ? '—' : s.avgOdds.toFixed(2), sub: '' },
           ];
+          // "Средний кэф" сознательно убран отсюда (был здесь): без банка
+          // это давало 7 карточек — не делится ровно на 3 колонки, снизу
+          // висела дополнительная пустая ячейка-заглушка (см. padCount
+          // ниже). 6 карточек делятся ровно, заглушки не нужны вовсе.
+          // Сама метрика никуда не делась — она есть в детальных таблицах
+          // по ставкам, просто не дублируется на публичной сводке.
           // Milestone 13: банк/прирост банка на публичном профиле — только
           // если владелец сам включил show_bank (по умолчанию скрыто).
           if (profile.show_bank) {

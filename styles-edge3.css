@@ -25,18 +25,26 @@
   --line: #232a36;
   --line-soft: #171c24;
   --ink: #eef2f8;
-  --gold: #7fb3ff;
-  --gold-ink: #071018;
-  --teal: #4fd6c4;
-  --teal-soft: rgba(79,214,196,0.10);
-  --rust: #f2637a;
-  --rust-soft: rgba(242,99,122,0.10);
+  /* ---------------------------------------------------------------------
+     Палитра "VIOLET TICKER" (был отдельный превью-вариант v2, теперь по
+     запросу пользователя — основная палитра боевых страниц): фиолетовый
+     акцент вместо голубого, мятно-зелёный вместо бирюзы для позитива,
+     маджента-розовый вместо rust для негатива. Значения 1:1 из
+     bold_preview_delivery/styles-bold-preview-v2.css. --------------------- */
+  --gold: #a78bfa;
+  --gold-ink: #14110c;
+  --teal: #6ee7a0;
+  --teal-soft: rgba(110,231,160,0.10);
+  --teal-glow: rgba(110,231,160,0.55);
+  --rust: #fb5aa4;
+  --rust-soft: rgba(251,90,164,0.10);
+  --rust-glow: rgba(251,90,164,0.55);
 }
 
 body::before{
   background:
-    radial-gradient(circle at 25% 10%, rgba(127,179,255,0.09), transparent 46%),
-    radial-gradient(circle at 80% 70%, rgba(79,214,196,0.05), transparent 44%);
+    radial-gradient(circle at 25% 10%, rgba(167,139,250,0.10), transparent 46%),
+    radial-gradient(circle at 80% 70%, rgba(110,231,160,0.05), transparent 44%);
   filter: blur(80px);
   animation-duration: 34s;
 }
@@ -158,3 +166,59 @@ h1{ font-weight: 600; }
      и блокировать его тут через display:none было бы неправильно: CSS не
      может отличить, что вызвало .visible — mouseover или focusin. */
 }
+
+/* -------------------------------------------------------------------------
+   Полоса-статус слева (win/loss/sold) — понравилась на одном из ранних
+   вариантов (bold-preview), накатана везде, где встречается .res-pill:
+   лента ставок (app.html), общая таблица .bets-table (используется на
+   детальных страницах По букмекерам/Рынкам/Командам/Найденным эджам —
+   renderBetsTable в lib.js), CLV Tracker (свои .clv-row). Плоско, без
+   свечения — тон в тон остальному EDGE 3.0 (там сознательно нет теней).
+   Push/Pending — нейтральный результат, не W и не L, полосы не получает.
+   На <tr> border-left/box-shadow ненадёжно рендерится кросс-браузерно
+   (табличная модель), поэтому для строк красим первую <td>, а не саму tr;
+   на .bet-card (обычный блочный div) — border-left напрямую. ----------- */
+.bet-card{ border-left: 3px solid transparent; }
+.bet-card:has(.res-pill.win){ border-left-color: var(--teal); }
+.bet-card:has(.res-pill.loss){ border-left-color: var(--rust); }
+.bet-card:has(.res-pill.sold){ border-left-color: var(--gold); }
+.bet-card:has(.res-pill.hedged){ border-left-color: var(--gold); }
+
+table.bets-table tbody tr td:first-child,
+table.clv-table tbody tr.clv-row td:first-child{ border-left: 3px solid transparent; }
+table.bets-table tbody tr:has(.res-pill.win) td:first-child,
+table.clv-table tbody tr.clv-row:has(.res-pill.win) td:first-child{ border-left-color: var(--teal); }
+table.bets-table tbody tr:has(.res-pill.loss) td:first-child,
+table.clv-table tbody tr.clv-row:has(.res-pill.loss) td:first-child{ border-left-color: var(--rust); }
+table.bets-table tbody tr:has(.res-pill.sold) td:first-child,
+table.clv-table tbody tr.clv-row:has(.res-pill.sold) td:first-child{ border-left-color: var(--gold); }
+table.clv-table tbody tr.clv-row:has(.res-pill.hedged) td:first-child{ border-left-color: var(--gold); }
+
+/* -------------------------------------------------------------------------
+   Неон на win/loss (по фидбеку — переопределяет "плоско, без свечения"
+   из блока выше именно для сигналов победы/поражения, остальной EDGE 3.0
+   по-прежнему без теней). Победа — зелёным неоном (--teal, теперь
+   мятно-зелёный из VIOLET TICKER), поражение — красным/маджента неоном
+   (--rust). Реализовано как text-shadow на бейджах/цифрах и box-shadow на
+   полосах-статусах и стрик-точках — оба варианта glow одного порядка
+   яркости (--teal-glow/--rust-glow, alpha 0.55), чтобы бейдж, полоса и
+   точка читались как один и тот же сигнал по всему сайту. Push/Pending/
+   Sold/Hedged свечения не получают — это не W и не L. ------------------ */
+.res-pill.win{ text-shadow: 0 0 10px var(--teal-glow); }
+.res-pill.loss{ text-shadow: 0 0 10px var(--rust-glow); }
+
+.wlp-w{ text-shadow: 0 0 10px var(--teal-glow); }
+.wlp-l{ text-shadow: 0 0 10px var(--rust-glow); }
+
+.bet-card:has(.res-pill.win){ box-shadow: -3px 0 12px -2px var(--teal-glow) !important; }
+.bet-card:has(.res-pill.loss){ box-shadow: -3px 0 12px -2px var(--rust-glow) !important; }
+
+table.bets-table tbody tr:has(.res-pill.win) td:first-child,
+table.clv-table tbody tr.clv-row:has(.res-pill.win) td:first-child{ box-shadow: inset 2px 0 8px -2px var(--teal-glow); }
+table.bets-table tbody tr:has(.res-pill.loss) td:first-child,
+table.clv-table tbody tr.clv-row:has(.res-pill.loss) td:first-child{ box-shadow: inset 2px 0 8px -2px var(--rust-glow); }
+
+.streak-dot.w{ box-shadow: 0 0 7px var(--teal-glow); }
+.streak-dot.l{ box-shadow: 0 0 7px var(--rust-glow); }
+.streak-dot.w.last{ box-shadow: 0 0 0 3px var(--teal-glow), 0 0 12px var(--teal-glow); }
+.streak-dot.l.last{ box-shadow: 0 0 0 3px var(--rust-glow), 0 0 12px var(--rust-glow); }
