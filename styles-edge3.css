@@ -72,6 +72,22 @@ body::before{
 }
 a.stat-card:hover, .bd-card-link:hover{ border-color: var(--gold) !important; background: var(--bg-raised) !important; }
 
+/* Фикс: заголовок карточки разбивки ("Победитель (матч/карта)" и т.п.)
+   раньше стоял в одной строке со счётчиком ("150 СТАВОК") через
+   justify-content:space-between — счётчик отъедал часть и без того узкой
+   ширины карточки, из-за чего длинные названия переносились на 2 строки
+   почти всегда (перенос по слову — сам по себе не баг, U+2060/nbsp в
+   classifyMarket() по-прежнему не даёт переноситься ровно на месте "/" —
+   но у названия просто не хватало горизонтального места). Теперь счётчик
+   стоит НИЖЕ названия, а не рядом — имя получает всю ширину карточки и в
+   подавляющем большинстве случаев умещается в одну строку. Там, где
+   всё равно не помещается (самые длинные названия на узких карточках),
+   text-wrap:balance распределяет перенос ровнее, чем "первое слово одно,
+   всё остальное на второй строке". */
+.bd-card-head{ flex-direction: column; align-items: flex-start; gap: 4px; }
+.bd-card-count{ margin-top: 0; }
+.bd-card-name{ text-wrap: balance; }
+
 .stat-grid{ gap: 14px; background: transparent; border: none; }
 .stat-card{ padding: 26px 24px 22px !important; }
 .bd-grid{ gap: 20px; }
