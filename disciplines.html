@@ -34,11 +34,19 @@
     <a class="nav-pill" href="dashboard.html">Дашборд</a>
     <a class="nav-pill" href="app.html">Ставки</a>
     <a class="nav-pill" href="bank.html">Выводы и банк</a>
-    <a class="nav-pill active" href="disciplines.html">По дисциплинам</a>
-    <a class="nav-pill" href="bookmakers.html">По букмекерам</a>
-    <a class="nav-pill" href="markets.html">Рынки</a>
-    <a class="nav-pill" href="teams.html">Команды</a>
-    <a class="nav-pill" href="segmentation.html">Сегментация</a>
+    <div class="nav-pill nav-dropdown active" id="statsDropdown">
+      <button type="button" class="nav-dropdown-btn" id="statsDropdownBtn" aria-haspopup="true" aria-expanded="false">
+        Детальная статистика
+        <svg class="nav-dropdown-caret" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><path d="M6 9l6 6 6-6" stroke-linecap="round" stroke-linejoin="round"/></svg>
+      </button>
+      <div class="nav-dropdown-panel" id="statsDropdownPanel" hidden>
+        <a class="nav-dropdown-item active" href="disciplines.html">По дисциплинам</a>
+        <a class="nav-dropdown-item" href="bookmakers.html">По букмекерам</a>
+        <a class="nav-dropdown-item" href="markets.html">Рынки</a>
+        <a class="nav-dropdown-item" href="teams.html">Команды</a>
+        <a class="nav-dropdown-item" href="segmentation.html">Сегментация</a>
+      </div>
+    </div>
     <a class="nav-pill" href="edges.html">Найденные эджи</a>
     <a class="nav-pill" id="navClvPill" href="clv.html" style="display:none;">CLV Tracker</a>
   </div>
@@ -57,11 +65,12 @@
 
 <script type="module">
   import { supabase, requireSession, isClvEnabled } from './supabase-client.js';
-  import { groupBets, renderGroupCards, renderBreakdownDetail, getChannelParams, loadMyChannels, renderChannelSwitch, preserveChannelInNav, channelHref, initEmailPrivacyToggle} from './lib.js';
+  import { groupBets, renderGroupCards, renderBreakdownDetail, getChannelParams, loadMyChannels, renderChannelSwitch, preserveChannelInNav, channelHref, initEmailPrivacyToggle, initNavStatsDropdown} from './lib.js';
 
   const session = await requireSession();
   if (session) {
     initEmailPrivacyToggle(session.user.email);
+    initNavStatsDropdown();
   }
   isClvEnabled().then(on => { if (on) document.getElementById('navClvPill').style.display = ''; });
   document.getElementById('logoutBtn').addEventListener('click', async () => {

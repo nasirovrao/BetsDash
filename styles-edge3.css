@@ -136,6 +136,61 @@ h1{ font-weight: 600; }
 .app-nav .nav-pill:not(:last-child)::after{ right: -3.5px; }
 
 /* -------------------------------------------------------------------------
+   Milestone 25: 5 пунктов-разбивок (По дисциплинам / По букмекерам / Рынки /
+   Команды / Сегментация) были отдельными вкладками нав-бара — по факту
+   разные срезы одной и той же детальной статистики, визуально ничем не
+   выделены среди остальных пунктов и вместе с "Лентой ставок" ещё сильнее
+   давили на компактность нав-бара (см. фикс выше). Схлопнуты в один
+   выпадающий пункт "Детальная статистика". Сам .nav-pill вешаем на
+   ОБЁРТКУ (div), а не на кнопку внутри — иначе margin-right/::after-точка
+   разделитель (выше) не создавали бы отступ между реальными flex-item'ами
+   нав-бара, т.к. margin на потомке не двигает соседний flex-item обёртки.
+   Кнопка внутри — чисто сброшенная, наследует шрифт/цвет от .nav-pill. */
+.nav-dropdown{ position:relative; }
+.nav-dropdown-btn{
+  display:flex; align-items:center; gap:4px; background:none; border:none; padding:0; margin:0;
+  font:inherit; color:inherit; text-transform:inherit; letter-spacing:inherit; cursor:pointer;
+}
+.nav-dropdown-caret{ width:9px; height:9px; flex:none; transition: transform .15s ease; }
+.nav-dropdown.open .nav-dropdown-caret{ transform: rotate(180deg); }
+/* position:fixed, а не absolute-от-.nav-dropdown, и координаты выставляются
+   в JS (initNavStatsDropdown, lib.js), а не тут статикой top/left — потому
+   что панель, оставаясь ребёнком .app-nav .wrap, физически не рисовалась
+   (пробовал position:absolute + top:calc(100% + 8px) — в DOM всё верно,
+   bounding rect верный, но не видно ни пикселя). Причина не в z-index (это
+   была первая гипотеза и тупиковая): .app-nav .wrap задаёт только
+   overflow-x:auto (styles.css, ради горизонтального скролла нав-бара на
+   узких экранах) — а по спеке CSS Overflow, если один из overflow-x/-y
+   auto/scroll/hidden, а другой не задан явно (по умолчанию visible), браузер
+   ВМЕСТО visible использует auto и для него тоже. То есть .wrap реально
+   overflow:auto auto, и панель, вылезающая ниже границ .wrap по высоте,
+   обрезается вертикально — это давно известное поведение, обойти его
+   чистым CSS для дочернего элемента нельзя (в отличие от overflow-x:hidden
+   +overflow-y:visible — так браузер тоже не даст). Единственный надёжный
+   способ — увести панель из DOM-поддерева .wrap целиком ("портал" в body),
+   тогда обрезка соседа её больше не касается. */
+.nav-dropdown-panel{
+  position:fixed; z-index:30; min-width:172px;
+  display:flex; flex-direction:column; gap:2px; padding:6px;
+  background: var(--bg-raised); border:1px solid var(--line); border-radius: var(--radius);
+  box-shadow: var(--shadow);
+}
+.nav-dropdown-panel[hidden]{ display:none; }
+.nav-dropdown-item{
+  display:block; padding:8px 10px; border-radius:6px; white-space:nowrap; text-decoration:none;
+  font-family:'AST19','JetBrains Mono',monospace; font-weight:400; font-size:11px;
+  text-transform:uppercase; letter-spacing:0.02em; color: var(--ink-faint);
+  transition: background .12s ease, color .12s ease;
+}
+.nav-dropdown-item:hover{ background: var(--bg-card); color: var(--ink); }
+/* та же гамма, что и подсветка активной ссылки в ленте ставок
+   (.feed-filter-row a.active), но локально, без завязки на неопределённый
+   --gold-soft — токена с таким именем в :root нет (см. styles-edge4.css,
+   там он тоже используется, но это отдельный не связанный с этим фиксом
+   вопрос, не трогаю его в рамках этой правки). */
+.nav-dropdown-item.active{ color: var(--gold); background: rgba(167,139,250,0.12); }
+
+/* -------------------------------------------------------------------------
    Фикс 2 (новое): фокус-режим на #statGrid дашборда.
    Только на устройствах с настоящим наведением (hover:hover, pointer:fine)
    — на тач-экранах сетка остаётся обычной (см. общий .stat-grid выше),

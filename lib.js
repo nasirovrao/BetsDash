@@ -798,6 +798,58 @@ export function initEmailPrivacyToggle(email) {
   render();
 }
 
+// ---- Приватный нав-бар: "Детальная статистика" сворачивает 5 пунктов-
+// разбивок (По дисциплинам / По букмекерам / Рынки / Команды / Сегментация)
+// в один выпадающий пункт — они были отдельными вкладками и раздували
+// нав-бар (см. фикс компактности в styles-edge3.css чуть раньше). Логика
+// открытия/закрытия — тот же паттерн, что уже используется для дропдауна
+// ролей в profile-settings.html (клик по кнопке / клик снаружи / Escape),
+// вынесен сюда в общую функцию, а не продублирован в 13 приватных страницах.
+export function initNavStatsDropdown() {
+  const wrap = document.getElementById('statsDropdown');
+  const btn = document.getElementById('statsDropdownBtn');
+  const panel = document.getElementById('statsDropdownPanel');
+  if (!wrap || !btn || !panel) return;
+
+  // Панель переносится прямо в <body> (а не остаётся ребёнком .app-nav .wrap)
+  // и позиционируется через position:fixed по координатам кнопки — иначе
+  // её обрезает overflow горизонтального скролла нав-бара (детали и разбор
+  // — в комментарии у .nav-dropdown-panel, styles-edge3.css). Раз уж панель
+  // больше не в поддереве .wrap, closeOnOutsideClick должен явно учитывать
+  // и её саму, не только обёртку .nav-dropdown.
+  document.body.appendChild(panel);
+
+  function place() {
+    const r = btn.getBoundingClientRect();
+    const panelWidth = panel.offsetWidth || 172;
+    const left = Math.min(r.left, window.innerWidth - panelWidth - 8);
+    panel.style.top = `${r.bottom + 8}px`;
+    panel.style.left = `${Math.max(8, left)}px`;
+  }
+  function close() {
+    panel.hidden = true;
+    wrap.classList.remove('open');
+    btn.setAttribute('aria-expanded', 'false');
+  }
+  btn.addEventListener('click', (e) => {
+    e.stopPropagation();
+    const willOpen = panel.hidden;
+    if (willOpen) place();
+    panel.hidden = !willOpen;
+    wrap.classList.toggle('open', willOpen);
+    btn.setAttribute('aria-expanded', String(willOpen));
+  });
+  document.addEventListener('click', (e) => {
+    if (!wrap.contains(e.target) && !panel.contains(e.target)) close();
+  });
+  document.addEventListener('keydown', (e) => { if (e.key === 'Escape' && !panel.hidden) { close(); btn.focus(); } });
+  // Нав-бар не sticky — при скролле кнопка уходит из-под уже
+  // спозиционированной панели. Проще закрыть, чем гонять place() на каждый
+  // scroll/resize ради панели с 5 пунктами.
+  window.addEventListener('scroll', () => { if (!panel.hidden) close(); }, { passive: true });
+  window.addEventListener('resize', () => { if (!panel.hidden) close(); });
+}
+
 // ---- Мини-диаграммы при наведении на карточки дашборда (Milestone 14) ----
 
 function chronoSettled(bets) {
