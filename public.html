@@ -76,7 +76,7 @@
     fmtMoney, computeStats, computeStreak, computeFlatStats, renderWLP, escapeHtml,
     groupBets, groupBetsMulti, renderGroupCards, renderBreakdownDetail,
     classifyMarket, teamKeysForBet, renderBetsFlatTable,
-    computeCardTrend, renderSparkline, renderWlpBars, initStatCardPopovers,
+    computeCardTrend, renderSparkline, renderWlpBars, renderTopBetsPop, initStatCardPopovers,
     computeRatingTier, computeSpecialization, renderProfileBanner,
   } from './lib.js';
 
@@ -234,17 +234,38 @@
             { label: 'Винрейт', value: s.winrate == null ? '—' : s.winrate.toFixed(1) + '%', sub: (s.wins + s.losses) ? `${s.wins + s.losses} решённых` : '', href: betsHref, pop: () => renderSparkline(computeCardTrend('winrate', allBets)) },
             { label: 'Профит', value: fmtMoney(s.totalProfit), cls: s.totalProfit > 0 ? 'pos' : s.totalProfit < 0 ? 'neg' : '', sub: '', href: betsHref, pop: () => renderSparkline(computeCardTrend('profit', allBets)) },
             { label: 'ROI', value: s.roi == null ? '—' : s.roi.toFixed(2) + '%', cls: s.roi > 0 ? 'pos' : s.roi < 0 ? 'neg' : '', sub: '', href: betsHref, pop: () => renderSparkline(computeCardTrend('roi', allBets)) },
+            { label: 'Средний кэф', value: s.avgOdds == null ? '—' : s.avgOdds.toFixed(2), sub: '', href: betsHref, pop: () => renderTopBetsPop(allBets, 3) },
             // Профит по флетам — см. подробный комментарий у
             // computeFlatStats/computeProfitInFlats в lib.js. Сырое
             // количество флетов, а не доходность в процентах (см. ту же
             // правку в dashboard.html).
             { label: 'Профит по флетам', value: flatStats.flatsStaked ? `${flatStats.flatsProfit >= 0 ? '+' : ''}${flatStats.flatsProfit.toFixed(2)}` : '—', cls: flatStats.flatsProfit > 0 ? 'pos' : flatStats.flatsProfit < 0 ? 'neg' : '', sub: flatStats.flatsStaked ? `из ${flatStats.flatsStaked.toFixed(2)} флета` : '', href: betsHref, pop: () => renderSparkline(computeCardTrend('flatsProfit', allBets)) },
           ];
-          // "Средний кэф" сознательно убран отсюда (был здесь) — просто
-          // чтобы не дублировать его на публичной сводке, сама метрика
-          // никуда не делась, она есть в детальных таблицах по ставкам.
-          // Число карточек кратным 3 в итоге всё равно не является (см.
-          // ниже, почему это больше не проблема).
+          // "Средний кэф" вернули обратно (30.08.2026, по прямой просьбе —
+          // на публичной сводке этой карточки не хватало, пустое место в
+          // сетке смотрелось как недоделка). Раньше специально убирался
+          // отсюда, чтобы не дублировать его же в детальных таблицах — но
+          // там он виден только после перехода в разбивку, здесь же это
+          // единственное место, где среднюю доходность кэфа видно сразу на
+          // сводке, так что дублирования по сути нет.
+          // "Текущая серия" — компактная версия того же блока, что на
+          // приватном дашборде показывает полосу точек: здесь, в формате
+          // обычной карточки сетки, только заголовок серии текстом
+          // (computeStreak уже используется на этой странице для рейтинга
+          // капперов, тут — тот же расчёт, другое представление).
+          {
+            const streak = computeStreak(allBets, 10);
+            const streakLabel = streak.streakType == null ? 'Нет серии'
+              : streak.streakType === 'W' ? `${streak.streakLen} ${ruCount(streak.streakLen, 'победа', 'победы', 'побед')}`
+              : `${streak.streakLen} ${ruCount(streak.streakLen, 'поражение', 'поражения', 'поражений')}`;
+            cards.push({
+              label: 'Текущая серия',
+              value: streakLabel,
+              cls: streak.streakType === 'W' ? 'pos' : streak.streakType === 'L' ? 'neg' : '',
+              sub: streak.streakType == null ? '' : 'подряд',
+              href: betsHref,
+            });
+          }
           // Milestone 13: банк/прирост банка на публичном профиле — только
           // если владелец сам включил show_bank (по умолчанию скрыто).
           if (profile.show_bank) {
