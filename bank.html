@@ -448,16 +448,43 @@
   }
 
   document.getElementById('saveStartBank').addEventListener('click', async () => {
-    const val = Number(document.getElementById('startBank').value);
-    if (!val || val < 0) return;
+    // Баг (найден 30.08.2026): раньше кнопка была завязана ТОЛЬКО на "Начальный
+    // банк" — `if (!val || val < 0) return;` молча выходила без единой строчки
+    // статуса, если это поле пустое, даже если пользователь на самом деле хотел
+    // сохранить только "Флет по умолчанию". Выглядело как "кнопка не работает".
+    // Теперь оба поля валидируются и сохраняются независимо друг от друга.
+    const startRaw = document.getElementById('startBank').value.trim();
     const flatRaw = document.getElementById('defaultFlat').value.trim();
-    const flatVal = flatRaw ? Number(flatRaw) : null;
-    if (flatRaw && (!flatVal || flatVal <= 0)) {
-      startBankStatus.textContent = 'Флет по умолчанию должен быть положительным числом (или оставь поле пустым).';
+
+    if (!startRaw && !flatRaw) {
+      startBankStatus.textContent = 'Заполни хотя бы одно поле — начальный банк или флет по умолчанию.';
       return;
     }
+
+    let startVal = null;
+    if (startRaw) {
+      startVal = Number(startRaw);
+      if (!Number.isFinite(startVal) || startVal < 0) {
+        startBankStatus.textContent = 'Начальный банк должен быть неотрицательным числом (или оставь поле пустым, если меняешь только флет).';
+        return;
+      }
+    }
+
+    let flatVal = null;
+    if (flatRaw) {
+      flatVal = Number(flatRaw);
+      if (!Number.isFinite(flatVal) || flatVal <= 0) {
+        startBankStatus.textContent = 'Флет по умолчанию должен быть положительным числом (или оставь поле пустым).';
+        return;
+      }
+    }
+
     startBankStatus.textContent = 'Сохраняю…';
-    const payload = { starting_bankroll: val, default_flat_size: flatVal };
+    const payload = { default_flat_size: flatVal };
+    // starting_bankroll трогаем только если поле реально заполнено — иначе при
+    // апдейте затрём уже сохранённое значение нулём, а при первой вставке новой
+    // строки просто полагаемся на DB-дефолт 0 (schema_milestone2.sql).
+    if (startRaw) payload.starting_bankroll = startVal;
     const { error } = currentSettings
       ? await supabase.from('settings').update(payload).eq('user_id', ownerUserId).eq('channel', activeChannel)
       : await supabase.from('settings').insert({ user_id: ownerUserId, channel: activeChannel, ...payload });
