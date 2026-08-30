@@ -90,6 +90,19 @@
           </div>
         </div>
         <div class="field" style="margin-top:16px;">
+          <label>Метки профиля (необязательно)</label>
+          <div class="form-grid form-grid-2" style="margin-top:6px;">
+            <label class="check-row" for="p_role_capper">
+              <input id="p_role_capper" type="checkbox">
+              <span>Каппер — публикую разборы и ставки для подписчиков</span>
+            </label>
+            <label class="check-row" for="p_role_streamer">
+              <input id="p_role_streamer" type="checkbox">
+              <span>Стример — веду эфиры</span>
+            </label>
+          </div>
+        </div>
+        <div class="field" style="margin-top:16px;">
           <label class="check-row" for="p_is_public">
             <input id="p_is_public" type="checkbox">
             <span>Профиль публичный — виден всем по ссылке, без входа в аккаунт</span>
@@ -140,6 +153,8 @@
   const channelInput = document.getElementById('p_channel');
   const isPublicInput = document.getElementById('p_is_public');
   const showBankInput = document.getElementById('p_show_bank');
+  const roleCapperInput = document.getElementById('p_role_capper');
+  const roleStreamerInput = document.getElementById('p_role_streamer');
   const formStatus = document.getElementById('formStatus');
   const saveBtn = document.getElementById('saveBtn');
   const publicLinkBlock = document.getElementById('publicLinkBlock');
@@ -268,6 +283,9 @@
     channelInput.value = existingProfile && existingProfile.channel ? existingProfile.channel : 'cybervalue';
     isPublicInput.checked = !!(existingProfile && existingProfile.is_public);
     showBankInput.checked = !!(existingProfile && existingProfile.show_bank);
+    const roles = (existingProfile && existingProfile.roles) || [];
+    roleCapperInput.checked = roles.includes('capper');
+    roleStreamerInput.checked = roles.includes('streamer');
     currentLogoUrl = existingProfile && existingProfile.logo_url ? existingProfile.logo_url : null;
     renderLogoPreview();
     renderLinkBlock();
@@ -287,6 +305,9 @@
     }
     saveBtn.disabled = true;
     formStatus.textContent = 'Сохраняю…';
+    const roles = [];
+    if (roleCapperInput.checked) roles.push('capper');
+    if (roleStreamerInput.checked) roles.push('streamer');
     const payload = {
       username: username || null,
       display_name: displayNameInput.value.trim() || null,
@@ -295,6 +316,7 @@
       is_public: isPublicInput.checked,
       show_bank: showBankInput.checked,
       logo_url: currentLogoUrl,
+      roles,
     };
     const { error } = existingProfile
       ? await supabase.from('profiles').update(payload).eq('user_id', session.user.id)

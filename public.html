@@ -36,6 +36,7 @@
 <!-- EDGE 2.0 — новая дизайн-система (палитра/типографика/фон), см. styles-edge2.css -->
 <link rel="stylesheet" href="styles-edge2.css?v=1">
 <link rel="stylesheet" href="styles-edge3.css?v=1">
+<link rel="stylesheet" href="styles-edge4.css?v=1">
 <script src="theme-toggle.js" defer></script>
 </head>
 <body>
@@ -47,6 +48,7 @@
          который совпадал по силуэту с Ethereum. -->
     <a class="brand" href="index.html"><svg class="brand-mark" viewBox="0 0 32 32" width="20" height="20" aria-hidden="true"><circle cx="16" cy="16" r="12" fill="none" stroke="var(--gold)" stroke-width="1.6" opacity="0.28"/><path d="M16 4 A12 12 0 0 1 26.9 12.3" fill="none" stroke="var(--gold)" stroke-width="3" stroke-linecap="round"/><line x1="12" y1="12" x2="12" y2="20" stroke="var(--gold)" stroke-width="2.6" stroke-linecap="round"/><line x1="12" y1="12" x2="19" y2="12" stroke="var(--gold)" stroke-width="2.6" stroke-linecap="round"/><line x1="12" y1="16" x2="17.5" y2="16" stroke="var(--gold)" stroke-width="2.6" stroke-linecap="round"/><line x1="12" y1="20" x2="19" y2="20" stroke="var(--gold)" stroke-width="2.6" stroke-linecap="round"/></svg>EDGE<span>.</span></a>
     <div class="topbar-user">
+      <a class="topbar-link" href="feed.html">Лента ставок</a>
       <a class="topbar-link" href="index.html">Войти в EDGE</a>
     </div>
   </div>
@@ -74,7 +76,20 @@
     groupBets, groupBetsMulti, renderGroupCards, renderBreakdownDetail,
     classifyMarket, teamKeysForBet, renderBetsFlatTable,
     computeCardTrend, renderSparkline, renderWlpBars, initStatCardPopovers,
+    computeRatingTier, computeSpecialization, renderProfileBanner,
   } from './lib.js';
+
+  // Инициалы для аватара-заглушки, когда лого не загружено — до 2 букв,
+  // из первых двух "слов" отображаемого имени (или username, если имени нет).
+  function initialsOf(name) {
+    const parts = (name || '').trim().split(/\s+/).filter(Boolean);
+    if (!parts.length) return '?';
+    if (parts.length === 1) return parts[0].slice(0, 2).toUpperCase();
+    return (parts[0][0] + parts[1][0]).toUpperCase();
+  }
+
+  const VERIFY_ICON_ON = '<svg viewBox="0 0 24 24" fill="currentColor"><path d="M12 2l2.4 2.2 3.2-.6.9 3.1 3.1.9-.6 3.2L23 12l-2.2 2.4.6 3.2-3.1.9-.9 3.1-3.2-.6L12 23l-2.4-2.2-3.2.6-.9-3.1-3.1-.9.6-3.2L1 12l2.2-2.4-.6-3.2 3.1-.9.9-3.1 3.2.6L12 2z"/><path d="M8.5 12.2l2.4 2.4 4.6-5.2" stroke="var(--bg-card)" stroke-width="2" fill="none" stroke-linecap="round" stroke-linejoin="round"/></svg>';
+  const VERIFY_ICON_OFF = '<svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><circle cx="12" cy="12" r="9" stroke-dasharray="3 3"/><path d="M12 8v5" stroke-linecap="round"/><circle cx="12" cy="16" r="0.6" fill="currentColor" stroke="none"/></svg>';
 
   const params = new URLSearchParams(location.search);
   const username = (params.get('u') || '').trim().toLowerCase();
@@ -117,22 +132,6 @@
         return many;
       };
 
-      profileHero.innerHTML = `
-        <div class="profile-hero">
-          <div class="profile-hero-top">
-            ${profile.logo_url ? `<img class="profile-hero-logo" src="${escapeHtml(profile.logo_url)}" alt="${escapeHtml(profile.display_name || profile.username)}">` : ''}
-            <div class="profile-hero-headline">
-              <div class="profile-hero-name">${escapeHtml(profile.display_name || profile.username)}</div>
-              <span class="profile-badge">Публичный профиль · верифицированные данные</span>
-            </div>
-          </div>
-          ${profile.bio ? `<div class="profile-hero-bio">${escapeHtml(profile.bio)}</div>` : ''}
-          <div class="trust-note">
-            <span class="trust-note-mark">⏱</span>
-            <span>Правки задним числом видно: наведи на «✎ изменено» в таблице — покажет, что именно поменяли.</span>
-          </div>
-        </div>`;
-
       // ВАЖНО: RLS-политика "select public …" разрешает видеть строки ЛЮБОГО
       // пользователя с is_public = true, а не только этого профиля — поэтому
       // каждый запрос ниже обязательно фильтруется по user_id профиля явно,
@@ -161,8 +160,65 @@
         const pageFile = `public.html?u=${encodeURIComponent(username)}&tab=${activeTab}`;
         const betsHref = `public.html?u=${encodeURIComponent(username)}&tab=bets`;
 
+        // Считаем один раз здесь — используется и в шапке профиля (статы,
+        // рейтинг), и во вкладке "Дашборд" ниже (renderDashboardTab).
+        const s = computeStats(allBets, allWithdrawals, startingBankroll);
+        const rating = computeRatingTier(allBets);
+        const specialization = computeSpecialization(allBets, 3);
+        const isDiary = channel === 'default';
+        const joinedLabel = profile.created_at
+          ? new Date(profile.created_at).toLocaleDateString('ru-RU', { month: 'long', year: 'numeric' })
+          : null;
+
+        const roleBadgesHtml = (profile.roles || []).map(r => {
+          if (r === 'capper') return `<span class="pf-badge role-capper"><span class="dot"></span>Каппер</span>`;
+          if (r === 'streamer') return `<span class="pf-badge role-streamer"><span class="dot"></span>Стример</span>`;
+          return '';
+        }).join('');
+        const channelBadgeHtml = isDiary
+          ? `<span class="pf-badge channel-type diary">Личный дневник</span>`
+          : `<span class="pf-badge channel-type">Публичный канал</span>`;
+
+        profileHero.innerHTML = `
+          <div class="pf-banner">${renderProfileBanner(computeCardTrend('profit', allBets))}</div>
+          <div class="pf-identity">
+            <div class="pf-top">
+              <div class="pf-avatar">${profile.logo_url ? `<img src="${escapeHtml(profile.logo_url)}" alt="">` : escapeHtml(initialsOf(profile.display_name || profile.username))}</div>
+            </div>
+            <div class="pf-name-row">
+              <div class="pf-name">${escapeHtml(profile.display_name || profile.username)}</div>
+              <span class="pf-verify${profile.is_verified ? '' : ' unverified'}" title="${profile.is_verified ? 'Верифицированный профиль' : 'Профиль не верифицирован'}">${profile.is_verified ? VERIFY_ICON_ON : VERIFY_ICON_OFF}</span>
+            </div>
+            <div class="pf-handle">@${escapeHtml(profile.username)}</div>
+            <div class="pf-badges">${roleBadgesHtml}${channelBadgeHtml}</div>
+            ${profile.bio ? `<div class="pf-bio">${escapeHtml(profile.bio)}</div>` : ''}
+            <div class="pf-meta">
+              ${joinedLabel ? `<span><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><rect x="3" y="5" width="18" height="16" rx="2"/><path d="M3 10h18M8 3v4M16 3v4" stroke-linecap="round"/></svg>На EDGE с ${joinedLabel}</span>` : ''}
+              <span><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><circle cx="12" cy="12" r="9"/><path d="M12 7v5l3.5 2" stroke-linecap="round"/></svg>${rating.closedCount} ${ruCount(rating.closedCount, 'закрытая ставка', 'закрытые ставки', 'закрытых ставок')}</span>
+            </div>
+            <div class="pf-stats">
+              <div class="pf-stat"><div class="pf-stat-val">${s.total}</div><div class="pf-stat-lbl">Ставок</div></div>
+              <div class="pf-stat"><div class="pf-stat-val">${s.winrate == null ? '—' : s.winrate.toFixed(1) + '%'}</div><div class="pf-stat-lbl">Винрейт</div></div>
+              <div class="pf-stat"><div class="pf-stat-val ${s.roi > 0 ? 'pos' : s.roi < 0 ? 'neg' : ''}">${s.roi == null ? '—' : (s.roi >= 0 ? '+' : '') + s.roi.toFixed(1) + '%'}</div><div class="pf-stat-lbl">ROI</div></div>
+              <div class="pf-stat"><div class="pf-stat-val ${s.totalProfit > 0 ? 'pos' : s.totalProfit < 0 ? 'neg' : ''}">${fmtMoney(s.totalProfit)}</div><div class="pf-stat-lbl">Профит</div></div>
+            </div>
+            <div class="pf-rating">
+              <div class="pf-rating-head">
+                <div class="pf-rating-tier">${rating.tierName}</div>
+                <div class="pf-rating-score">${rating.score} / 100</div>
+              </div>
+              <div class="pf-rating-track"><div class="pf-rating-fill" style="width:${rating.score}%"></div></div>
+              <div class="pf-rating-ticks">${rating.tiers.map(t => `<span>${t}</span>`).join('')}</div>
+              <div class="pf-rating-note">Сейчас грейд считается по количеству закрытых ставок — <b>${rating.closedCount}</b>, чем больше отслеженная история, тем выше рейтинг. В планах — добавить и другие факторы: стабильность серии, точность CLV, активность в канале и реакцию подписчиков.</div>
+            </div>
+            ${specialization.length ? `<div class="pf-spec">${specialization.map(sp => `<span class="pf-spec-chip"><span class="pf-spec-bar"><i style="width:${sp.pct}%"></i></span>${escapeHtml(sp.discipline)} <b>${sp.pct}%</b></span>`).join('')}</div>` : ''}
+            <div class="trust-note" style="margin-top:16px;">
+              <span class="trust-note-mark">⏱</span>
+              <span>Правки задним числом видно: наведи на «✎ изменено» в таблице — покажет, что именно поменяли.</span>
+            </div>
+          </div>`;
+
         function renderDashboardTab() {
-          const s = computeStats(allBets, allWithdrawals, startingBankroll);
           const flatStats = computeFlatStats(allBets);
           const cards = [
             { label: 'Всего ставок', value: s.total, sub: '', href: betsHref, pop: () => renderSparkline(computeCardTrend('total', allBets)) },

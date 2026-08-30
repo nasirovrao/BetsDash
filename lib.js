@@ -446,7 +446,7 @@ export function renderBreakdownDetail(labelHeader, keyLabel, group, backHref, hi
 // (там она была бы одинаковой в каждой строке и просто дублировала бы шапку).
 // Дата+время в человеческом виде для тултипов с тайм-стемпами (см. ниже) —
 // например "07.08.2026, 14:32".
-function fmtDateTime(iso) {
+export function fmtDateTime(iso) {
   if (!iso) return '';
   try {
     return new Date(iso).toLocaleString('ru-RU', { day: '2-digit', month: '2-digit', year: 'numeric', hour: '2-digit', minute: '2-digit' });
@@ -906,4 +906,108 @@ export function initStatCardPopovers(container) {
     const card = e.target.closest('.stat-card[data-has-pop]');
     if (card && !card.contains(e.relatedTarget)) hide();
   });
+}
+
+// ===========================================================================
+// Milestone 22 — профиль v2 + лента ставок. См. CHANGELOG.md.
+// ===========================================================================
+
+// Грейд рейтинга каппера. V1: считается ТОЛЬКО по объёму отслеженной
+// истории (количество решённых/закрытых ставок — Pending не считается).
+// Это сознательно временно и явно проговорено пользователю: рейтинг задуман
+// как составной (в будущем — стабильность серии, точность CLV, активность
+// в канале, реакция подписчиков), но пока эти факторы не реализованы, а
+// показывать несуществующую составную формулу как готовую было бы враньём.
+// Кривая — насыщающаяся экспонента (не линейная): у капперов с небольшой
+// историей рейтинг растёт быстро, дальше эффект от каждой новой ставки
+// уменьшается — 150 ставок ощутимо двигают шкалу, 1500-я ставка почти нет.
+const RATING_TIERS = ['Новичок', 'Активный', 'Проверенный', 'Опытный', 'Элита'];
+export function computeRatingTier(bets) {
+  const closedCount = (bets || []).filter(b => b.result !== 'Pending').length;
+  const score = Math.min(100, Math.round(100 * (1 - Math.exp(-closedCount / 150))));
+  const idx = Math.min(RATING_TIERS.length - 1, Math.floor(score / (100 / RATING_TIERS.length)));
+  return { score, closedCount, tierName: RATING_TIERS[idx], tiers: RATING_TIERS };
+}
+
+// Топ дисциплин капера по доле от общего числа ставок — карточки
+// "специализации" на профиле (например "CS2 61%"). n — сколько показать
+// (по умолчанию 3), остальное не влезает в одну строку без переноса.
+export function computeSpecialization(bets, n = 3) {
+  const counts = {};
+  (bets || []).forEach(b => {
+    if (!b.discipline) return;
+    counts[b.discipline] = (counts[b.discipline] || 0) + 1;
+  });
+  const total = Object.values(counts).reduce((s, c) => s + c, 0);
+  if (!total) return [];
+  return Object.entries(counts)
+    .map(([discipline, count]) => ({ discipline, count, pct: Math.round((count / total) * 100) }))
+    .sort((a, b) => b.count - a.count)
+    .slice(0, n);
+}
+
+// Относительное время ("2 часа назад", "3 дня назад") для карточек в ленте
+// ставок — там абсолютная дата+время из fmtDateTime были бы слишком
+// многословны на каждой карточке (в ленте таймстамп есть в hover, не нужно
+// дублировать крупно). Грубая шкала — минуты/часы/дни/недели, дальше просто
+// дата, поминутная точность после недели уже не имеет смысла для ленты.
+export function fmtRelativeTime(iso) {
+  if (!iso) return '';
+  const then = new Date(iso).getTime();
+  if (Number.isNaN(then)) return '';
+  const diffMs = Date.now() - then;
+  const min = Math.floor(diffMs / 60000);
+  if (min < 1) return 'только что';
+  if (min < 60) return `${min} ${min === 1 ? 'минуту' : min < 5 ? 'минуты' : 'минут'} назад`;
+  const hrs = Math.floor(min / 60);
+  if (hrs < 24) return `${hrs} ${hrs === 1 ? 'час' : hrs < 5 ? 'часа' : 'часов'} назад`;
+  const days = Math.floor(hrs / 24);
+  if (days < 7) return `${days} ${days === 1 ? 'день' : days < 5 ? 'дня' : 'дней'} назад`;
+  const weeks = Math.floor(days / 7);
+  if (weeks < 5) return `${weeks} ${weeks === 1 ? 'неделю' : weeks < 5 ? 'недели' : 'недель'} назад`;
+  return new Date(iso).toLocaleDateString('ru-RU', { day: '2-digit', month: '2-digit', year: 'numeric' });
+}
+
+// Баннер шапки профиля — НЕ декоративная случайная картинка, а настоящий
+// кумулятивный профит канала (та же серия точек, что и в спарклайне на
+// карточке "Профит" дашборда, computeCardTrend('profit', bets)), только
+// растянутый на всю ширину баннера. Две линии — общий профит (акцент) и
+// тот же тренд со сдвигом/сглаживанием как декоративный второй слой (var
+// --teal), просто чтобы баннер не выглядел как один сухой график, а как
+// текстура — но обе линии из реальных данных, не выдуманные. Меньше 2 точек
+// (например у совсем нового канала без решённых ставок) — рисуем плоскую
+// линию по центру, без графика делать нечего, но и баннер пустым не будет.
+export function renderProfileBanner(profitPoints) {
+  const W = 720, H = 170;
+  const toPath = (points, padTop, padBottom) => {
+    if (!points || points.length < 2) {
+      return `M 0,${H / 2} L ${W},${H / 2}`;
+    }
+    const min = Math.min(...points), max = Math.max(...points);
+    const range = (max - min) || 1;
+    const stepX = W / (points.length - 1);
+    return points.map((v, i) => {
+      const x = i * stepX;
+      const y = padTop + (H - padTop - padBottom) - ((v - min) / range) * (H - padTop - padBottom);
+      return `${i === 0 ? 'M' : 'L'} ${x.toFixed(1)},${y.toFixed(1)}`;
+    }).join(' ');
+  };
+  const mainPath = toPath(profitPoints, 14, 26);
+  // Второй слой — та же серия, сглаженная скользящим средним по 3 точкам и
+  // сдвинутая ниже (другой padBottom), чтобы визуально не сливаться с
+  // основной линией. Тоже реальные данные, просто другое "прочтение".
+  const smoothed = (profitPoints && profitPoints.length >= 3)
+    ? profitPoints.map((v, i, arr) => {
+        const a = arr[Math.max(0, i - 1)], b = arr[Math.min(arr.length - 1, i + 1)];
+        return (a + v + b) / 3;
+      })
+    : profitPoints;
+  const altPath = toPath(smoothed, 46, 6);
+  const mainFillPath = `${mainPath} L ${W},${H} L 0,${H} Z`;
+  return `
+    <svg viewBox="0 0 ${W} ${H}" preserveAspectRatio="none">
+      <path class="pf-banner-fill" d="${mainFillPath}"></path>
+      <path class="pf-banner-line" d="${mainPath}"></path>
+      <path class="pf-banner-line alt" d="${altPath}"></path>
+    </svg>`;
 }

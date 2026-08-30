@@ -1,0 +1,140 @@
+/* =========================================================================
+   EDGE — Профиль v2 + Лента ставок (см. CHANGELOG.md, задача #38)
+   =========================================================================
+   Четвёртый слой поверх styles.css → styles-edge2.css → styles-edge3.css,
+   тот же принцип — только новые классы (префикс .pf- для профиля, .feed-
+   для ленты), ничего из предыдущих слоёв не трогаем. Визуальный язык взят
+   из прототипа профиля (см. разговор про "лента ставок а-ля X"), но на
+   РЕАЛЬНЫХ токенах сайта (var(--gold)/var(--teal)/var(--rust)/…), а не на
+   отдельной палитре — это тот же продукт, а не отдельная страница.
+
+   Одна новая переменная (--gold-soft) — мягкий фон под акцентным цветом
+   для бейджей/трека рейтинга, которого раньше не было ни в одном слое
+   (только жёстко зашитые rgba() старого золотого в edge2.css, оставшиеся
+   от EDGE 2.0 — трогать их не стали, не в рамках этой правки). Дефолт —
+   тёмная тема (как и everywhere в проекте — переключатель explicit,
+   не завязан на prefers-color-scheme, см. theme-toggle.js).
+   ========================================================================= */
+
+:root{ --gold-soft: rgba(167,139,250,0.12); }
+:root[data-theme="light"]{ --gold-soft: rgba(124,58,237,0.10); }
+
+/* ---------- Баннер + аватар (шапка профиля) ---------- */
+.pf-banner{
+  height:170px; position:relative; overflow:hidden; margin: 0 -1px;
+  background: linear-gradient(160deg, var(--bg-raised), var(--bg));
+  border-bottom: 1px solid var(--line);
+}
+.pf-banner svg{ position:absolute; inset:0; width:100%; height:100%; display:block; }
+.pf-banner-line{ fill:none; stroke: var(--gold); stroke-width:2; opacity:0.5; }
+.pf-banner-line.alt{ stroke: var(--teal); opacity:0.28; }
+.pf-banner-fill{ fill: var(--gold); opacity:0.06; }
+
+.pf-identity{ position:relative; z-index:2; }
+.pf-top{ display:flex; align-items:flex-end; justify-content:space-between; margin-top:-44px; gap:12px; flex-wrap: wrap; }
+.pf-avatar{
+  width:88px; height:88px; border-radius:20px; border:4px solid var(--bg); background: var(--bg-raised);
+  display:flex; align-items:center; justify-content:center; box-shadow: 0 0 0 3px var(--gold-soft);
+  font-family:'Unbounded', sans-serif; font-weight:700; font-size:28px; color: var(--gold); flex:none; overflow:hidden;
+}
+.pf-avatar img{ width:100%; height:100%; object-fit:cover; border-radius:16px; }
+.pf-actions{ display:flex; gap:8px; padding-bottom:8px; flex-wrap: wrap; }
+
+.pf-name-row{ display:flex; align-items:center; gap:7px; margin-top:15px; flex-wrap: wrap; }
+.pf-name{ font-family:'Unbounded', sans-serif; font-weight:700; font-size:20px; letter-spacing:-0.01em; }
+.pf-verify{
+  display:inline-flex; align-items:center; justify-content:center; width:18px; height:18px; border-radius:50%;
+  background: var(--gold); color: var(--gold-ink); flex:none; cursor:default;
+}
+.pf-verify svg{ width:10px; height:10px; }
+.pf-verify.unverified{ background:none; border:1.5px dashed var(--ink-faint); color: var(--ink-faint); }
+.pf-handle{ font-family:'JetBrains Mono', monospace; font-size:12.5px; color: var(--ink-faint); margin-top:3px; }
+
+.pf-badges{ display:flex; flex-wrap:wrap; gap:7px; margin-top:13px; }
+.pf-badge{
+  display:inline-flex; align-items:center; gap:5px; font-family:'JetBrains Mono', monospace; font-size:11px;
+  padding:5px 10px 5px 8px; border-radius:7px; border:1px solid var(--line); color: var(--ink-dim); background: var(--bg-raised);
+}
+.pf-badge .dot{ width:6px; height:6px; border-radius:50%; flex:none; }
+.pf-badge.role-capper .dot{ background: var(--gold); }
+.pf-badge.role-streamer .dot{ background: var(--rust); }
+.pf-badge.channel-type{ background: var(--gold-soft); border-color:transparent; color: var(--gold); font-weight:600; }
+.pf-badge.channel-type.diary{ background: var(--line-soft); color: var(--ink-dim); }
+
+.pf-bio{ margin-top:13px; font-size:14px; line-height:1.6; color: var(--ink); max-width:60ch; }
+
+.pf-meta{ display:flex; flex-wrap:wrap; gap:16px; margin-top:11px; font-size:12px; color: var(--ink-faint); }
+.pf-meta span{ display:inline-flex; align-items:center; gap:5px; }
+.pf-meta svg{ width:13px; height:13px; opacity:0.8; flex:none; }
+
+/* ---------- Статы в ряд ---------- */
+.pf-stats{ display:flex; margin-top:18px; border-top:1px solid var(--line); border-bottom:1px solid var(--line); }
+.pf-stat{ flex:1 1 0; padding:12px 6px; text-align:center; border-right:1px solid var(--line); }
+.pf-stat:last-child{ border-right:none; }
+.pf-stat-val{ font-family:'JetBrains Mono', monospace; font-weight:600; font-size:15px; font-variant-numeric: tabular-nums; }
+.pf-stat-val.pos{ color: var(--teal); }
+.pf-stat-val.neg{ color: var(--rust); }
+.pf-stat-lbl{ margin-top:3px; font-size:10px; color: var(--ink-faint); text-transform:uppercase; letter-spacing:0.04em; }
+
+/* ---------- Рейтинг ---------- */
+.pf-rating{ margin:18px 0 0; background: var(--bg-card); border:1px solid var(--line); border-radius: var(--radius); padding:16px 18px; }
+.pf-rating-head{ display:flex; align-items:baseline; justify-content:space-between; gap:10px; flex-wrap:wrap; }
+.pf-rating-tier{ font-family:'Unbounded', sans-serif; font-weight:700; font-size:14px; color: var(--gold); }
+.pf-rating-score{ font-family:'JetBrains Mono', monospace; font-size:11.5px; color: var(--ink-faint); }
+.pf-rating-track{ margin-top:11px; height:7px; border-radius:999px; background: var(--line-soft); overflow:hidden; }
+.pf-rating-fill{ height:100%; border-radius:999px; background: linear-gradient(90deg, var(--gold), var(--teal)); }
+.pf-rating-ticks{ display:flex; justify-content:space-between; margin-top:6px; font-family:'JetBrains Mono', monospace; font-size:9px; color: var(--ink-faint); }
+.pf-rating-note{ margin-top:11px; font-size:11.5px; line-height:1.55; color: var(--ink-faint); }
+.pf-rating-note b{ color: var(--ink-dim); }
+
+/* ---------- Специализация по дисциплинам ---------- */
+.pf-spec{ margin:14px 0 0; display:flex; flex-wrap:wrap; gap:8px; }
+.pf-spec-chip{ display:flex; align-items:center; gap:7px; font-size:11.5px; color: var(--ink-dim); background: var(--bg-raised); border:1px solid var(--line); border-radius:999px; padding:6px 10px 6px 8px; }
+.pf-spec-chip b{ color: var(--ink); font-weight:600; }
+.pf-spec-bar{ width:28px; height:4px; border-radius:999px; background: var(--line-soft); overflow:hidden; }
+.pf-spec-bar i{ display:block; height:100%; background: var(--gold); }
+
+@media (max-width: 640px){
+  .pf-stats{ flex-wrap:wrap; }
+  .pf-stat{ flex:1 1 33%; border-bottom:1px solid var(--line); }
+  .pf-name{ font-size:18px; }
+  .pf-banner{ height:130px; }
+}
+
+/* =========================================================================
+   Лента ставок (feed.html) — публичная соц-лента по всем публичным
+   профилям, аналог таймлайна X: карточка = кто опубликовал + что за ставка.
+   ========================================================================= */
+.feed-wrap{ max-width:640px; margin:0 auto; }
+.feed-filter-row{ display:flex; gap:8px; flex-wrap:wrap; margin-bottom:18px; }
+.feed-filter-row a{
+  font-family:'JetBrains Mono', monospace; font-size:11.5px; color: var(--ink-dim); background: var(--bg-raised);
+  border:1px solid var(--line); border-radius:999px; padding:6px 12px; text-decoration:none; transition: border-color .15s ease, color .15s ease;
+}
+.feed-filter-row a:hover{ border-color: var(--gold); color: var(--gold); }
+.feed-filter-row a.active{ background: var(--gold-soft); border-color:transparent; color: var(--gold); font-weight:600; }
+
+.feed-post{
+  display:block; padding:15px 17px; border:1px solid var(--line); border-radius: var(--radius);
+  background: var(--bg-card); margin-bottom:11px; text-decoration:none; color:inherit; transition: border-color .15s ease;
+}
+.feed-post:hover{ border-color: var(--gold); }
+.feed-post-head{ display:flex; align-items:center; gap:10px; }
+.feed-avatar{
+  width:32px; height:32px; border-radius:9px; background: var(--bg-raised); display:flex; align-items:center;
+  justify-content:center; font-family:'Unbounded', sans-serif; font-weight:700; font-size:12px; color: var(--gold);
+  flex:none; overflow:hidden;
+}
+.feed-avatar img{ width:100%; height:100%; object-fit:cover; }
+.feed-who{ display:flex; flex-direction:column; min-width:0; }
+.feed-name-row{ display:flex; align-items:center; gap:5px; font-size:13.5px; font-weight:600; color: var(--ink); }
+.feed-verify{ width:12px; height:12px; flex:none; color: var(--gold); }
+.feed-handle{ font-family:'JetBrains Mono', monospace; font-size:10.5px; color: var(--ink-faint); }
+.feed-time{ margin-left:auto; font-family:'JetBrains Mono', monospace; font-size:10.5px; color: var(--ink-faint); flex:none; white-space:nowrap; }
+.feed-added-note{ font-family:'JetBrains Mono', monospace; font-size:9.5px; color: var(--ink-faint); margin-top:2px; }
+.feed-tags{ display:flex; align-items:center; gap:8px; flex-wrap:wrap; margin-top:11px; }
+.feed-disc{ font-size:11px; color: var(--ink-faint); }
+.feed-match{ margin-top:8px; font-size:13.5px; font-weight:600; color: var(--ink); }
+.feed-pick{ margin-top:3px; font-size:12px; color: var(--ink-dim); }
+.feed-meta{ display:flex; gap:14px; margin-top:8px; font-family:'JetBrains Mono', monospace; font-size:11px; color: var(--ink-faint); }
+.feed-meta b{ color: var(--ink-dim); font-weight:600; }

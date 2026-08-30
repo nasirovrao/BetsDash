@@ -1,0 +1,143 @@
+<!doctype html>
+<html lang="ru">
+<head>
+<meta charset="utf-8">
+<script>(function(){try{if(localStorage.getItem('edge-theme')==='light')document.documentElement.setAttribute('data-theme','light');}catch(e){}})();</script>
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>Лента ставок — EDGE</title>
+<meta name="description" content="Публичная лента ставок EDGE — все ставки из публичных каналов, в реальном времени, видно кто их публикует.">
+<link rel="preconnect" href="https://fonts.googleapis.com">
+<link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
+<link href="https://fonts.googleapis.com/css2?family=Unbounded:wght@600;700;800&family=Golos+Text:wght@400;500;600;700&family=JetBrains+Mono:wght@400;500;600&display=swap" rel="stylesheet">
+<link rel="stylesheet" href="styles.css?v=29">
+<link rel="stylesheet" href="styles-edge2.css?v=1">
+<link rel="stylesheet" href="styles-edge3.css?v=1">
+<link rel="stylesheet" href="styles-edge4.css?v=1">
+<script src="theme-toggle.js" defer></script>
+</head>
+<body>
+
+<div class="topbar">
+  <div class="wrap">
+    <a class="brand" href="index.html"><svg class="brand-mark" viewBox="0 0 32 32" width="20" height="20" aria-hidden="true"><circle cx="16" cy="16" r="12" fill="none" stroke="var(--gold)" stroke-width="1.6" opacity="0.28"/><path d="M16 4 A12 12 0 0 1 26.9 12.3" fill="none" stroke="var(--gold)" stroke-width="3" stroke-linecap="round"/><line x1="12" y1="12" x2="12" y2="20" stroke="var(--gold)" stroke-width="2.6" stroke-linecap="round"/><line x1="12" y1="12" x2="19" y2="12" stroke="var(--gold)" stroke-width="2.6" stroke-linecap="round"/><line x1="12" y1="16" x2="17.5" y2="16" stroke="var(--gold)" stroke-width="2.6" stroke-linecap="round"/><line x1="12" y1="20" x2="19" y2="20" stroke="var(--gold)" stroke-width="2.6" stroke-linecap="round"/></svg>EDGE<span>.</span></a>
+    <div class="topbar-user">
+      <a class="topbar-link" href="index.html">Войти в EDGE</a>
+    </div>
+  </div>
+</div>
+
+<section>
+  <div class="wrap feed-wrap">
+    <div class="section-head" style="margin-bottom:18px;">
+      <h2>Лента ставок</h2>
+      <div class="section-note">Все ставки из публичных каналов EDGE, в порядке публикации — видно, кто и когда каждую опубликовал.</div>
+    </div>
+    <div class="feed-filter-row" id="feedFilters" style="display:none;"></div>
+    <div id="feedRoot"><div class="empty-state">Загружаю…</div></div>
+  </div>
+</section>
+
+<script type="module">
+  import { supabase } from './supabase-client.js';
+  import { escapeHtml, fmtRelativeTime, fmtDateTime } from './lib.js';
+
+  const params = new URLSearchParams(location.search);
+  const disciplineFilter = params.get('d') || '';
+
+  const feedRoot = document.getElementById('feedRoot');
+  const feedFilters = document.getElementById('feedFilters');
+
+  const RES_CLASS = { Win: 'win', Loss: 'loss', Push: 'push', Pending: 'pending', Sold: 'sold' };
+  const RES_LABEL = { Win: 'WIN', Loss: 'LOSS', Push: 'PUSH', Pending: 'В ИГРЕ', Sold: 'ПРОДАНО' };
+
+  function initialsOf(name) {
+    const parts = (name || '').trim().split(/\s+/).filter(Boolean);
+    if (!parts.length) return '?';
+    if (parts.length === 1) return parts[0].slice(0, 2).toUpperCase();
+    return (parts[0][0] + parts[1][0]).toUpperCase();
+  }
+  const VERIFY_ICON = '<svg viewBox="0 0 24 24" fill="currentColor"><path d="M12 2l2.4 2.2 3.2-.6.9 3.1 3.1.9-.6 3.2L23 12l-2.2 2.4.6 3.2-3.1.9-.9 3.1-3.2-.6L12 23l-2.4-2.2-3.2.6-.9-3.1-3.1-.9.6-3.2L1 12l2.2-2.4-.6-3.2 3.1-.9.9-3.1 3.2.6L12 2z"/><path d="M8.5 12.2l2.4 2.4 4.6-5.2" stroke="var(--bg-card)" stroke-width="2" fill="none" stroke-linecap="round" stroke-linejoin="round"/></svg>';
+
+  // Кросс-профильный запрос: сначала все публичные профили, потом для
+  // каждого — ставки его публичного канала, параллельно. Без join —
+  // мок-клиент (app_test8) его не умеет, а настоящий Supabase/PostgREST
+  // потребовал бы foreign key embedding, которого сейчас нет между bets и
+  // profiles. При росте числа публичных профилей это N+1-запросов, что
+  // нормально для текущего масштаба, но при росте стоит пересмотреть
+  // (например через SQL VIEW на стороне базы). Ограничиваем ленту 60
+  // последними записями — полноценная пагинация/infinite scroll не в
+  // рамках этой версии.
+  const FEED_LIMIT = 60;
+
+  const { data: profiles, error: profilesErr } = await supabase
+    .from('profiles').select('*').eq('is_public', true);
+
+  if (profilesErr || !profiles || !profiles.length) {
+    feedRoot.innerHTML = '<div class="empty-state">Пока нет ни одного публичного канала — лента появится, как только кто-то включит публичность в настройках профиля.</div>';
+  } else {
+    const results = await Promise.all(profiles.map(async p => {
+      const channel = p.channel || 'cybervalue';
+      const { data: bets } = await supabase.from('bets').select('*').eq('user_id', p.user_id).eq('channel', channel);
+      return (bets || []).map(b => ({ bet: b, profile: p }));
+    }));
+    let items = results.flat();
+
+    // Дисциплины для фильтра — по факту встречающиеся в ленте, а не
+    // фиксированный список (заранее не знаем, что публикуют каппера).
+    const disciplines = Array.from(new Set(items.map(it => it.bet.discipline).filter(Boolean))).sort();
+    if (disciplines.length > 1) {
+      feedFilters.style.display = '';
+      const allActive = !disciplineFilter ? ' active' : '';
+      feedFilters.innerHTML = `<a href="feed.html"${allActive ? ' class="active"' : ''}>Все</a>` +
+        disciplines.map(d => `<a href="feed.html?d=${encodeURIComponent(d)}"${d === disciplineFilter ? ' class="active"' : ''}>${escapeHtml(d)}</a>`).join('');
+    }
+
+    if (disciplineFilter) {
+      items = items.filter(it => it.bet.discipline === disciplineFilter);
+    }
+
+    items.sort((a, b) => {
+      const ta = a.bet.created_at || a.bet.bet_date || '';
+      const tb = b.bet.created_at || b.bet.bet_date || '';
+      return tb.localeCompare(ta);
+    });
+    items = items.slice(0, FEED_LIMIT);
+
+    if (!items.length) {
+      feedRoot.innerHTML = '<div class="empty-state">В этой ленте пока нет ставок.</div>';
+    } else {
+      feedRoot.innerHTML = items.map(({ bet, profile }) => {
+        const name = escapeHtml(profile.display_name || profile.username);
+        const cls = RES_CLASS[bet.result] || 'pending';
+        const label = RES_LABEL[bet.result] || bet.result || '';
+        const matchTitle = bet.match || '';
+        const pickTitle = bet.pick || '';
+        const addedTitle = bet.created_at ? `Добавлено в систему: ${fmtDateTime(bet.created_at)}` : '';
+        return `
+        <a class="feed-post" href="public.html?u=${encodeURIComponent(profile.username)}" title="${escapeHtml(addedTitle)}">
+          <div class="feed-post-head">
+            <div class="feed-avatar">${profile.logo_url ? `<img src="${escapeHtml(profile.logo_url)}" alt="">` : escapeHtml(initialsOf(profile.display_name || profile.username))}</div>
+            <div class="feed-who">
+              <div class="feed-name-row">${name}${profile.is_verified ? `<span class="feed-verify">${VERIFY_ICON}</span>` : ''}</div>
+              <div class="feed-handle">@${escapeHtml(profile.username)}</div>
+            </div>
+            <div class="feed-time">${fmtRelativeTime(bet.created_at || bet.bet_date)}</div>
+          </div>
+          <div class="feed-tags">
+            <span class="res-pill ${cls}">${label}</span>
+            <span class="feed-disc">${escapeHtml(bet.discipline || '—')}</span>
+          </div>
+          ${matchTitle ? `<div class="feed-match">${escapeHtml(matchTitle)}</div>` : ''}
+          ${pickTitle && pickTitle !== matchTitle ? `<div class="feed-pick">${escapeHtml(pickTitle)}</div>` : ''}
+          <div class="feed-meta">
+            <span>Кэф <b>${bet.odds != null ? Number(bet.odds).toFixed(2) : '—'}</b></span>
+            ${bet.flat_mult ? `<span>Флет <b>${Number(bet.flat_mult).toFixed(2)}</b></span>` : ''}
+          </div>
+        </a>`;
+      }).join('');
+    }
+  }
+</script>
+
+</body>
+</html>
