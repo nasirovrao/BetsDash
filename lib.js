@@ -211,6 +211,73 @@ export function monthLabelOf(monthKey) {
   return `${MONTH_NAMES_RU[Number(m) - 1] || m} ${y}`;
 }
 
+// Milestone 24: то же самое, что monthKeyOf/monthLabelOf выше, но для дня и
+// недели — добавлено по просьбе, чтобы на дашборде можно было смотреть
+// стату не только за месяц. Родительный падеж месяца отдельно от
+// MONTH_NAMES_RU (там именительный — "Август", тут "30 августа").
+const MONTH_NAMES_RU_GEN = ['января','февраля','марта','апреля','мая','июня','июля','августа','сентября','октября','ноября','декабря'];
+const MONTH_NAMES_RU_SHORT = ['янв','фев','мар','апр','май','июн','июл','авг','сен','окт','ноя','дек'];
+
+// "2026-08-30" -> "2026-08-30" — bet_date уже хранится в этом формате,
+// функция здесь просто для симметрии с monthKeyOf/weekKeyOf (единый
+// интерфейс {keyOf, labelOf} для всех трёх гранулярностей на дашборде).
+export function dayKeyOf(dateStr) {
+  return dateStr ? String(dateStr).slice(0, 10) : null;
+}
+
+// "2026-08-30" -> "30 августа 2026"
+export function dayLabelOf(dayKey) {
+  if (!dayKey) return '—';
+  const [y, m, d] = String(dayKey).slice(0, 10).split('-');
+  return `${Number(d)} ${MONTH_NAMES_RU_GEN[Number(m) - 1] || m} ${y}`;
+}
+
+// Понедельник ISO-недели (год, номер недели) — стандартный алгоритм через
+// четверг этой недели (ISO 8601: неделя 1 — та, что содержит первый четверг
+// года / 4 января).
+function mondayOfISOWeek(year, week) {
+  const jan4 = new Date(year, 0, 4);
+  const jan4Day = (jan4.getDay() + 6) % 7; // Пн=0 ... Вс=6
+  const week1Monday = new Date(jan4);
+  week1Monday.setDate(jan4.getDate() - jan4Day);
+  const monday = new Date(week1Monday);
+  monday.setDate(week1Monday.getDate() + (week - 1) * 7);
+  return monday;
+}
+
+// "2026-08-30" -> "2026-W35" — ISO-номер недели (Пн—Вс), тот же принцип,
+// что monthKeyOf: строковый ключ, по которому удобно и сравнивать/
+// сортировать, и хранить в value у <option>.
+export function weekKeyOf(dateStr) {
+  if (!dateStr) return null;
+  const d = new Date(String(dateStr).slice(0, 10) + 'T00:00:00');
+  if (Number.isNaN(d.getTime())) return null;
+  const dayNr = (d.getDay() + 6) % 7; // Пн=0
+  const thursday = new Date(d);
+  thursday.setDate(d.getDate() - dayNr + 3);
+  const firstThursday = new Date(thursday.getFullYear(), 0, 4);
+  const firstThursdayDay = (firstThursday.getDay() + 6) % 7;
+  const firstThursdayOfWeek1 = new Date(firstThursday);
+  firstThursdayOfWeek1.setDate(firstThursday.getDate() - firstThursdayDay + 3);
+  const week = 1 + Math.round((thursday - firstThursdayOfWeek1) / (7 * 24 * 3600 * 1000));
+  return `${thursday.getFullYear()}-W${String(week).padStart(2, '0')}`;
+}
+
+// "2026-W35" -> "25–31 авг" (или "29 авг – 4 сен", если неделя переходит
+// через месяц) — диапазон Пн—Вс понятнее голого номера недели.
+export function weekLabelOf(weekKey) {
+  if (!weekKey) return '—';
+  const m = /^(\d{4})-W(\d{1,2})$/.exec(String(weekKey));
+  if (!m) return String(weekKey);
+  const monday = mondayOfISOWeek(Number(m[1]), Number(m[2]));
+  const sunday = new Date(monday);
+  sunday.setDate(monday.getDate() + 6);
+  if (monday.getMonth() === sunday.getMonth()) {
+    return `${monday.getDate()}–${sunday.getDate()} ${MONTH_NAMES_RU_SHORT[monday.getMonth()]}`;
+  }
+  return `${monday.getDate()} ${MONTH_NAMES_RU_SHORT[monday.getMonth()]} – ${sunday.getDate()} ${MONTH_NAMES_RU_SHORT[sunday.getMonth()]}`;
+}
+
 // Как groupBets, но: 1) группирует по месяцу bet_date, 2) сортирует по
 // хронологии (свежий месяц сверху), а не по числу ставок — для "по месяцам"
 // это понятнее, чем прыгающий порядок по активности, 3) у каждой группы есть
@@ -992,22 +1059,18 @@ export function renderProfileBanner(profitPoints) {
       return `${i === 0 ? 'M' : 'L'} ${x.toFixed(1)},${y.toFixed(1)}`;
     }).join(' ');
   };
-  const mainPath = toPath(profitPoints, 14, 26);
-  // Второй слой — та же серия, сглаженная скользящим средним по 3 точкам и
-  // сдвинутая ниже (другой padBottom), чтобы визуально не сливаться с
-  // основной линией. Тоже реальные данные, просто другое "прочтение".
-  const smoothed = (profitPoints && profitPoints.length >= 3)
-    ? profitPoints.map((v, i, arr) => {
-        const a = arr[Math.max(0, i - 1)], b = arr[Math.min(arr.length - 1, i + 1)];
-        return (a + v + b) / 3;
-      })
-    : profitPoints;
-  const altPath = toPath(smoothed, 46, 6);
+  // Раньше здесь рисовался ещё и второй слой — та же серия, сглаженная
+  // скользящим средним и сдвинутая ниже, чтобы "не сливаться" с основной
+  // линией. Убрано (см. CHANGELOG.md, задача про профиль v2): без подписи
+  // две линии одного графика выглядели как декоративный шаблон/заглушка,
+  // а не как настоящие данные — притом что вторая линия НЕ несла отдельного
+  // смысла (та же серия, просто по-другому прочитанная). Одна линия — тот
+  // же реальный кумулятивный профит канала, что и карточка "Профит" ниже.
+  const mainPath = toPath(profitPoints, 20, 24);
   const mainFillPath = `${mainPath} L ${W},${H} L 0,${H} Z`;
   return `
     <svg viewBox="0 0 ${W} ${H}" preserveAspectRatio="none">
       <path class="pf-banner-fill" d="${mainFillPath}"></path>
       <path class="pf-banner-line" d="${mainPath}"></path>
-      <path class="pf-banner-line alt" d="${altPath}"></path>
     </svg>`;
 }

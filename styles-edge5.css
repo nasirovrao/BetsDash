@@ -1,0 +1,111 @@
+/* =========================================================================
+   EDGE — Единая панель статов (#statGrid), Milestone 24
+   =========================================================================
+   Пятый слой поверх styles.css → styles-edge2.css → styles-edge3.css →
+   styles-edge4.css. По фидбеку: карточки #statGrid стояли отдельными
+   боксами с заметными зазорами сверху — просили "слитнее", но чтобы
+   наведение по-прежнему показывало детали (мини-график и т.п.).
+
+   Из трёх опробованных вариантов (см. CHANGELOG.md) выбран "A" — единая
+   панель с общей рамкой/скруглением, карточки разделены тонкими линиями
+   вместо зазоров, наведение — спокойное (подсветка контура + разворот
+   графика внутри самой ячейки), без zoom/затемнения соседей из edge3.
+
+   Применяется только к #statGrid (dashboard.html и public.html — оба
+   используют один и тот же id для одного и того же компонента с одним и
+   тем же hover-механизмом, см. комментарий в public.html). Отдельные
+   .stat-grid на bank.html (id="bankStatGrid", 3 колонки, без hover) и
+   clv.html (id="clvStatGrid", 5 колонок, без hover) сюда сознательно НЕ
+   входят — это отдельные, статичные гриды без укрупнения при наведении,
+   этот слой на них не подключён.
+
+   ВАЖНО про разделители: раньше (первая попытка) они рисовались через
+   border-right/border-bottom с обрезкой по nth-child(4n)/(3n) — ломалось,
+   как только число карточек не делится ровно на число колонок (обычный
+   случай — 7 базовых карточек в 4 колонки на public.html): explicit
+   grid-template-columns всё равно резервирует все колонки трека и в
+   последней неполной строке повисал border-right в пустоте перед правым
+   краем панели. Теперь разделители — inset box-shadow (верх+лево) на
+   каждой карточке, кроме первой строки/колонки — не зависит от остатка,
+   пустая часть неполной строки остаётся просто пустым фоном без обрывков
+   линий. Протестировано явно на 7 карточках/3 колонках (последняя строка
+   — 1 карточка) и на 9/3 (ровно) — оба случая чистые, без артефактов. */
+
+/* Разделители и внешняя рамка панели опирались на var(--line) — тот же
+   цвет, что и обычная 1px-рамка карточек ДО этой правки (когда карточки
+   стояли раздельно с зазором 14px). На зазоре с тенью-от-соседней-карточки
+   он читался нормально, а вплотную (gap:0, линия ровно между двумя
+   одинаковыми --bg-card) тот же rgb(35,42,54) на rgb(16,19,26) — контраст
+   слишком низкий, по факту не видно.
+   Первая попытка (полупрозрачный белый/чёрный, 1px) — тоже оказалась
+   недостаточной (по фидбеку "на скринах всё те же проблемы", проверял на
+   своей стороне контраст на глаз и через computed-style, но на деле в чате
+   картинка сжимается/уменьшается и тонкая полупрозрачная линия всё равно
+   тонет). Теперь — сплошной (не полупрозрачный) цвет с явно большей
+   яркостью, чем --line, и линия 2px, а не 1px, чтобы наверняка переживала
+   сжатие. */
+:root{ --grid-divider: #4a5468; }
+:root[data-theme="light"]{ --grid-divider: #c7c1d8; }
+
+#statGrid{
+  gap: 0 !important;
+  background: var(--bg-card) !important;
+  border: 2px solid var(--grid-divider) !important;
+  border-radius: var(--radius) !important;
+  overflow: hidden !important;
+  display: grid !important;
+  /* Настоящая причина "разрывов" на пересечениях линий (то, что было
+     обведено зелёным на скрине): #statGrid унаследовал align-items:
+     flex-start из старого правила в styles-edge3.css (когда грид был
+     flex-контейнером для zoom-механики) — я переопределил display:grid, но
+     не align-items. На грид-контейнере flex-start трактуется как "не
+     растягивать ячейки", поэтому карточка с содержимым короче соседней не
+     дотягивалась своей левой линией (box-shadow равен высоте САМОЙ ячейки,
+     а не строки грида) до общей горизонтальной линии ряда ниже — отсюда и
+     разрыв ровно в месте пересечения. stretch — дефолт для grid и то, что
+     нужно: все ячейки в ряду одной высоты. */
+  align-items: stretch !important;
+}
+
+#statGrid .stat-card{
+  border: none !important;
+  border-radius: 0 !important;
+  box-shadow: inset 2px 0 0 var(--grid-divider), inset 0 2px 0 var(--grid-divider) !important;
+  transition: background 0.15s ease, box-shadow 0.15s ease !important;
+}
+/* первая колонка — без левой линии (панель уже даёт левую рамку) */
+#statGrid:not(.stat-grid-3) .stat-card:nth-child(4n+1){ box-shadow: inset 0 2px 0 var(--grid-divider) !important; }
+#statGrid.stat-grid-3 .stat-card:nth-child(3n+1){ box-shadow: inset 0 2px 0 var(--grid-divider) !important; }
+/* первая строка — без верхней линии (панель уже даёт верхнюю рамку) */
+#statGrid:not(.stat-grid-3) .stat-card:nth-child(-n+4){ box-shadow: inset 2px 0 0 var(--grid-divider) !important; }
+#statGrid.stat-grid-3 .stat-card:nth-child(-n+3){ box-shadow: inset 2px 0 0 var(--grid-divider) !important; }
+/* самая первая карточка — ни левой, ни верхней (обе рамки — от панели) */
+#statGrid .stat-card:first-child{ box-shadow: none !important; }
+
+/* Отменяем zoom-механику из styles-edge3.css целиком для #statGrid */
+@media (hover:hover) and (pointer:fine){
+  #statGrid .stat-card{
+    flex: none !important;
+    transform: none !important;
+    animation: none !important;
+  }
+  #statGrid:hover .stat-card:not(:hover):not(:focus-within),
+  #statGrid:focus-within .stat-card:not(:hover):not(:focus-within){
+    opacity: 1 !important;
+    transform: none !important;
+  }
+  #statGrid .stat-card:hover,
+  #statGrid .stat-card:focus-within{
+    transform: none !important;
+    z-index: 2 !important;
+    background: var(--bg-raised) !important;
+    box-shadow: inset 0 0 0 1px var(--gold) !important;
+    padding-bottom: 22px !important;
+  }
+}
+#statGrid .stat-card:hover{
+  background: var(--bg-raised);
+  box-shadow: inset 0 0 0 1px var(--gold) !important;
+  z-index: 2;
+  position: relative;
+}

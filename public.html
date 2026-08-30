@@ -37,6 +37,7 @@
 <link rel="stylesheet" href="styles-edge2.css?v=1">
 <link rel="stylesheet" href="styles-edge3.css?v=1">
 <link rel="stylesheet" href="styles-edge4.css?v=1">
+<link rel="stylesheet" href="styles-edge5.css?v=1">
 <script src="theme-toggle.js" defer></script>
 </head>
 <body>
@@ -93,7 +94,7 @@
 
   const params = new URLSearchParams(location.search);
   const username = (params.get('u') || '').trim().toLowerCase();
-  const activeTab = params.get('tab') || 'dashboard';
+  const activeTab = params.get('tab') || 'bets';
   const keyParam = params.get('key');
 
   const profileHero = document.getElementById('profileHero');
@@ -101,13 +102,19 @@
   const tabRoot = document.getElementById('tabRoot');
   const footerCta = document.getElementById('footerCta');
 
+  // Порядок вкладок: "Ставки" — первая и дефолтная (лента конкретных
+  // постов, без цифр — не повторяет шапку профиля), "Дашборд" — намеренно
+  // последняя, это более подробная сводка с полным набором карт статистики,
+  // 4 из которых (Ставок/Винрейт/ROI/Профит) и так уже показаны в шапке
+  // профиля выше. См. CHANGELOG.md — раньше "Дашборд" был первой и дефолтной
+  // вкладкой, из-за чего эти 4 цифры сразу дублировались на экране.
   const TABS = [
-    { id: 'dashboard', label: 'Дашборд' },
     { id: 'bets', label: 'Ставки' },
     { id: 'disciplines', label: 'По дисциплинам' },
     { id: 'bookmakers', label: 'По букмекерам' },
     { id: 'markets', label: 'Рынки' },
     { id: 'teams', label: 'Команды' },
+    { id: 'dashboard', label: 'Дашборд' },
   ];
 
   function notFound(message) {
@@ -338,7 +345,7 @@
         }
         tabRoot.innerHTML = html;
         footerCta.style.display = '';
-        if ((activeTab === 'dashboard' || !activeTab)) {
+        if (activeTab === 'dashboard') {
           initStatCardPopovers(document.getElementById('statGrid'));
         }
       }

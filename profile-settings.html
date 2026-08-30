@@ -12,6 +12,7 @@
 <!-- EDGE 2.0 — новая дизайн-система (палитра/типографика/фон), см. styles-edge2.css -->
 <link rel="stylesheet" href="styles-edge2.css?v=1">
 <link rel="stylesheet" href="styles-edge3.css?v=1">
+<link rel="stylesheet" href="styles-edge4.css?v=1">
 <script src="theme-toggle.js" defer></script>
 </head>
 <body>
@@ -30,6 +31,7 @@
 
 <nav class="app-nav">
   <div class="wrap">
+    <a class="nav-pill" href="feed.html">Лента ставок</a>
     <a class="nav-pill" href="dashboard.html">Дашборд</a>
     <a class="nav-pill" href="app.html">Ставки</a>
     <a class="nav-pill" href="bank.html">Выводы и банк</a>
@@ -91,15 +93,21 @@
         </div>
         <div class="field" style="margin-top:16px;">
           <label>Метки профиля (необязательно)</label>
-          <div class="form-grid form-grid-2" style="margin-top:6px;">
-            <label class="check-row" for="p_role_capper">
-              <input id="p_role_capper" type="checkbox">
-              <span>Каппер — публикую разборы и ставки для подписчиков</span>
-            </label>
-            <label class="check-row" for="p_role_streamer">
-              <input id="p_role_streamer" type="checkbox">
-              <span>Стример — веду эфиры</span>
-            </label>
+          <div class="select-dropdown" id="roleDropdown" style="margin-top:6px;">
+            <button type="button" class="select-dropdown-btn" id="roleDropdownBtn" aria-haspopup="listbox" aria-expanded="false">
+              <span id="roleDropdownLabel">Не выбрано</span>
+              <svg class="select-dropdown-caret" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><path d="M6 9l6 6 6-6" stroke-linecap="round" stroke-linejoin="round"/></svg>
+            </button>
+            <div class="select-dropdown-panel" id="roleDropdownPanel" hidden>
+              <label class="check-row" for="p_role_capper">
+                <input id="p_role_capper" type="checkbox">
+                <span>Каппер — публикую разборы и ставки для подписчиков</span>
+              </label>
+              <label class="check-row" for="p_role_streamer">
+                <input id="p_role_streamer" type="checkbox">
+                <span>Стример — веду эфиры</span>
+              </label>
+            </div>
           </div>
         </div>
         <div class="field" style="margin-top:16px;">
@@ -155,6 +163,32 @@
   const showBankInput = document.getElementById('p_show_bank');
   const roleCapperInput = document.getElementById('p_role_capper');
   const roleStreamerInput = document.getElementById('p_role_streamer');
+  const roleDropdown = document.getElementById('roleDropdown');
+  const roleDropdownBtn = document.getElementById('roleDropdownBtn');
+  const roleDropdownPanel = document.getElementById('roleDropdownPanel');
+  const roleDropdownLabel = document.getElementById('roleDropdownLabel');
+
+  function updateRoleDropdownLabel() {
+    const picked = [];
+    if (roleCapperInput.checked) picked.push('Каппер');
+    if (roleStreamerInput.checked) picked.push('Стример');
+    roleDropdownLabel.textContent = picked.length ? picked.join(', ') : 'Не выбрано';
+  }
+  function closeRoleDropdown() {
+    roleDropdownPanel.hidden = true;
+    roleDropdown.classList.remove('open');
+    roleDropdownBtn.setAttribute('aria-expanded', 'false');
+  }
+  roleDropdownBtn.addEventListener('click', () => {
+    const willOpen = roleDropdownPanel.hidden;
+    roleDropdownPanel.hidden = !willOpen;
+    roleDropdown.classList.toggle('open', willOpen);
+    roleDropdownBtn.setAttribute('aria-expanded', String(willOpen));
+  });
+  roleCapperInput.addEventListener('change', updateRoleDropdownLabel);
+  roleStreamerInput.addEventListener('change', updateRoleDropdownLabel);
+  document.addEventListener('click', (e) => { if (!roleDropdown.contains(e.target)) closeRoleDropdown(); });
+  document.addEventListener('keydown', (e) => { if (e.key === 'Escape') closeRoleDropdown(); });
   const formStatus = document.getElementById('formStatus');
   const saveBtn = document.getElementById('saveBtn');
   const publicLinkBlock = document.getElementById('publicLinkBlock');
@@ -286,6 +320,7 @@
     const roles = (existingProfile && existingProfile.roles) || [];
     roleCapperInput.checked = roles.includes('capper');
     roleStreamerInput.checked = roles.includes('streamer');
+    updateRoleDropdownLabel();
     currentLogoUrl = existingProfile && existingProfile.logo_url ? existingProfile.logo_url : null;
     renderLogoPreview();
     renderLinkBlock();

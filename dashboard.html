@@ -12,6 +12,7 @@
 <!-- EDGE 2.0 — новая дизайн-система (палитра/типографика/фон), см. styles-edge2.css -->
 <link rel="stylesheet" href="styles-edge2.css?v=1">
 <link rel="stylesheet" href="styles-edge3.css?v=1">
+<link rel="stylesheet" href="styles-edge5.css?v=1">
 <script src="theme-toggle.js" defer></script>
 </head>
 <body>
@@ -30,6 +31,7 @@
 
 <nav class="app-nav">
   <div class="wrap">
+    <a class="nav-pill" href="feed.html">Лента ставок</a>
     <a class="nav-pill active" href="dashboard.html">Дашборд</a>
     <a class="nav-pill" href="app.html">Ставки</a>
     <a class="nav-pill" href="bank.html">Выводы и банк</a>
@@ -66,7 +68,12 @@
 
     <div class="feed-filters">
       <select id="filterTournament"><option value="">Все турниры</option></select>
-      <select id="filterMonth"><option value="">Все месяцы</option></select>
+      <select id="filterPeriodType" title="Гранулярность периода">
+        <option value="month">Месяц</option>
+        <option value="week">Неделя</option>
+        <option value="day">День</option>
+      </select>
+      <select id="filterPeriod"><option value="">Все месяцы</option></select>
       <button type="button" class="filter-reset" id="filterResetBtn" style="display:none;">Сбросить</button>
       <span class="filter-count" id="filterCount"></span>
     </div>
@@ -81,7 +88,7 @@
 
 <script type="module">
   import { supabase, requireSession, isClvEnabled } from './supabase-client.js';
-  import { fmtMoney, computeStats, computeStreak, computeFlatStats, escapeHtml, monthKeyOf, monthLabelOf, renderWLP, getChannelParams, loadMyChannels, renderChannelSwitch, preserveChannelInNav, initEmailPrivacyToggle, channelHref, computeCardTrend, renderSparkline, renderWlpBars, renderTopBetsPop, initStatCardPopovers } from './lib.js';
+  import { fmtMoney, computeStats, computeStreak, computeFlatStats, escapeHtml, monthKeyOf, monthLabelOf, dayKeyOf, dayLabelOf, weekKeyOf, weekLabelOf, renderWLP, getChannelParams, loadMyChannels, renderChannelSwitch, preserveChannelInNav, initEmailPrivacyToggle, channelHref, computeCardTrend, renderSparkline, renderWlpBars, renderTopBetsPop, initStatCardPopovers } from './lib.js';
 
   const session = await requireSession();
   if (session) {
@@ -117,9 +124,22 @@
   const asOfNote = document.getElementById('asOfNote');
   const streakBlock = document.getElementById('streakBlock');
   const filterTournamentSel = document.getElementById('filterTournament');
-  const filterMonthSel = document.getElementById('filterMonth');
+  const filterPeriodTypeSel = document.getElementById('filterPeriodType');
+  const filterPeriodSel = document.getElementById('filterPeriod');
   const filterResetBtn = document.getElementById('filterResetBtn');
   const filterCount = document.getElementById('filterCount');
+
+  // Milestone 24: раньше был единственный фильтр "Все месяцы" — теперь
+  // гранулярность выбирается отдельно (День/Неделя/Месяц), а второй select
+  // всегда содержит реальные периоды ИЗ данных этой гранулярности (как и
+  // раньше было с месяцами — не произвольный календарь, а только те
+  // периоды, где реально есть ставки). {keyOf, labelOf} — единый интерфейс,
+  // dayKeyOf/weekKeyOf/monthKeyOf и их labelOf-пары см. в lib.js.
+  const PERIOD_CONFIGS = {
+    month: { keyOf: monthKeyOf, labelOf: monthLabelOf, allLabel: 'Все месяцы' },
+    week: { keyOf: weekKeyOf, labelOf: weekLabelOf, allLabel: 'Все недели' },
+    day: { keyOf: dayKeyOf, labelOf: dayLabelOf, allLabel: 'Все дни' },
+  };
 
   // Данные последней загрузки — фильтры пересчитывают вид без повторного
   // похода в Supabase.
@@ -231,24 +251,39 @@
   // Турниры/месяцы — не отдельные страницы, а фильтры прямо здесь: выбрал
   // значение в любом из двух селектов — вся остальная стата на дашборде
   // (серия, ставки, винрейт, профит, ROI, кэф) пересчитывается под срез.
+  // Отдельно от populateDashFilters — пересчитывает только опции второго
+  // селекта (периоды), когда меняется гранулярность (День/Неделя/Месяц),
+  // без повторной пересборки списка турниров. keepValue — попытаться
+  // сохранить прежнее значение, если оно всё ещё есть в новом списке
+  // (обычно не будет — "Август 2026" не существует как ключ недели — тогда
+  // просто "Все ...", это ожидаемо при смене гранулярности).
+  function populatePeriodOptions(bets, keepValue) {
+    const cfg = PERIOD_CONFIGS[filterPeriodTypeSel.value] || PERIOD_CONFIGS.month;
+    const keys = Array.from(new Set(bets.map(b => cfg.keyOf(b.bet_date)).filter(Boolean))).sort().reverse();
+    filterPeriodSel.innerHTML = `<option value="">${cfg.allLabel}</option>` +
+      keys.map(k => `<option value="${escapeHtml(k)}">${escapeHtml(cfg.labelOf(k))}</option>`).join('');
+    if (keepValue && keys.includes(keepValue)) filterPeriodSel.value = keepValue;
+  }
+
   function populateDashFilters(bets) {
-    const prevT = filterTournamentSel.value, prevM = filterMonthSel.value;
+    const prevT = filterTournamentSel.value;
+    const prevType = filterPeriodTypeSel.value || 'month';
+    const prevP = filterPeriodSel.value;
     const tournaments = Array.from(new Set(bets.map(b => (b.tournament || '').trim()).filter(Boolean))).sort();
     filterTournamentSel.innerHTML = '<option value="">Все турниры</option>' +
       tournaments.map(t => `<option value="${escapeHtml(t)}">${escapeHtml(t)}</option>`).join('');
-    const monthKeys = Array.from(new Set(bets.map(b => monthKeyOf(b.bet_date)).filter(Boolean))).sort().reverse();
-    filterMonthSel.innerHTML = '<option value="">Все месяцы</option>' +
-      monthKeys.map(m => `<option value="${escapeHtml(m)}">${escapeHtml(monthLabelOf(m))}</option>`).join('');
     if (tournaments.includes(prevT)) filterTournamentSel.value = prevT;
-    if (monthKeys.includes(prevM)) filterMonthSel.value = prevM;
+    filterPeriodTypeSel.value = prevType;
+    populatePeriodOptions(bets, prevP);
   }
 
   function applyDashFilters() {
     const trn = filterTournamentSel.value;
-    const mon = filterMonthSel.value;
-    const isFiltered = !!(trn || mon);
+    const per = filterPeriodSel.value;
+    const cfg = PERIOD_CONFIGS[filterPeriodTypeSel.value] || PERIOD_CONFIGS.month;
+    const isFiltered = !!(trn || per);
     const filtered = allBets.filter(b =>
-      (!trn || b.tournament === trn) && (!mon || monthKeyOf(b.bet_date) === mon)
+      (!trn || b.tournament === trn) && (!per || cfg.keyOf(b.bet_date) === per)
     );
     renderStreak(filtered);
     renderStats(computeStats(filtered, allWithdrawals, startingBankroll), isFiltered, filtered);
@@ -257,10 +292,15 @@
   }
 
   filterTournamentSel.addEventListener('change', applyDashFilters);
-  filterMonthSel.addEventListener('change', applyDashFilters);
+  filterPeriodSel.addEventListener('change', applyDashFilters);
+  filterPeriodTypeSel.addEventListener('change', () => {
+    populatePeriodOptions(allBets, null);
+    applyDashFilters();
+  });
   filterResetBtn.addEventListener('click', () => {
     filterTournamentSel.value = '';
-    filterMonthSel.value = '';
+    filterPeriodTypeSel.value = 'month';
+    populatePeriodOptions(allBets, null);
     applyDashFilters();
   });
 
