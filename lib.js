@@ -753,7 +753,17 @@ export function preserveChannelInNav(channel, ownerUserId, myUserId) {
   if (ownerUserId && ownerUserId !== myUserId) params.set('owner', ownerUserId);
   const suffix = '?' + params.toString();
   if (suffix === '?') return;
-  document.querySelectorAll('.app-nav a.nav-pill[href], a.brand[href]').forEach(a => {
+  // #statsDropdownPanel — явно по id, а не через .app-nav a.nav-pill: с
+  // Milestone 25 разбивки (По дисциплинам и т.д.) переехали из плоских
+  // .nav-pill внутри .app-nav в .nav-dropdown-item внутри этой панели,
+  // которая к тому же может быть уже перенесена в <body> (initNavDropdown,
+  // "портал" от обрезки overflow) — id её не меняется, поэтому селектор по
+  // id работает независимо от того, успел ли этот перенос уже произойти.
+  // #settingsDropdownPanel (Публичный профиль / Доступ к каналу) сюда
+  // сознательно НЕ входит — это не канало-зависимые страницы-разбивки, а
+  // страницы аккаунта/настроек, они и раньше (topbar-link) не получали
+  // channel/owner в ссылке.
+  document.querySelectorAll('.app-nav a.nav-pill[href], #statsDropdownPanel a.nav-dropdown-item[href], a.brand[href]').forEach(a => {
     const href = a.getAttribute('href');
     if (!href || href.startsWith('http') || href.includes('?')) return;
     a.setAttribute('href', href + suffix);
@@ -798,17 +808,26 @@ export function initEmailPrivacyToggle(email) {
   render();
 }
 
-// ---- Приватный нав-бар: "Детальная статистика" сворачивает 5 пунктов-
-// разбивок (По дисциплинам / По букмекерам / Рынки / Команды / Сегментация)
-// в один выпадающий пункт — они были отдельными вкладками и раздували
-// нав-бар (см. фикс компактности в styles-edge3.css чуть раньше). Логика
-// открытия/закрытия — тот же паттерн, что уже используется для дропдауна
-// ролей в profile-settings.html (клик по кнопке / клик снаружи / Escape),
-// вынесен сюда в общую функцию, а не продублирован в 13 приватных страницах.
-export function initNavStatsDropdown() {
-  const wrap = document.getElementById('statsDropdown');
-  const btn = document.getElementById('statsDropdownBtn');
-  const panel = document.getElementById('statsDropdownPanel');
+// ---- Приватный нав-бар: выпадающие пункты-группы ("Детальная статистика"
+// сворачивает 5 вкладок-разбивок; "Настройки" — "Публичный профиль" +
+// "Доступ к каналу", раньше отдельными ссылками висели в topbar, а не в
+// основном нав-баре). Общая функция вместо копии на каждый дропдаун и на
+// каждую из 13 приватных страниц — принимает id обёртки (`#<id>`), кнопки
+// (`#<id>Btn`) и панели (`#<id>Panel`), больше ничего знать о конкретном
+// дропдауне не должна. Логика открытия/закрытия — тот же паттерн, что уже
+// используется для дропдауна ролей в profile-settings.html (клик по кнопке
+// / клик снаружи / Escape).
+// Реестр функций close() всех инициализированных на странице дропдаунов —
+// нужен, чтобы открытие одного (например «Настройки») закрывало другой уже
+// открытый (например «Детальная статистика»), а не оставляло оба висеть
+// одновременно поверх страницы. Раньше на странице был максимум один такой
+// дропдаун, коллизия появилась только с Milestone 26 (второй дропдаун).
+const _navDropdownCloseFns = [];
+
+export function initNavDropdown(id) {
+  const wrap = document.getElementById(id);
+  const btn = document.getElementById(`${id}Btn`);
+  const panel = document.getElementById(`${id}Panel`);
   if (!wrap || !btn || !panel) return;
 
   // Панель переносится прямо в <body> (а не остаётся ребёнком .app-nav .wrap)
@@ -831,10 +850,17 @@ export function initNavStatsDropdown() {
     wrap.classList.remove('open');
     btn.setAttribute('aria-expanded', 'false');
   }
+  _navDropdownCloseFns.push(close);
   btn.addEventListener('click', (e) => {
     e.stopPropagation();
     const willOpen = panel.hidden;
-    if (willOpen) place();
+    if (willOpen) {
+      // закрыть все остальные открытые дропдауны нав-бара перед открытием этого
+      for (const otherClose of _navDropdownCloseFns) {
+        if (otherClose !== close) otherClose();
+      }
+      place();
+    }
     panel.hidden = !willOpen;
     wrap.classList.toggle('open', willOpen);
     btn.setAttribute('aria-expanded', String(willOpen));
