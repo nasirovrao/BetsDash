@@ -126,6 +126,7 @@
           <div class="field">
             <label for="f_flat">Флет (×)</label>
             <input id="f_flat" type="number" step="0.01" min="0.01" value="1" required>
+            <div id="flatHintNote" style="display:none; font-size:11.5px; color:var(--ink-faint); margin-top:4px;"></div>
           </div>
           <div class="field">
             <label for="f_stake">Сумма ($)</label>
@@ -278,7 +279,16 @@
   let customDisciplines = [];
   let settingsRowExists = false;
   supabase.from('settings').select('default_flat_size, custom_disciplines').eq('user_id', ownerUserId).eq('channel', activeChannel).maybeSingle()
-    .then(({ data }) => {
+    .then(({ data, error }) => {
+      // Известная ловушка (.maybeSingle() на составном ключе user_id+channel,
+      // см. CLV Tracker-баг в HISTORY.md): если по этому user_id+channel почему-то
+      // окажется больше одной строки settings, .maybeSingle() вернёт ошибку, а НЕ
+      // "первую попавшуюся" строку — раньше эта ветка вообще не проверялась, и
+      // автоподстановка флета молча выключалась без единого следа в консоли.
+      if (error) {
+        console.warn('Не удалось загрузить настройки флета по умолчанию:', error.message);
+        return;
+      }
       settingsRowExists = !!data;
       defaultFlatSize = data && data.default_flat_size != null ? Number(data.default_flat_size) : null;
       customDisciplines = data && Array.isArray(data.custom_disciplines) ? data.custom_disciplines : [];
@@ -288,6 +298,21 @@
       // тронул, чтобы не перебить то, что пользователь уже успел ввести
       // за время этого асинхронного запроса.
       if (!stakeInput.value) applyDefaultFlatToStake();
+      // 30.08.2026: "Флет по умолчанию" — настройка НА КАЖДЫЙ канал отдельно
+      // (личный дневник и, например, Cybervalue хранят её в разных строках
+      // settings). Без подсказки это выглядит как баг: пользователь задаёт
+      // флет на одном канале, переключается на другой — подстановка молча
+      // не работает, потому что там просто ещё нет своего значения.
+      const flatHintNote = document.getElementById('flatHintNote');
+      if (flatHintNote) {
+        if (defaultFlatSize == null) {
+          const channelLabel = activeChannel === 'default' ? 'этого канала' : `канала «${activeChannel}»`;
+          flatHintNote.innerHTML = `Флет по умолчанию не задан для ${channelLabel} — задай на странице <a href="${channelHref('bank.html', activeChannel, ownerUserId, session.user.id)}" style="color:var(--gold);">«Выводы и банк»</a>, тогда сумма будет подставляться сама.`;
+          flatHintNote.style.display = 'block';
+        } else {
+          flatHintNote.style.display = 'none';
+        }
+      }
     });
   // Программная простановка значения (enterEditMode при редактировании
   // существующей ставки) НЕ порождает событие 'input' — так что автоподстановка
