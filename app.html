@@ -36,8 +36,12 @@
   }
   .parse-review-banner.low .prb-title{ color:var(--rust); }
   .parse-review-banner ul{ margin:6px 0 0; padding-left:18px; color:var(--ink-dim); }
+  .parse-review-banner .prb-progress{
+    font-family:'JetBrains Mono', monospace; font-size:11.5px; color:var(--ink-faint);
+    text-transform:uppercase; letter-spacing:.04em; margin-bottom:8px;
+  }
   .parse-review-banner .prb-dismiss{
-    margin-top:10px; background:none; border:1px solid var(--line); color:var(--ink-dim);
+    margin-top:10px; margin-right:8px; background:none; border:1px solid var(--line); color:var(--ink-dim);
     border-radius:8px; padding:5px 12px; font-size:12px; cursor:pointer;
   }
   .field.parse-uncertain input,
@@ -1193,6 +1197,15 @@
     exitEditMode();
     loadBets();
     if (!editId) refreshChannelSwitch();
+    // Если ставка была подставлена из очереди распознанных со скриншота —
+    // после реального сохранения переходим к следующей в очереди. Только
+    // для новых ставок (не при редактировании существующей).
+    if (!editId && parseQueueIndex + 1 < parseQueue.length) {
+      loadParseQueueItem(parseQueueIndex + 1);
+    } else {
+      parseQueue = [];
+      parseQueueIndex = 0;
+    }
   });
 
   // Поле "Профит от продажи" нужно только когда результат — досрочная продажа.
@@ -1257,58 +1270,124 @@
 
   function showParseBanner(html, low){
     parseReviewBanner.className = 'parse-review-banner' + (low ? ' low' : '');
-    parseReviewBanner.innerHTML = html + `<button type="button" class="prb-dismiss" id="prbDismissBtn">Скрыть подсказку</button>`;
+    parseReviewBanner.innerHTML = html;
     parseReviewBanner.style.display = '';
-    document.getElementById('prbDismissBtn').addEventListener('click', () => { parseReviewBanner.style.display = 'none'; });
   }
 
-  function handleParsedBetData(result){
-    clearParseUncertainMarks();
-    if (!result || result.detected === false) {
-      showParseBanner('<div class="prb-title">⚠ Не похоже на купон ставки</div>На этом изображении не удалось распознать ставку — заполни форму вручную.', true);
-      return;
-    }
+  // 30.08.2026, вторая итерация: один скриншот теперь может содержать
+  // НЕСКОЛЬКО отдельных ставок (например, лента истории ставок) — Edge
+  // Function возвращает их массивом `bets`. parseQueue хранит ещё не
+  // обработанные распознанные ставки; форма заполняется по одной, и после
+  // каждого реального сохранения (клика "Добавить ставку") автоматически
+  // подставляется следующая — см. хук в конце обработчика betForm.submit.
+  let parseQueue = [];
+  let parseQueueIndex = 0;
 
-    if (result.is_express) {
+  // Заполняет саму форму данными ОДНОЙ распознанной ставки — общая часть
+  // для одиночного скриншота и для каждого шага очереди.
+  //
+  // Важно: форма при переходе между ставками очереди НЕ перезагружается
+  // (страница та же), а submit чистит поля только когда переход происходит
+  // через реальное сохранение — при "Пропустить" такого сброса нет. Если
+  // очередная ставка не вернула какое-то поле (например null Сумма), старое
+  // значение от предыдущей ставки в очереди иначе осталось бы висеть в
+  // форме и ушло бы в БД как будто оно и есть данные текущей ставки — баг,
+  // пойманный тестом test_parse_screenshot.py на переходе Skip между
+  // ставками 2 и 3 сценария success_multi. Поэтому явно очищаем поля перед
+  // применением новых значений, независимо от того, как мы сюда попали.
+  function fillFormFromParsedBet(bet){
+    clearParseUncertainMarks();
+    document.getElementById('f_match').value = '';
+    document.getElementById('f_pick').value = '';
+    oddsInput.value = '';
+    stakeInput.value = '';
+    document.getElementById('f_tournament').value = '';
+    document.getElementById('f_bookmaker').value = '';
+    document.getElementById('f_discipline').value = '';
+    resultSelect.value = 'Pending';
+    document.getElementById('f_date').value = todayLocalStr();
+    document.getElementById('f_flat').value = 1;
+
+    if (bet.is_express) {
       setExpressMode(true);
-      populateExpressLegs((result.legs || []).map(l => ({ text: l.text, odds: l.odds })));
+      populateExpressLegs((bet.legs || []).map(l => ({ text: l.text, odds: l.odds })));
     } else {
       setExpressMode(false);
       clearExpressLegs();
-      if (result.match != null) document.getElementById('f_match').value = result.match;
-      if (result.pick != null) document.getElementById('f_pick').value = result.pick;
-      if (result.odds != null) oddsInput.value = result.odds;
+      if (bet.match != null) document.getElementById('f_match').value = bet.match;
+      if (bet.pick != null) document.getElementById('f_pick').value = bet.pick;
+      if (bet.odds != null) oddsInput.value = bet.odds;
     }
 
-    if (result.bet_date) document.getElementById('f_date').value = result.bet_date;
-    if (result.discipline) fillDisciplineFromParsed(result.discipline);
-    if (result.bookmaker) document.getElementById('f_bookmaker').value = result.bookmaker;
-    if (result.tournament) document.getElementById('f_tournament').value = result.tournament;
-    if (result.stake != null) {
-      stakeInput.value = Number(result.stake).toFixed(2);
+    if (bet.bet_date) document.getElementById('f_date').value = bet.bet_date;
+    if (bet.discipline) fillDisciplineFromParsed(bet.discipline);
+    if (bet.bookmaker) document.getElementById('f_bookmaker').value = bet.bookmaker;
+    if (bet.tournament) document.getElementById('f_tournament').value = bet.tournament;
+    if (bet.stake != null) {
+      stakeInput.value = Number(bet.stake).toFixed(2);
       // Тот же пересчёт, что и при ручном вводе суммы — Флет (×) подстроится
       // под неё, если для этого канала задан флет по умолчанию.
       applyStakeToFlat();
     }
-    if (result.result) resultSelect.value = result.result;
+    if (bet.result) resultSelect.value = bet.result;
 
-    const fieldsToFlag = Array.isArray(result.uncertain_fields) ? result.uncertain_fields : [];
+    const fieldsToFlag = Array.isArray(bet.uncertain_fields) ? bet.uncertain_fields : [];
     fieldsToFlag.forEach(label => {
       const id = FIELD_LABEL_TO_ELEMENT[String(label).trim()];
       const input = id ? document.getElementById(id) : null;
       const field = input ? input.closest('.field') : null;
       if (field) field.classList.add('parse-uncertain');
     });
+    return fieldsToFlag;
+  }
 
-    const low = result.confidence === 'low';
-    const confidenceLabel = result.confidence === 'high' ? 'высокая' : low ? 'низкая' : 'средняя';
+  function renderQueueBanner(fieldsToFlag){
+    const bet = parseQueue[parseQueueIndex];
+    const total = parseQueue.length;
+    const low = bet.confidence === 'low';
+    const confidenceLabel = bet.confidence === 'high' ? 'высокая' : low ? 'низкая' : 'средняя';
     const uncertainList = fieldsToFlag.length ? `<ul>${fieldsToFlag.map(f => `<li>${escapeHtml(f)}</li>`).join('')}</ul>` : '';
+    const progressLine = total > 1
+      ? `<div class="prb-progress">Ставка ${parseQueueIndex + 1} из ${total} со скриншота — после "Добавить ставку" подставится следующая.</div>`
+      : '';
+    const skipBtn = (parseQueueIndex + 1 < total)
+      ? `<button type="button" class="prb-dismiss" id="prbSkipBtn">Пропустить эту (не сохранять) →</button>`
+      : '';
+    const cancelBtn = total > 1
+      ? `<button type="button" class="prb-dismiss" id="prbCancelBtn">Прервать очередь (осталось ${total - parseQueueIndex})</button>`
+      : '';
     showParseBanner(
+      progressLine +
       `<div class="prb-title">${low ? '⚠' : '✓'} Заполнено по скриншоту — проверь перед сохранением</div>` +
       `Ставка ещё НЕ сохранена. Уверенность распознавания: ${confidenceLabel}` +
-      `${fieldsToFlag.length ? ', особенно перепроверь поля, отмеченные красным' : ''}.` + uncertainList,
+      `${fieldsToFlag.length ? ', особенно перепроверь поля, отмеченные красным' : ''}.` + uncertainList +
+      `<button type="button" class="prb-dismiss" id="prbDismissBtn">Скрыть подсказку</button>` + skipBtn + cancelBtn,
       low
     );
+    document.getElementById('prbDismissBtn').addEventListener('click', () => { parseReviewBanner.style.display = 'none'; });
+    const skipEl = document.getElementById('prbSkipBtn');
+    if (skipEl) skipEl.addEventListener('click', () => loadParseQueueItem(parseQueueIndex + 1));
+    const cancelEl = document.getElementById('prbCancelBtn');
+    if (cancelEl) cancelEl.addEventListener('click', () => {
+      parseQueue = [];
+      parseQueueIndex = 0;
+      parseReviewBanner.style.display = 'none';
+    });
+  }
+
+  // i >= длины очереди -> всё обработано, просто гасим очередь молча
+  // (форма на этот момент уже содержит последнюю сохранённую/пропущенную
+  // ставку — трогать её не нужно).
+  function loadParseQueueItem(i){
+    if (i >= parseQueue.length) {
+      parseQueue = [];
+      parseQueueIndex = 0;
+      parseReviewBanner.style.display = 'none';
+      return;
+    }
+    parseQueueIndex = i;
+    const fieldsToFlag = fillFormFromParsedBet(parseQueue[i]);
+    renderQueueBanner(fieldsToFlag);
   }
 
   parseScreenshotInput.addEventListener('change', async () => {
@@ -1328,6 +1407,8 @@
     }
     parseScreenshotStatus.textContent = 'Распознаю…';
     parseReviewBanner.style.display = 'none';
+    parseQueue = [];
+    parseQueueIndex = 0;
     try {
       const base64 = await fileToBase64(file);
       const { data, error } = await supabase.functions.invoke('parse-bet-screenshot', {
@@ -1339,7 +1420,15 @@
         return;
       }
       parseScreenshotStatus.textContent = '';
-      handleParsedBetData(data.result);
+      const topResult = data.result;
+      const bets = topResult && Array.isArray(topResult.bets) ? topResult.bets : [];
+      if (!topResult || topResult.detected === false || !bets.length) {
+        clearParseUncertainMarks();
+        showParseBanner('<div class="prb-title">⚠ Не похоже на купон ставки</div>На этом изображении не удалось распознать ни одной ставки — заполни форму вручную.', true);
+        return;
+      }
+      parseQueue = bets;
+      loadParseQueueItem(0);
     } catch (e) {
       parseScreenshotStatus.textContent = 'Ошибка при распознавании: ' + e.message;
       parseScreenshotStatus.classList.add('err');
