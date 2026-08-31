@@ -4,7 +4,7 @@
 <meta charset="utf-8">
 <script>(function(){try{if(localStorage.getItem('edge-theme')==='light')document.documentElement.setAttribute('data-theme','light');}catch(e){}})();</script>
 <meta name="viewport" content="width=device-width, initial-scale=1">
-<title>Команды — EDGE</title>
+<title>По капперам — EDGE</title>
 <link rel="preconnect" href="https://fonts.googleapis.com">
 <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
 <link href="https://fonts.googleapis.com/css2?family=Unbounded:wght@600;700;800&family=Golos+Text:wght@400;500;600;700&family=JetBrains+Mono:wght@400;500;600&display=swap" rel="stylesheet">
@@ -13,6 +13,19 @@
 <link rel="stylesheet" href="styles-edge2.css?v=1">
 <link rel="stylesheet" href="styles-edge3.css?v=1">
 <script src="theme-toggle.js" defer></script>
+<style>
+  /* 31.08.2026, CHANGELOG "приоритет №1" — ссылка на публичный профиль
+     каппера, когда "Источник пика" совпадает с юзернеймом реального
+     публичного капера на платформе (см. скрипт ниже). Отдельная страница,
+     а не правка generic renderBreakdownDetail() в lib.js — эта фича нужна
+     только здесь, не хочется тащить логику профилей в общую функцию,
+     которой пользуются ещё 5 других разбивок. */
+  .capper-public-link{
+    display:inline-flex; align-items:center; gap:6px; margin:-6px 0 18px; font-size:13px;
+    color:var(--gold); text-decoration:none; font-weight:600;
+  }
+  .capper-public-link:hover{ text-decoration:underline; }
+</style>
 </head>
 <body>
 
@@ -40,9 +53,9 @@
       <div class="nav-dropdown-panel" id="statsDropdownPanel" hidden>
         <a class="nav-dropdown-item" href="disciplines.html">По дисциплинам</a>
         <a class="nav-dropdown-item" href="bookmakers.html">По букмекерам</a>
-        <a class="nav-dropdown-item" href="cappers.html">По капперам</a>
+        <a class="nav-dropdown-item active" href="cappers.html">По капперам</a>
         <a class="nav-dropdown-item" href="markets.html">Рынки</a>
-        <a class="nav-dropdown-item active" href="teams.html">Команды</a>
+        <a class="nav-dropdown-item" href="teams.html">Команды</a>
         <a class="nav-dropdown-item" href="segmentation.html">Сегментация</a>
       </div>
     </div>
@@ -64,8 +77,8 @@
 <section>
   <div class="wrap">
     <div class="section-head">
-      <h2>Команды</h2>
-      <div class="section-note">Каждая ставка учитывается у обеих команд матча — вопрос не «за кого ставка», а «как заходят ставки на матчах с этой командой». Имена команд приводятся к единому виду автоматически. Дуэли 1x1 в статистику не включены. Клик по карточке — полная статистика и список ставок.</div>
+      <h2>По капперам</h2>
+      <div class="section-note">Своя стратегия против чужих пиков — раскладка по тому, чья это была ставка. Клик по карточке — полная статистика и список ставок.</div>
     </div>
     <div id="channelSwitch"></div>
     <div id="breakdownRoot"><div class="empty-state">Загружаю…</div></div>
@@ -74,7 +87,7 @@
 
 <script type="module">
   import { supabase, requireSession, isClvEnabled } from './supabase-client.js';
-  import { groupBetsMulti, renderGroupCards, renderBreakdownDetail, teamKeysForBet, getChannelParams, loadMyChannels, renderChannelSwitch, preserveChannelInNav, channelHref, initEmailPrivacyToggle, initNavDropdown} from './lib.js';
+  import { groupBets, renderGroupCards, renderBreakdownDetail, getChannelParams, loadMyChannels, renderChannelSwitch, preserveChannelInNav, channelHref, initEmailPrivacyToggle, initNavDropdown, escapeHtml } from './lib.js';
 
   const session = await requireSession();
   if (session) {
@@ -91,26 +104,48 @@
   const { channel: activeChannel, owner: ownerParam } = getChannelParams();
   const ownerUserId = ownerParam || session.user.id;
   preserveChannelInNav(activeChannel, ownerUserId, session.user.id);
-  const pageFile = channelHref('teams.html', activeChannel, ownerUserId, session.user.id);
+  const pageFile = channelHref('cappers.html', activeChannel, ownerUserId, session.user.id);
 
   loadMyChannels(supabase, session.user.id).then(channels => {
     document.getElementById('channelSwitch').innerHTML =
-      renderChannelSwitch(channels, activeChannel, ownerUserId, 'teams.html');
+      renderChannelSwitch(channels, activeChannel, ownerUserId, 'cappers.html');
   });
 
   const root = document.getElementById('breakdownRoot');
   const keyParam = new URLSearchParams(location.search).get('key');
 
+  // Пустой/незаполненный "Источник пика" = своя ставка. Своя каноническая
+  // метка 'Своя ставка' — только здесь, в ключе группировки, НЕ в базе (см.
+  // schema_milestone24.sql), чтобы не было двух разных представлений одного
+  // и того же значения.
+  const OWN_LABEL = 'Своя ставка';
+  const pickSourceKey = b => (b.pick_source && b.pick_source.trim()) || OWN_LABEL;
+
   const { data, error } = await supabase.from('bets').select('*').eq('user_id', ownerUserId).eq('channel', activeChannel);
   if (error) {
     root.innerHTML = `<div class="empty-state">Ошибка загрузки: ${error.message}</div>`;
   } else {
-    const groups = groupBetsMulti(data, teamKeysForBet);
+    const groups = groupBets(data, pickSourceKey);
     if (keyParam) {
       const group = groups.find(g => g.key === keyParam);
-      root.innerHTML = renderBreakdownDetail('Команда', keyParam, group, pageFile);
+      root.innerHTML = renderBreakdownDetail('Источник пика', keyParam, group, pageFile, false);
+      // Если метка совпадает (без учёта регистра) с юзернеймом реального
+      // публичного капера на платформе — добавляем прямую ссылку на его
+      // публичный профиль. Ставки помечаются свободным текстом, поэтому
+      // сравниваем на клиенте по уже загруженному списку публичных
+      // профилей, а не через SQL LIKE/ILIKE — метка может содержать %/_ и
+      // другие спецсимволы, которые в LIKE-паттерне вели бы себя не так,
+      // как ожидает пользователь.
+      if (group && keyParam !== OWN_LABEL) {
+        const { data: profiles } = await supabase.from('profiles').select('username, display_name').eq('is_public', true);
+        const match = (profiles || []).find(p => (p.username || '').trim().toLowerCase() === keyParam.trim().toLowerCase());
+        if (match) {
+          const link = `<a class="capper-public-link" href="public.html?u=${encodeURIComponent(match.username)}">→ Публичный профиль @${escapeHtml(match.username)} на EDGE</a>`;
+          root.innerHTML = root.innerHTML.replace('<div class="stat-grid', link + '<div class="stat-grid');
+        }
+      }
     } else {
-      root.innerHTML = renderGroupCards(groups, 'Команда', pageFile);
+      root.innerHTML = renderGroupCards(groups, 'Источник пика', pageFile);
     }
   }
 </script>

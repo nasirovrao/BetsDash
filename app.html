@@ -34,6 +34,14 @@
   @media (prefers-reduced-motion: reduce){ .parse-spinner{ animation-duration:1.6s; } }
   #betFormBlock.editing .parse-screenshot-row{ display:none; }
 
+  /* Метка "источник пика" (31.08.2026, CHANGELOG "приоритет №1") — outline-
+     стиль, не сплошная заливка --gold, как у .tag-chip (эдж-паттерн): это
+     разные по смыслу вещи (своя стратегия vs чей пик), не хочется, чтобы
+     они выглядели одинаково на карточке и путались. */
+  .source-chip{
+    background:transparent !important; border:1px solid var(--gold); color:var(--gold) !important;
+  }
+
   .parse-review-banner{
     border:1px solid var(--gold); border-radius:12px; background:var(--bg-card);
     padding:14px 16px; margin-bottom:18px; font-size:13px; color:var(--ink);
@@ -83,6 +91,7 @@
       <div class="nav-dropdown-panel" id="statsDropdownPanel" hidden>
         <a class="nav-dropdown-item" href="disciplines.html">По дисциплинам</a>
         <a class="nav-dropdown-item" href="bookmakers.html">По букмекерам</a>
+        <a class="nav-dropdown-item" href="cappers.html">По капперам</a>
         <a class="nav-dropdown-item" href="markets.html">Рынки</a>
         <a class="nav-dropdown-item" href="teams.html">Команды</a>
         <a class="nav-dropdown-item" href="segmentation.html">Сегментация</a>
@@ -219,6 +228,11 @@
             <label for="f_edge">Эдж-паттерн (метка)</label>
             <input id="f_edge" type="text" placeholder="например: closing-value-cs2" list="edgeList" autocomplete="off">
             <datalist id="edgeList"></datalist>
+          </div>
+          <div class="field">
+            <label for="f_pickSource">Источник пика</label>
+            <input id="f_pickSource" type="text" placeholder="Своя ставка" list="pickSourceList" autocomplete="off">
+            <datalist id="pickSourceList"></datalist>
           </div>
           <div class="field" style="grid-column: 1 / -1;">
             <label for="f_notes">Заметка (необязательно)</label>
@@ -386,6 +400,7 @@
   const countNote = document.getElementById('countNote');
   const formStatus = document.getElementById('formStatus');
   const bookmakerList = document.getElementById('bookmakerList');
+  const pickSourceList = document.getElementById('pickSourceList');
   const disciplineSelect = document.getElementById('f_discipline');
   const disciplineAddBtn = document.getElementById('disciplineAddBtn');
   const disciplineAddRow = document.getElementById('disciplineAddRow');
@@ -658,6 +673,7 @@
           <span class="meta-chip">${escapeHtml(bet.bookmaker)}</span>
           ${bet.tournament ? `<span class="meta-chip">${escapeHtml(bet.tournament)}</span>` : ''}
           ${bet.edge_tag ? `<span class="tag-chip">${escapeHtml(bet.edge_tag)}</span>` : ''}
+          ${bet.pick_source ? `<span class="tag-chip source-chip">👤 ${escapeHtml(bet.pick_source)}</span>` : ''}
           <span class="meta-date">${fmtDate(bet.bet_date)}</span>
           <button type="button" class="note-toggle${bet.notes ? '' : ' add'}">${bet.notes ? '📝 заметка' : '+ заметка'}</button>
         </div>
@@ -943,6 +959,7 @@
     const editorTag = isEditorView ? ' (ты — редактор)' : '';
     countNote.textContent = `${channelLabel}${editorTag} · ${allBets.length} ${allBets.length === 1 ? 'ставка' : 'ставок'}`;
     updateBookmakerList(allBets);
+    updatePickSourceList(allBets);
     renderDisciplineOptions();
     updateTournamentList(allBets);
     // Реестр edges может ещё не существовать (пока не выполнена
@@ -960,6 +977,14 @@
   function updateBookmakerList(data){
     const names = Array.from(new Set(data.map(b => (b.bookmaker || '').trim()).filter(Boolean))).sort();
     bookmakerList.innerHTML = names.map(n => `<option value="${escapeHtml(n)}"></option>`).join('');
+  }
+
+  // Источники пиков (капперы), которых пользователь уже вписывал — тот же
+  // паттерн подсказки, что и у букмекера. Пустое поле = "своя ставка", в
+  // список подсказок не попадает (нет смысла подсказывать пустоту).
+  function updatePickSourceList(data){
+    const names = Array.from(new Set(data.map(b => (b.pick_source || '').trim()).filter(Boolean))).sort();
+    pickSourceList.innerHTML = names.map(n => `<option value="${escapeHtml(n)}"></option>`).join('');
   }
 
   // Дисциплина — снова выпадающий список (как было изначально), но теперь
@@ -1098,6 +1123,7 @@
     document.getElementById('f_type').value = bet.bet_type || '';
     document.getElementById('f_conviction').value = bet.conviction ? String(bet.conviction) : '';
     document.getElementById('f_edge').value = bet.edge_tag || '';
+    document.getElementById('f_pickSource').value = bet.pick_source || '';
     document.getElementById('f_notes').value = bet.notes || '';
 
     const isSold = bet.result === 'Sold';
@@ -1187,6 +1213,7 @@
       bet_type: document.getElementById('f_type').value || null,
       conviction: document.getElementById('f_conviction').value ? Number(document.getElementById('f_conviction').value) : null,
       edge_tag: document.getElementById('f_edge').value.trim() || null,
+      pick_source: document.getElementById('f_pickSource').value.trim() || null,
       notes: document.getElementById('f_notes').value.trim() || null,
       manual_profit: document.getElementById('f_result').value === 'Sold' && document.getElementById('f_manualProfit').value
         ? Number(document.getElementById('f_manualProfit').value) : null,
