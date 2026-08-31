@@ -33,6 +33,14 @@ const DEFAULT_MODEL = 'claude-sonnet-5';
 const ANTHROPIC_VERSION = '2023-06-01';
 const MAX_IMAGE_BYTES = 5 * 1024 * 1024; // ~5MB — практический лимит Anthropic API на одну картинку в base64
 
+// 31.08.2026: лимит на пользователя, добавлен по прямому запросу — каждый
+// вызов с картинкой стоит реальных денег на ключе Anthropic (см. README),
+// без потолка один аккаунт может случайно (или намеренно) нагенерировать
+// произвольный счёт. Считается сам ФАКТ вызова функции с картинкой, не
+// количество распознанных ставок внутри одного скриншота — см.
+// schema_milestone25.sql для схемы таблицы и обоснования выбора UTC-месяца.
+const MONTHLY_SCREENSHOT_LIMIT = 100;
+
 const CORS_HEADERS = {
   'Access-Control-Allow-Origin': '*',
   'Access-Control-Allow-Headers': 'authorization, x-client-info, apikey, content-type',
@@ -123,6 +131,88 @@ function jsonResponse(body: unknown, status = 200) {
   });
 }
 
+// Достаём user_id из JWT в заголовке Authorization — саму подпись токена
+// НЕ проверяем здесь: платформа Supabase уже это сделала на уровне
+// Edge Functions ДО того, как код функции вообще начал выполняться (см.
+// переключатель "Verify JWT with legacy secret" в Settings функции — он
+// включён, это то самое, что нужно). Здесь просто читаем payload уже
+// проверенного токена, чтобы узнать, чей это запрос.
+function userIdFromAuthHeader(req: Request): string | null {
+  const auth = req.headers.get('authorization') || '';
+  const token = auth.replace(/^Bearer\s+/i, '');
+  const parts = token.split('.');
+  if (parts.length !== 3) return null;
+  try {
+    const b64 = parts[1].replace(/-/g, '+').replace(/_/g, '/').padEnd(parts[1].length + (4 - (parts[1].length % 4)) % 4, '=');
+    const payload = JSON.parse(atob(b64));
+    return typeof payload.sub === 'string' ? payload.sub : null;
+  } catch {
+    return null;
+  }
+}
+
+// Проверяет и, если лимит не исчерпан, сразу инкрементирует счётчик
+// (резервируем ДО вызова Anthropic, а не после — иначе можно уйти в минус,
+// если несколько запросов улетят почти одновременно). SUPABASE_URL и
+// SUPABASE_SERVICE_ROLE_KEY — не наши секреты, их не нужно задавать через
+// `supabase secrets set`: Supabase сам инжектит их в env каждой Edge
+// Function проекта. Сервис-роль обходит RLS — то, что и нужно, чтобы писать
+// в таблицу, куда обычным пользователям (даже себе самим) запись закрыта.
+//
+// Простой read-then-write, не одна атомарная транзакция — известное
+// упрощение, см. комментарий в schema_milestone25.sql.
+async function checkAndIncrementUsage(userId: string): Promise<{ ok: boolean; count: number }> {
+  const supabaseUrl = Deno.env.get('SUPABASE_URL');
+  const serviceKey = Deno.env.get('SUPABASE_SERVICE_ROLE_KEY');
+  if (!supabaseUrl || !serviceKey) {
+    // Не должно происходить в реальном Supabase-проекте (оба всегда
+    // доступны), но если вдруг — не блокируем фичу целиком из-за этого,
+    // просто не считаем лимит в этом запросе.
+    console.error('checkAndIncrementUsage: SUPABASE_URL/SUPABASE_SERVICE_ROLE_KEY недоступны в env');
+    return { ok: true, count: -1 };
+  }
+  const month = new Date().toISOString().slice(0, 7); // UTC 'YYYY-MM'
+  const headers = {
+    apikey: serviceKey,
+    Authorization: `Bearer ${serviceKey}`,
+    'Content-Type': 'application/json',
+  };
+
+  const selectRes = await fetch(
+    `${supabaseUrl}/rest/v1/screenshot_parse_usage?user_id=eq.${encodeURIComponent(userId)}&month=eq.${month}&select=count`,
+    { headers: { ...headers, Accept: 'application/vnd.pgrst.object+json' } },
+  );
+  // 406 = PostgREST "не нашлось ровно одной строки" (Accept просит singular
+  // object) — это нормальный случай "ещё не было ни одного запроса в этом
+  // месяце", не ошибка.
+  let currentCount = 0;
+  if (selectRes.ok) {
+    const row = await selectRes.json().catch(() => null);
+    if (row && typeof row.count === 'number') currentCount = row.count;
+  } else if (selectRes.status !== 406) {
+    console.error('checkAndIncrementUsage: select failed', selectRes.status, await selectRes.text().catch(() => ''));
+    return { ok: true, count: -1 };
+  }
+
+  if (currentCount >= MONTHLY_SCREENSHOT_LIMIT) {
+    return { ok: false, count: currentCount };
+  }
+
+  const newCount = currentCount + 1;
+  const upsertRes = await fetch(`${supabaseUrl}/rest/v1/screenshot_parse_usage`, {
+    method: 'POST',
+    headers: { ...headers, Prefer: 'resolution=merge-duplicates' },
+    body: JSON.stringify([{ user_id: userId, month, count: newCount, updated_at: new Date().toISOString() }]),
+  });
+  if (!upsertRes.ok) {
+    console.error('checkAndIncrementUsage: upsert failed', upsertRes.status, await upsertRes.text().catch(() => ''));
+    // Не смогли записать инкремент — лучше пропустить запрос, чем ошибочно
+    // заблокировать пользователя из-за временного сбоя записи в базу.
+    return { ok: true, count: currentCount };
+  }
+  return { ok: true, count: newCount };
+}
+
 Deno.serve(async (req: Request) => {
   if (req.method === 'OPTIONS') {
     return new Response('ok', { headers: CORS_HEADERS });
@@ -157,6 +247,20 @@ Deno.serve(async (req: Request) => {
   const approxBytes = Math.floor((image.length * 3) / 4);
   if (approxBytes > MAX_IMAGE_BYTES) {
     return jsonResponse({ error: 'Картинка слишком большая (>5MB после декодирования) — сожми или обрежь скриншот.' }, 413);
+  }
+
+  // Лимит проверяем и резервируем ДО похода к Anthropic — так деньги не
+  // тратятся на запрос, который всё равно будет отклонён.
+  const userId = userIdFromAuthHeader(req);
+  if (!userId) {
+    return jsonResponse({ error: 'Не удалось определить пользователя по токену авторизации.' }, 401);
+  }
+  const usage = await checkAndIncrementUsage(userId);
+  if (!usage.ok) {
+    return jsonResponse({
+      error: `Лимит распознавания скриншотов на этот месяц исчерпан (${usage.count}/${MONTHLY_SCREENSHOT_LIMIT}). Лимит сбрасывается в начале следующего месяца — а пока можно заполнить форму вручную.`,
+      usage: { count: usage.count, limit: MONTHLY_SCREENSHOT_LIMIT, remaining: 0 },
+    }, 429);
   }
 
   const anthropicReq = {
@@ -231,5 +335,11 @@ Deno.serve(async (req: Request) => {
   // вернула модель, без необходимости гадать вслепую.
   console.log('parse-bet-screenshot: detected=' + toolUse.input?.detected + ', bets=' + (Array.isArray(toolUse.input?.bets) ? toolUse.input.bets.length : 'n/a'));
 
-  return jsonResponse({ result: toolUse.input });
+  return jsonResponse({
+    result: toolUse.input,
+    // usage.count === -1 значит "не смогли посчитать лимит в этом запросе"
+    // (см. checkAndIncrementUsage) — фронтенд в этом случае просто не
+    // показывает счётчик, а не рисует "-1 из 100".
+    usage: usage.count >= 0 ? { count: usage.count, limit: MONTHLY_SCREENSHOT_LIMIT, remaining: MONTHLY_SCREENSHOT_LIMIT - usage.count } : null,
+  });
 });

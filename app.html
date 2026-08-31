@@ -25,6 +25,14 @@
   .parse-screenshot-btn.is-loading{ opacity:.55; pointer-events:none; }
   .parse-screenshot-status{ font-size:12.5px; color:var(--ink-dim); display:inline-flex; align-items:center; gap:7px; }
   .parse-screenshot-status.err{ color:var(--rust); }
+  /* Остаток месячного лимита распознаваний (31.08.2026, лимит 100/мес) —
+     показывается после каждого ответа функции (успех или отказ по лимиту),
+     не отдельным запросом при загрузке страницы: до первой попытки в этом
+     сеансе остаток просто неизвестен клиенту, и это ок — не критичная
+     информация, чтобы тянуть под неё отдельный round-trip. */
+  .parse-quota-note{ font-size:11.5px; color:var(--ink-faint); font-family:'JetBrains Mono', monospace; }
+  .parse-quota-note.warn{ color:var(--gold); }
+  .parse-quota-note.exhausted{ color:var(--rust); }
   .parse-spinner{
     width:13px; height:13px; border-radius:50%; flex:none;
     border:2px solid var(--line); border-top-color:var(--gold);
@@ -40,6 +48,15 @@
      они выглядели одинаково на карточке и путались. */
   .source-chip{
     background:transparent !important; border:1px solid var(--gold); color:var(--gold) !important;
+  }
+
+  /* Видимый таймстамп внесения ставки (31.08.2026) — рядом с датой самой
+     ставки, ещё бледнее её (.meta-date уже --ink-faint) и без своей рамки/
+     фона, чтобы не соперничать за внимание с чипами — это фоновая деталь
+     для прозрачности, не то, что нужно разглядывать в первую очередь. */
+  .meta-added{
+    font-family:'JetBrains Mono', monospace; font-size:10.5px; color:var(--ink-faint);
+    opacity:0.75; cursor:help;
   }
 
   .parse-review-banner{
@@ -129,6 +146,7 @@
           <input type="file" id="parseScreenshotInput" accept="image/png,image/jpeg,image/webp,image/gif">
         </label>
         <span class="parse-screenshot-status" id="parseScreenshotStatus"></span>
+        <span class="parse-quota-note" id="parseQuotaNote"></span>
       </div>
       <div class="parse-review-banner" id="parseReviewBanner" style="display:none;"></div>
       <form id="betForm">
@@ -272,7 +290,7 @@
 
 <script type="module">
   import { supabase, requireSession, isClvEnabled } from './supabase-client.js';
-  import { computeProfit, fmtMoney, getChannelParams, loadMyChannels, renderChannelSwitch, preserveChannelInNav, initEmailPrivacyToggle, initNavDropdown, channelHref } from './lib.js';
+  import { computeProfit, fmtMoney, getChannelParams, loadMyChannels, renderChannelSwitch, preserveChannelInNav, initEmailPrivacyToggle, initNavDropdown, channelHref, fmtDateTime } from './lib.js';
 
   const session = await requireSession();
   if (session) {
@@ -453,6 +471,24 @@
   function fmtDate(d){
     const [y,m,day] = d.split('-');
     return `${day}.${m}.${y}`;
+  }
+  // 31.08.2026, CHANGELOG "Видимый таймстамп внесения ставки" — раньше
+  // created_at считался только в скрытый title-тултип на страницах разбивок
+  // (renderBetsFlatTable в lib.js), здесь его вообще не было видно. Делает
+  // заметным разрыв между "когда по словам каппера была сделана ставка" и
+  // "когда она реально появилась в системе" (та же идея прозрачности, что
+  // уже работает у бейджа "✎ изменено" — не запрещаем задним числом, но и
+  // не прячем). Компактный формат: если внесено в тот же календарный день,
+  // что и сама ставка — только время; иначе ещё и дата (без года, чтобы не
+  // раздувать карточку).
+  function fmtAddedShort(iso, betDateStr){
+    if (!iso) return '';
+    const d = new Date(iso);
+    if (Number.isNaN(d.getTime())) return '';
+    const pad = n => String(n).padStart(2, '0');
+    const localDateStr = `${d.getFullYear()}-${pad(d.getMonth() + 1)}-${pad(d.getDate())}`;
+    const timeStr = `${pad(d.getHours())}:${pad(d.getMinutes())}`;
+    return localDateStr === betDateStr ? timeStr : `${pad(d.getDate())}.${pad(d.getMonth() + 1)}, ${timeStr}`;
   }
   const MONTH_NAMES = ['Январь','Февраль','Март','Апрель','Май','Июнь','Июль','Август','Сентябрь','Октябрь','Ноябрь','Декабрь'];
   function monthLabel(d){
@@ -675,6 +711,7 @@
           ${bet.edge_tag ? `<span class="tag-chip">${escapeHtml(bet.edge_tag)}</span>` : ''}
           ${bet.pick_source ? `<span class="tag-chip source-chip">👤 ${escapeHtml(bet.pick_source)}</span>` : ''}
           <span class="meta-date">${fmtDate(bet.bet_date)}</span>
+          ${bet.created_at ? `<span class="meta-added" title="Добавлено в систему: ${escapeHtml(fmtDateTime(bet.created_at))}">внесено ${escapeHtml(fmtAddedShort(bet.created_at, bet.bet_date))}</span>` : ''}
           <button type="button" class="note-toggle${bet.notes ? '' : ' add'}">${bet.notes ? '📝 заметка' : '+ заметка'}</button>
         </div>
         <div class="bet-card-note-wrap" style="display:none;"></div>
@@ -1261,6 +1298,18 @@
   const parseScreenshotInput = document.getElementById('parseScreenshotInput');
   const parseScreenshotStatus = document.getElementById('parseScreenshotStatus');
   const parseScreenshotLabel = document.getElementById('parseScreenshotLabel');
+  const parseQuotaNote = document.getElementById('parseQuotaNote');
+
+  // Лимит 100 распознаваний/месяц (31.08.2026) — Edge Function возвращает
+  // usage:{count,limit,remaining} и в успешном ответе, и в отказе по 429,
+  // здесь просто отображаем то, что она посчитала на сервере (никакой
+  // отдельной проверки лимита на клиенте — сервер источник истины).
+  function updateParseQuota(usage){
+    if (!usage || typeof usage.count !== 'number' || typeof usage.limit !== 'number') return;
+    parseQuotaNote.textContent = `${usage.count}/${usage.limit} скринов использовано в этом месяце`;
+    parseQuotaNote.classList.toggle('exhausted', usage.remaining <= 0);
+    parseQuotaNote.classList.toggle('warn', usage.remaining > 0 && usage.remaining <= 10);
+  }
   const parseReviewBanner = document.getElementById('parseReviewBanner');
 
   // Единая точка обновления статуса рядом с кнопкой "Заполнить по скриншоту":
@@ -1465,10 +1514,16 @@
         body: { image: base64, mimeType: file.type },
       });
       if (error || !data || data.error) {
+        // Ошибка лимита (429) приходит в том же поле data.error, что и любая
+        // другая ошибка функции — текст уже содержит "N/100" сам по себе, но
+        // отдельно обновляем и quota-note, чтобы остаток был виден не только
+        // в сообщении об ошибке, но и после того, как оно исчезнет.
+        if (data && data.usage) updateParseQuota(data.usage);
         setParseStatus('Не удалось распознать: ' + (data && data.error ? data.error : (error ? error.message : 'неизвестная ошибка')), { err: true });
         return;
       }
       setParseStatus('');
+      if (data.usage) updateParseQuota(data.usage);
       const topResult = data.result;
       // Обратная совместимость: если на Supabase ещё крутится СТАРАЯ версия
       // функции (одна ставка плоским объектом в корне, без массива bets) —

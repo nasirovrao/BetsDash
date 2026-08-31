@@ -114,11 +114,14 @@
   const root = document.getElementById('breakdownRoot');
   const keyParam = new URLSearchParams(location.search).get('key');
 
-  // Пустой/незаполненный "Источник пика" = своя ставка. Своя каноническая
-  // метка 'Своя ставка' — только здесь, в ключе группировки, НЕ в базе (см.
-  // schema_milestone24.sql), чтобы не было двух разных представлений одного
-  // и того же значения.
-  const OWN_LABEL = 'Своя ставка';
+  // Пустой/незаполненный "Источник пика" = своя ставка. Метка для этой
+  // группы — НЕ произвольная выдуманная строка "Своя ставка" (по правке
+  // 31.08.2026 — не годится, читается как ещё один каппер по имени "Своя
+  // ставка"), а тот же лейбл, что уже используется по всему сайту для
+  // текущего канала (app.html/dashboard.html/bank.html: "Личный дневник"
+  // для 'default', иначе — название самого канала). Опять же только здесь,
+  // в ключе группировки, НЕ в базе (см. schema_milestone24.sql).
+  const OWN_LABEL = activeChannel === 'default' ? 'Личный дневник' : activeChannel;
   const pickSourceKey = b => (b.pick_source && b.pick_source.trim()) || OWN_LABEL;
 
   const { data, error } = await supabase.from('bets').select('*').eq('user_id', ownerUserId).eq('channel', activeChannel);
