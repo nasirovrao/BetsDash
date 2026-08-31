@@ -215,8 +215,21 @@ Deno.serve(async (req: Request) => {
   const data = await anthropicRes.json();
   const toolUse = (data.content || []).find((b: any) => b.type === 'tool_use' && b.name === 'record_bet_data');
   if (!toolUse) {
-    return jsonResponse({ error: 'Модель не вернула структурированный ответ — попробуй другой/более чёткий скриншот.' }, 502);
+    // stop_reason='max_tokens' здесь — самый вероятный практический случай:
+    // модель не уложилась в бюджет (например, скриншот с длинной историей
+    // ставок) и не успела закрыть tool_use блок валидным JSON. Отдаём это
+    // явно, а не generic-сообщением, чтобы было понятно, что дело не в
+    // "непохоже на ставку", а в лимите.
+    const reason = data.stop_reason ? ` (stop_reason: ${data.stop_reason})` : '';
+    console.error('parse-bet-screenshot: no tool_use in response' + reason, JSON.stringify(data).slice(0, 2000));
+    return jsonResponse({ error: `Модель не вернула структурированный ответ${reason} — попробуй другой/более чёткий скриншот.` }, 502);
   }
+
+  // Лог сырого распознанного результата — если фронтенд после этого всё
+  // равно покажет "не похоже на купон" или что-то не так с массивом bets,
+  // тут в Supabase Logs (вкладка Logs у функции) будет видно, что именно
+  // вернула модель, без необходимости гадать вслепую.
+  console.log('parse-bet-screenshot: detected=' + toolUse.input?.detected + ', bets=' + (Array.isArray(toolUse.input?.bets) ? toolUse.input.bets.length : 'n/a'));
 
   return jsonResponse({ result: toolUse.input });
 });

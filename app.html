@@ -22,8 +22,16 @@
   .parse-screenshot-btn input[type="file"]{
     position:absolute; inset:0; opacity:0; cursor:pointer; width:100%; height:100%;
   }
-  .parse-screenshot-status{ font-size:12.5px; color:var(--ink-dim); }
+  .parse-screenshot-btn.is-loading{ opacity:.55; pointer-events:none; }
+  .parse-screenshot-status{ font-size:12.5px; color:var(--ink-dim); display:inline-flex; align-items:center; gap:7px; }
   .parse-screenshot-status.err{ color:var(--rust); }
+  .parse-spinner{
+    width:13px; height:13px; border-radius:50%; flex:none;
+    border:2px solid var(--line); border-top-color:var(--gold);
+    animation:parse-spin .7s linear infinite;
+  }
+  @keyframes parse-spin{ to{ transform:rotate(360deg); } }
+  @media (prefers-reduced-motion: reduce){ .parse-spinner{ animation-duration:1.6s; } }
   #betFormBlock.editing .parse-screenshot-row{ display:none; }
 
   .parse-review-banner{
@@ -107,7 +115,7 @@
     <div class="bet-form" id="betFormBlock">
       <h3 id="betFormHeading">Добавить ставку</h3>
       <div class="parse-screenshot-row" id="parseScreenshotRow">
-        <label class="btn btn-ghost parse-screenshot-btn" style="width:auto;">
+        <label class="btn btn-ghost parse-screenshot-btn" id="parseScreenshotLabel" style="width:auto;">
           📷 Заполнить по скриншоту
           <input type="file" id="parseScreenshotInput" accept="image/png,image/jpeg,image/webp,image/gif">
         </label>
@@ -1225,7 +1233,20 @@
   // ---------------------------------------------------------------------
   const parseScreenshotInput = document.getElementById('parseScreenshotInput');
   const parseScreenshotStatus = document.getElementById('parseScreenshotStatus');
+  const parseScreenshotLabel = document.getElementById('parseScreenshotLabel');
   const parseReviewBanner = document.getElementById('parseReviewBanner');
+
+  // Единая точка обновления статуса рядом с кнопкой "Заполнить по скриншоту":
+  // opts.loading — показать крутящийся круглешок вместо просто текста (пока
+  // ждём ответ от Edge Function/Anthropic — это может занять пару секунд),
+  // opts.err — покрасить текст в rust, как и раньше.
+  function setParseStatus(text, opts){
+    opts = opts || {};
+    parseScreenshotStatus.classList.toggle('err', !!opts.err);
+    parseScreenshotStatus.innerHTML =
+      (opts.loading ? '<span class="parse-spinner" aria-hidden="true"></span>' : '') +
+      escapeHtml(text);
+  }
 
   const FIELD_LABEL_TO_ELEMENT = {
     'Дата': 'f_date', 'Дисциплина': 'f_discipline', 'Букмекер': 'f_bookmaker',
@@ -1394,18 +1415,20 @@
     const file = parseScreenshotInput.files[0];
     parseScreenshotInput.value = ''; // разрешить повторно выбрать тот же файл
     if (!file) return;
-    parseScreenshotStatus.classList.remove('err');
     if (!/^image\//.test(file.type)) {
-      parseScreenshotStatus.textContent = 'Нужен файл изображения (png/jpeg/webp).';
-      parseScreenshotStatus.classList.add('err');
+      setParseStatus('Нужен файл изображения (png/jpeg/webp).', { err: true });
       return;
     }
     if (file.size > 5 * 1024 * 1024) {
-      parseScreenshotStatus.textContent = 'Файл больше 5MB — сожми или обрежь скриншот.';
-      parseScreenshotStatus.classList.add('err');
+      setParseStatus('Файл больше 5MB — сожми или обрежь скриншот.', { err: true });
       return;
     }
-    parseScreenshotStatus.textContent = 'Распознаю…';
+    // Пока идёт запрос — крутящийся круглешок вместо просто текста (модель
+    // может отвечать пару секунд, особенно на скриншотах с несколькими
+    // ставками), плюс саму кнопку временно гасим, чтобы нельзя было
+    // случайно запустить второй запрос поверх ещё не завершённого.
+    setParseStatus('Распознаю…', { loading: true });
+    parseScreenshotLabel.classList.add('is-loading');
     parseReviewBanner.style.display = 'none';
     parseQueue = [];
     parseQueueIndex = 0;
@@ -1415,13 +1438,28 @@
         body: { image: base64, mimeType: file.type },
       });
       if (error || !data || data.error) {
-        parseScreenshotStatus.textContent = 'Не удалось распознать: ' + (data && data.error ? data.error : (error ? error.message : 'неизвестная ошибка'));
-        parseScreenshotStatus.classList.add('err');
+        setParseStatus('Не удалось распознать: ' + (data && data.error ? data.error : (error ? error.message : 'неизвестная ошибка')), { err: true });
         return;
       }
-      parseScreenshotStatus.textContent = '';
+      setParseStatus('');
       const topResult = data.result;
-      const bets = topResult && Array.isArray(topResult.bets) ? topResult.bets : [];
+      // Обратная совместимость: если на Supabase ещё крутится СТАРАЯ версия
+      // функции (одна ставка плоским объектом в корне, без массива bets) —
+      // не хотим, чтобы фронтенд молча показывал "не похоже на купон",
+      // хотя данные на самом деле распознаны. Заворачиваем такой ответ в
+      // очередь из одного элемента и явно предупреждаем, что стоит
+      // передеплоить функцию (см. README) — иначе букмекер по визуальному
+      // стилю и несколько ставок с одного скрина работать не будут.
+      let bets;
+      let usingLegacyShape = false;
+      if (topResult && Array.isArray(topResult.bets)) {
+        bets = topResult.bets;
+      } else if (topResult && topResult.detected && (topResult.match != null || topResult.pick != null || topResult.is_express)) {
+        bets = [topResult];
+        usingLegacyShape = true;
+      } else {
+        bets = [];
+      }
       if (!topResult || topResult.detected === false || !bets.length) {
         clearParseUncertainMarks();
         showParseBanner('<div class="prb-title">⚠ Не похоже на купон ставки</div>На этом изображении не удалось распознать ни одной ставки — заполни форму вручную.', true);
@@ -1429,9 +1467,14 @@
       }
       parseQueue = bets;
       loadParseQueueItem(0);
+      if (usingLegacyShape) {
+        parseScreenshotStatus.classList.add('err');
+        parseScreenshotStatus.textContent = '⚠ На сервере старая версия функции (без поддержки нескольких ставок/букмекера по стилю) — передеплой parse-bet-screenshot в Supabase.';
+      }
     } catch (e) {
-      parseScreenshotStatus.textContent = 'Ошибка при распознавании: ' + e.message;
-      parseScreenshotStatus.classList.add('err');
+      setParseStatus('Ошибка при распознавании: ' + e.message, { err: true });
+    } finally {
+      parseScreenshotLabel.classList.remove('is-loading');
     }
   });
 
