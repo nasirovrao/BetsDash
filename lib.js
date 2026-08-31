@@ -824,6 +824,27 @@ export function initEmailPrivacyToggle(email) {
 // дропдаун, коллизия появилась только с Milestone 26 (второй дропдаун).
 const _navDropdownCloseFns = [];
 
+// "Личные настройки" (personal-settings.html, schema_milestone26.sql) — три
+// галочки на аккаунте (profiles.nav_diary/nav_channel/nav_reader), которыми
+// человек прячет неиспользуемые разделы нав-бара. НЕ модель доступа — это
+// чистая косметика видимости меню, ничего не блокирует и не редиректит:
+// прямая ссылка на "скрытый" раздел продолжает открываться как раньше.
+// Классы на <body> + !important-правила в styles-edge3.css (а не прямой
+// style.display здесь) — см. комментарий там про гонку с isClvEnabled().
+export async function applyNavModes(supabase, userId) {
+  if (!userId) return;
+  let profile = null;
+  try {
+    const { data } = await supabase.from('profiles').select('nav_diary, nav_channel, nav_reader').eq('user_id', userId).maybeSingle();
+    profile = data || null;
+  } catch { /* таблица/колонки недоступны (миграция ещё не прогнана) — ничего не прячем */ }
+  // Явно === false, не просто falsy — undefined (нет строки/колонки ещё)
+  // должно значить "показывать", тот же дефолт, что и в схеме (default true).
+  document.body.classList.toggle('hide-diary-nav', !!(profile && profile.nav_diary === false));
+  document.body.classList.toggle('hide-channel-nav', !!(profile && profile.nav_channel === false));
+  document.body.classList.toggle('hide-reader-nav', !!(profile && profile.nav_reader === false));
+}
+
 export function initNavDropdown(id) {
   const wrap = document.getElementById(id);
   const btn = document.getElementById(`${id}Btn`);

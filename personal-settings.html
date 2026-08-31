@@ -1,0 +1,196 @@
+<!doctype html>
+<html lang="ru">
+<head>
+<meta charset="utf-8">
+<script>(function(){try{if(localStorage.getItem('edge-theme')==='light')document.documentElement.setAttribute('data-theme','light');}catch(e){}})();</script>
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>Личные настройки — EDGE</title>
+<link rel="preconnect" href="https://fonts.googleapis.com">
+<link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
+<link href="https://fonts.googleapis.com/css2?family=Unbounded:wght@600;700;800&family=Golos+Text:wght@400;500;600;700&family=JetBrains+Mono:wght@400;500;600&display=swap" rel="stylesheet">
+<link rel="stylesheet" href="styles.css?v=29">
+<!-- EDGE 2.0 — новая дизайн-система (палитра/типографика/фон), см. styles-edge2.css -->
+<link rel="stylesheet" href="styles-edge2.css?v=1">
+<link rel="stylesheet" href="styles-edge3.css?v=1">
+<script src="theme-toggle.js" defer></script>
+<style>
+  /* Личные настройки (31.08.2026, CHANGELOG «три сценария входа») — три
+     галочки видимости разделов нав-бара. Оформление в духе .check-row из
+     profile-settings.html (роли/is_public/show_bank), но с более заметным
+     описанием под каждой — здесь галочка это единственное содержимое
+     страницы, есть место объяснить последствия подробнее. */
+  .nav-mode-row{
+    display:flex; gap:14px; align-items:flex-start; padding:16px 0;
+    border-bottom:1px solid var(--line);
+  }
+  .nav-mode-row:last-child{ border-bottom:none; }
+  .nav-mode-row input[type="checkbox"]{ margin-top:3px; flex:none; width:18px; height:18px; accent-color: var(--gold); cursor:pointer; }
+  .nav-mode-text{ display:flex; flex-direction:column; gap:3px; }
+  .nav-mode-title{ font-weight:600; font-size:14.5px; cursor:pointer; }
+  .nav-mode-desc{ font-size:12.5px; color:var(--ink-dim); line-height:1.5; }
+  .nav-mode-note{
+    margin-top:16px; font-size:12px; color:var(--ink-faint); line-height:1.5;
+  }
+</style>
+</head>
+<body>
+
+<div class="topbar">
+  <div class="wrap">
+    <a class="brand" href="dashboard.html"><svg class="brand-mark" viewBox="0 0 32 32" width="20" height="20" aria-hidden="true"><circle cx="16" cy="16" r="12" fill="none" stroke="var(--gold)" stroke-width="1.6" opacity="0.28"/><path d="M16 4 A12 12 0 0 1 26.9 12.3" fill="none" stroke="var(--gold)" stroke-width="3" stroke-linecap="round"/><line x1="12" y1="12" x2="12" y2="20" stroke="var(--gold)" stroke-width="2.6" stroke-linecap="round"/><line x1="12" y1="12" x2="19" y2="12" stroke="var(--gold)" stroke-width="2.6" stroke-linecap="round"/><line x1="12" y1="16" x2="17.5" y2="16" stroke="var(--gold)" stroke-width="2.6" stroke-linecap="round"/><line x1="12" y1="20" x2="19" y2="20" stroke="var(--gold)" stroke-width="2.6" stroke-linecap="round"/></svg>EDGE<span>.</span></a>
+    <div class="topbar-user">
+      <span id="userEmail">…</span>
+      <button id="logoutBtn" type="button">Выйти</button>
+    </div>
+  </div>
+</div>
+
+<nav class="app-nav">
+  <div class="wrap">
+    <a class="nav-pill" id="navFeedPill" href="feed.html">Лента ставок</a>
+    <a class="nav-pill" id="navDashboardPill" href="dashboard.html">Дашборд</a>
+    <a class="nav-pill" id="navAppPill" href="app.html">Ставки</a>
+    <a class="nav-pill" id="navBankPill" href="bank.html">Выводы и банк</a>
+    <div class="nav-pill nav-dropdown" id="statsDropdown">
+      <button type="button" class="nav-dropdown-btn" id="statsDropdownBtn" aria-haspopup="true" aria-expanded="false">
+        Детальная статистика
+        <svg class="nav-dropdown-caret" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><path d="M6 9l6 6 6-6" stroke-linecap="round" stroke-linejoin="round"/></svg>
+      </button>
+      <div class="nav-dropdown-panel" id="statsDropdownPanel" hidden>
+        <a class="nav-dropdown-item" href="disciplines.html">По дисциплинам</a>
+        <a class="nav-dropdown-item" href="bookmakers.html">По букмекерам</a>
+        <a class="nav-dropdown-item" href="cappers.html">По капперам</a>
+        <a class="nav-dropdown-item" href="markets.html">Рынки</a>
+        <a class="nav-dropdown-item" href="teams.html">Команды</a>
+        <a class="nav-dropdown-item" href="segmentation.html">Сегментация</a>
+      </div>
+    </div>
+    <a class="nav-pill" id="navEdgesPill" href="edges.html">Найденные эджи</a>
+    <a class="nav-pill" id="navClvPill" href="clv.html" style="display:none;">CLV Tracker</a>
+    <div class="nav-pill nav-dropdown active" id="settingsDropdown">
+      <button type="button" class="nav-dropdown-btn" id="settingsDropdownBtn" aria-haspopup="true" aria-expanded="false">
+        Настройки
+        <svg class="nav-dropdown-caret" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><path d="M6 9l6 6 6-6" stroke-linecap="round" stroke-linejoin="round"/></svg>
+      </button>
+      <div class="nav-dropdown-panel" id="settingsDropdownPanel" hidden>
+        <a class="nav-dropdown-item" id="navProfileSettingsItem" href="profile-settings.html">Публичный профиль</a>
+        <a class="nav-dropdown-item" id="navChannelTeamItem" href="channel-team.html">Доступ к каналу</a>
+        <a class="nav-dropdown-item active" href="personal-settings.html">Личные настройки</a>
+      </div>
+    </div>
+  </div>
+</nav>
+
+<section>
+  <div class="wrap">
+    <div class="section-head">
+      <h2>Личные настройки</h2>
+      <div class="section-note">Какими разделами сайта ты пользуешься — управляет только тем, что показано в меню сверху. Сама возможность (вести дневник, публиковать канал, читать чужую статистику) остаётся доступна всегда, независимо от галочек — это просто про то, чтобы не мозолила глаза навигация с разделами, которыми не пользуешься.</div>
+    </div>
+
+    <div class="bet-form">
+      <h3>Разделы навигации</h3>
+      <form id="navModesForm">
+        <label class="nav-mode-row" for="m_diary">
+          <input id="m_diary" type="checkbox">
+          <span class="nav-mode-text">
+            <span class="nav-mode-title">Веду личный дневник</span>
+            <span class="nav-mode-desc">Дашборд, Ставки, Выводы и банк, Детальная статистика, Найденные эджи, CLV Tracker.</span>
+          </span>
+        </label>
+        <label class="nav-mode-row" for="m_channel">
+          <input id="m_channel" type="checkbox">
+          <span class="nav-mode-text">
+            <span class="nav-mode-title">Веду публичный канал</span>
+            <span class="nav-mode-desc">Публичный профиль, Доступ к каналу (в меню «Настройки»).</span>
+          </span>
+        </label>
+        <label class="nav-mode-row" for="m_reader">
+          <input id="m_reader" type="checkbox">
+          <span class="nav-mode-text">
+            <span class="nav-mode-title">Смотрю чужую статистику</span>
+            <span class="nav-mode-desc">Лента ставок — все ставки из публичных каналов EDGE, от всех капперов сразу.</span>
+          </span>
+        </label>
+        <div class="form-actions" style="margin-top:18px;">
+          <button class="btn btn-primary" type="submit" id="saveBtn" style="width:auto;">Сохранить</button>
+          <span class="form-status" id="formStatus"></span>
+        </div>
+      </form>
+      <div class="nav-mode-note">Это меняет только то, что видно в меню — прямая ссылка на любой раздел (даже спрятанный) продолжает открываться как обычно. Эта страница («Личные настройки») в меню видна всегда, при любых галочках — иначе было бы легко случайно спрятать саму возможность их вернуть обратно.</div>
+    </div>
+  </div>
+</section>
+
+<script type="module">
+  import { supabase, requireSession, isClvEnabled } from './supabase-client.js';
+  import { initEmailPrivacyToggle, initNavDropdown, applyNavModes } from './lib.js';
+
+  const session = await requireSession();
+  if (session) {
+    initEmailPrivacyToggle(session.user.email);
+    initNavDropdown('statsDropdown');
+    initNavDropdown('settingsDropdown');
+    applyNavModes(supabase, session.user.id);
+  }
+  isClvEnabled().then(on => { if (on) document.getElementById('navClvPill').style.display = ''; });
+  document.getElementById('logoutBtn').addEventListener('click', async () => {
+    await supabase.auth.signOut();
+    window.location.href = 'index.html';
+  });
+
+  const diaryInput = document.getElementById('m_diary');
+  const channelInput = document.getElementById('m_channel');
+  const readerInput = document.getElementById('m_reader');
+  const formStatus = document.getElementById('formStatus');
+  const saveBtn = document.getElementById('saveBtn');
+
+  let existingProfile = null;
+
+  async function load() {
+    const { data, error } = await supabase.from('profiles').select('*').eq('user_id', session.user.id).maybeSingle();
+    if (error) {
+      formStatus.textContent = 'Ошибка загрузки: ' + error.message;
+      return;
+    }
+    existingProfile = data || null;
+    // Отсутствие строки/колонки (миграция schema_milestone26.sql ещё не
+    // прогнана, или профиль ещё вообще не создавался) — читаем как "показывать
+    // всё", тот же дефолт, что и в схеме (default true) и в applyNavModes().
+    diaryInput.checked = !(existingProfile && existingProfile.nav_diary === false);
+    channelInput.checked = !(existingProfile && existingProfile.nav_channel === false);
+    readerInput.checked = !(existingProfile && existingProfile.nav_reader === false);
+  }
+
+  document.getElementById('navModesForm').addEventListener('submit', async (e) => {
+    e.preventDefault();
+    saveBtn.disabled = true;
+    formStatus.textContent = 'Сохраняю…';
+    const payload = {
+      nav_diary: diaryInput.checked,
+      nav_channel: channelInput.checked,
+      nav_reader: readerInput.checked,
+    };
+    // Апдейт, если строка profiles уже есть (даже без публичного профиля —
+    // например только что созданная этой самой формой) — иначе insert.
+    // Остальные поля профиля (username/is_public/…) НЕ трогаем, чтобы не
+    // затереть то, что уже настроено на profile-settings.html.
+    const { error } = existingProfile
+      ? await supabase.from('profiles').update(payload).eq('user_id', session.user.id)
+      : await supabase.from('profiles').insert({ user_id: session.user.id, ...payload });
+    saveBtn.disabled = false;
+    if (error) {
+      formStatus.textContent = 'Ошибка: ' + error.message;
+      return;
+    }
+    formStatus.textContent = 'Сохранено ✓ — обновится в меню на этой и других страницах.';
+    setTimeout(() => { formStatus.textContent = ''; }, 3500);
+    await load();
+    applyNavModes(supabase, session.user.id);
+  });
+
+  load();
+</script>
+
+</body>
+</html>

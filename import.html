@@ -78,10 +78,10 @@
 
 <nav class="app-nav">
   <div class="wrap">
-    <a class="nav-pill" href="feed.html">Лента ставок</a>
-    <a class="nav-pill" href="dashboard.html">Дашборд</a>
-    <a class="nav-pill" href="app.html">Ставки</a>
-    <a class="nav-pill" href="bank.html">Выводы и банк</a>
+    <a class="nav-pill" id="navFeedPill" href="feed.html">Лента ставок</a>
+    <a class="nav-pill" id="navDashboardPill" href="dashboard.html">Дашборд</a>
+    <a class="nav-pill" id="navAppPill" href="app.html">Ставки</a>
+    <a class="nav-pill" id="navBankPill" href="bank.html">Выводы и банк</a>
     <div class="nav-pill nav-dropdown" id="statsDropdown">
       <button type="button" class="nav-dropdown-btn" id="statsDropdownBtn" aria-haspopup="true" aria-expanded="false">
         Детальная статистика
@@ -96,7 +96,7 @@
         <a class="nav-dropdown-item" href="segmentation.html">Сегментация</a>
       </div>
     </div>
-    <a class="nav-pill" href="edges.html">Найденные эджи</a>
+    <a class="nav-pill" id="navEdgesPill" href="edges.html">Найденные эджи</a>
     <a class="nav-pill" id="navClvPill" href="clv.html" style="display:none;">CLV Tracker</a>
     <div class="nav-pill nav-dropdown" id="settingsDropdown">
       <button type="button" class="nav-dropdown-btn" id="settingsDropdownBtn" aria-haspopup="true" aria-expanded="false">
@@ -104,8 +104,9 @@
         <svg class="nav-dropdown-caret" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><path d="M6 9l6 6 6-6" stroke-linecap="round" stroke-linejoin="round"/></svg>
       </button>
       <div class="nav-dropdown-panel" id="settingsDropdownPanel" hidden>
-        <a class="nav-dropdown-item" href="profile-settings.html">Публичный профиль</a>
-        <a class="nav-dropdown-item" href="channel-team.html">Доступ к каналу</a>
+        <a class="nav-dropdown-item" id="navProfileSettingsItem" href="profile-settings.html">Публичный профиль</a>
+        <a class="nav-dropdown-item" id="navChannelTeamItem" href="channel-team.html">Доступ к каналу</a>
+        <a class="nav-dropdown-item" href="personal-settings.html">Личные настройки</a>
       </div>
     </div>
   </div>
@@ -187,13 +188,14 @@
 
 <script type="module">
   import { supabase, requireSession, isClvEnabled } from './supabase-client.js';
-  import { escapeHtml, getChannelParams, loadMyChannels, renderChannelSwitch, preserveChannelInNav, initEmailPrivacyToggle, initNavDropdown, channelHref } from './lib.js';
+  import { escapeHtml, getChannelParams, loadMyChannels, renderChannelSwitch, preserveChannelInNav, initEmailPrivacyToggle, initNavDropdown, applyNavModes, channelHref } from './lib.js';
 
   const session = await requireSession();
   if (session) {
     initEmailPrivacyToggle(session.user.email);
     initNavDropdown('statsDropdown');
     initNavDropdown('settingsDropdown');
+    applyNavModes(supabase, session.user.id);
   }
   isClvEnabled().then(on => { if (on) document.getElementById('navClvPill').style.display = ''; });
   document.getElementById('logoutBtn').addEventListener('click', async () => {

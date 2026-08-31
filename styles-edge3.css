@@ -457,3 +457,21 @@ table.clv-table tbody tr.clv-row:has(.res-pill.loss) td:first-child{ box-shadow:
 .theme-toggle-btn:focus-visible{ outline: 2px solid var(--gold); outline-offset: 2px; }
 @media (prefers-reduced-motion: reduce){ .theme-toggle-btn{ transition:none; } .theme-toggle-btn:hover{ transform:none; } }
 .streak-dot.l.last{ box-shadow: 0 0 0 3px var(--rust-glow), 0 0 12px var(--rust-glow); }
+
+/* "Личные настройки" (personal-settings.html, schema_milestone26.sql) — три
+   галочки прячут разделы нав-бара, которыми человек не пользуется. Классы
+   вешаются на <body> из lib.js:applyNavModes(). !important обязателен для
+   #navClvPill — им же управляет отдельная независимая логика isClvEnabled()
+   (снимает inline display:none, если CLV-трекер включён на аккаунте), и
+   порядок разрешения этих двух асинхронных проверок не гарантирован: без
+   !important более поздний "переключатель CLV влючён" мог бы тихо
+   перебить более ранний "спрятать раздел дневника" через прямой inline-style. */
+body.hide-diary-nav #navDashboardPill,
+body.hide-diary-nav #navAppPill,
+body.hide-diary-nav #navBankPill,
+body.hide-diary-nav #statsDropdown,
+body.hide-diary-nav #navEdgesPill,
+body.hide-diary-nav #navClvPill{ display:none !important; }
+body.hide-channel-nav #navProfileSettingsItem,
+body.hide-channel-nav #navChannelTeamItem{ display:none !important; }
+body.hide-reader-nav #navFeedPill{ display:none !important; }
