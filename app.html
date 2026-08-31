@@ -124,6 +124,7 @@
       <div class="nav-dropdown-panel" id="settingsDropdownPanel" hidden>
         <a class="nav-dropdown-item" id="navProfileSettingsItem" href="profile-settings.html">Публичный профиль</a>
         <a class="nav-dropdown-item" id="navChannelTeamItem" href="channel-team.html">Доступ к каналу</a>
+        <a class="nav-dropdown-item" id="navTelegramImportItem" href="telegram-import.html">Telegram-импорт</a>
         <a class="nav-dropdown-item" href="personal-settings.html">Личные настройки</a>
       </div>
     </div>
@@ -1274,6 +1275,18 @@
     // Если ставка была подставлена из очереди распознанных со скриншота —
     // после реального сохранения переходим к следующей в очереди. Только
     // для новых ставок (не при редактировании существующей).
+    // Ставка пришла из очереди Telegram-импорта (?tg=<id>) — убираем её из
+    // telegram_pending_bets ПОСЛЕ реального сохранения, не раньше (если
+    // insert выше упал с ошибкой, до этой строки просто не доходим, строка
+    // остаётся в очереди для повторной попытки). Лучшая попытка — если
+    // delete не удался, ставка уже в дневнике, а строка очереди осталась;
+    // не идеально, но не хуже статус-кво "скриншотов" (там тоже нет
+    // компенсирующей транзакции), и не приводит к потере данных.
+    if (!editId && telegramPendingId != null) {
+      supabase.from('telegram_pending_bets').delete().eq('id', telegramPendingId)
+        .then(({ error: delErr }) => { if (delErr) console.error('Не удалось убрать ставку из очереди Telegram:', delErr.message); });
+      telegramPendingId = null;
+    }
     if (!editId && parseQueueIndex + 1 < parseQueue.length) {
       loadParseQueueItem(parseQueueIndex + 1);
     } else {
@@ -1381,6 +1394,16 @@
   // подставляется следующая — см. хук в конце обработчика betForm.submit.
   let parseQueue = [];
   let parseQueueIndex = 0;
+  // Заполнено из скриншота (по умолчанию) или из очереди Telegram-импорта
+  // (?tg=<id>, см. loadTelegramPendingIfRequested ниже) — используется в
+  // тексте баннера ревью, чтобы не писать "заполнено по скриншоту" для
+  // ставки, которая на самом деле пришла постом из Telegram-канала.
+  let parseSourceLabel = 'скриншоту';
+  // id строки telegram_pending_bets, если текущая форма заполнена из неё —
+  // после успешного реального сохранения эту строку нужно убрать из
+  // очереди (DELETE), иначе она останется висеть в telegram-import.html как
+  // будто ещё не обработана, и её можно было бы случайно добавить дважды.
+  let telegramPendingId = null;
 
   // Заполняет саму форму данными ОДНОЙ распознанной ставки — общая часть
   // для одиночного скриншота и для каждого шага очереди.
@@ -1457,7 +1480,7 @@
       : '';
     showParseBanner(
       progressLine +
-      `<div class="prb-title">${low ? '⚠' : '✓'} Заполнено по скриншоту — проверь перед сохранением</div>` +
+      `<div class="prb-title">${low ? '⚠' : '✓'} Заполнено по ${parseSourceLabel} — проверь перед сохранением</div>` +
       `Ставка ещё НЕ сохранена. Уверенность распознавания: ${confidenceLabel}` +
       `${fieldsToFlag.length ? ', особенно перепроверь поля, отмеченные красным' : ''}.` + uncertainList +
       `<button type="button" class="prb-dismiss" id="prbDismissBtn">Скрыть подсказку</button>` + skipBtn + cancelBtn,
@@ -1549,6 +1572,8 @@
         showParseBanner('<div class="prb-title">⚠ Не похоже на купон ставки</div>На этом изображении не удалось распознать ни одной ставки — заполни форму вручную.', true);
         return;
       }
+      parseSourceLabel = 'скриншоту';
+      telegramPendingId = null;
       parseQueue = bets;
       loadParseQueueItem(0);
       if (usingLegacyShape) {
@@ -1562,8 +1587,28 @@
     }
   });
 
+  // Открыто с telegram-import.html (?tg=<id> — конкретный элемент очереди
+  // telegram_pending_bets) — заполняет форму так же, как один элемент
+  // очереди скриншотов (переиспользует ту же инфраструктуру: банер ревью,
+  // подсветку неуверенных полей, "человек всегда сам жмёт Добавить
+  // ставку"), только источник и id для последующего удаления другие.
+  async function loadTelegramPendingIfRequested(){
+    const tgId = new URLSearchParams(location.search).get('tg');
+    if (!tgId) return;
+    const { data, error } = await supabase.from('telegram_pending_bets').select('*').eq('id', tgId).maybeSingle();
+    if (error || !data) {
+      if (error) console.error('Не удалось загрузить ставку из очереди Telegram:', error.message);
+      return;
+    }
+    parseSourceLabel = 'посту из Telegram';
+    telegramPendingId = data.id;
+    parseQueue = [data.parsed];
+    loadParseQueueItem(0);
+  }
+
   document.getElementById('f_date').value = todayLocalStr();
   loadBets();
+  loadTelegramPendingIfRequested();
 </script>
 
 </body>

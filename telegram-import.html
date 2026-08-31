@@ -1,0 +1,299 @@
+<!doctype html>
+<html lang="ru">
+<head>
+<meta charset="utf-8">
+<script>(function(){try{if(localStorage.getItem('edge-theme')==='light')document.documentElement.setAttribute('data-theme','light');}catch(e){}})();</script>
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>Telegram-импорт — EDGE</title>
+<link rel="preconnect" href="https://fonts.googleapis.com">
+<link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
+<link href="https://fonts.googleapis.com/css2?family=Unbounded:wght@600;700;800&family=Golos+Text:wght@400;500;600;700&family=JetBrains+Mono:wght@400;500;600&display=swap" rel="stylesheet">
+<link rel="stylesheet" href="styles.css?v=29">
+<!-- EDGE 2.0 — новая дизайн-система (палитра/типографика/фон), см. styles-edge2.css -->
+<link rel="stylesheet" href="styles-edge2.css?v=1">
+<link rel="stylesheet" href="styles-edge3.css?v=1">
+<script src="theme-toggle.js" defer></script>
+<style>
+  /* Telegram-импорт (31.08.2026, CHANGELOG «Автодобавление ставок из
+     Telegram-канала») — привязка канала + очередь распознанных постов на
+     подтверждение. Своя, не generic-переиспользованная вёрстка карточек
+     (в отличие от cappers.html/bookmakers.html) — это не разбивка
+     статистики, а очередь задач "разобрать", форма другая по смыслу. */
+  .tg-code-box{
+    display:flex; align-items:center; gap:12px; margin-top:14px; padding:14px 16px;
+    background:var(--bg-raised); border:1px dashed var(--gold); border-radius:10px;
+  }
+  .tg-code-value{
+    font-family:'JetBrains Mono', monospace; font-size:18px; font-weight:600;
+    color:var(--gold); letter-spacing:1px;
+  }
+  .tg-link-status{ display:flex; align-items:center; gap:10px; flex-wrap:wrap; margin-top:6px; }
+  .tg-link-dot{ width:9px; height:9px; border-radius:50%; flex:none; background:var(--ink-faint); }
+  .tg-link-dot.on{ background:var(--teal); box-shadow:0 0 8px var(--teal-glow); }
+  .tg-steps{ margin:14px 0 0; padding-left:20px; font-size:13px; color:var(--ink-dim); line-height:1.7; }
+  .tg-steps code{ font-family:'JetBrains Mono', monospace; background:var(--bg-raised); padding:1px 5px; border-radius:4px; }
+
+  .tg-pending-grid{ display:flex; flex-direction:column; gap:12px; margin-top:16px; }
+  .tg-pending-card{
+    padding:16px 18px; background:var(--bg-card); border:1px solid var(--line); border-radius:12px;
+  }
+  .tg-pending-summary{ font-weight:600; font-size:14.5px; margin-bottom:4px; }
+  .tg-pending-meta{ font-size:12px; color:var(--ink-dim); font-family:'JetBrains Mono', monospace; display:flex; gap:14px; flex-wrap:wrap; margin-bottom:8px; }
+  .tg-pending-raw{
+    font-size:12.5px; color:var(--ink-faint); background:var(--bg-raised); border-radius:8px;
+    padding:8px 10px; margin-bottom:10px; white-space:pre-wrap; max-height:120px; overflow-y:auto;
+  }
+  .tg-pending-actions{ display:flex; gap:10px; }
+  .tg-low-confidence{ border-color:var(--rust); }
+  .tg-uncertain-badge{ color:var(--rust); font-size:11.5px; }
+</style>
+</head>
+<body>
+
+<div class="topbar">
+  <div class="wrap">
+    <a class="brand" href="dashboard.html"><svg class="brand-mark" viewBox="0 0 32 32" width="20" height="20" aria-hidden="true"><circle cx="16" cy="16" r="12" fill="none" stroke="var(--gold)" stroke-width="1.6" opacity="0.28"/><path d="M16 4 A12 12 0 0 1 26.9 12.3" fill="none" stroke="var(--gold)" stroke-width="3" stroke-linecap="round"/><line x1="12" y1="12" x2="12" y2="20" stroke="var(--gold)" stroke-width="2.6" stroke-linecap="round"/><line x1="12" y1="12" x2="19" y2="12" stroke="var(--gold)" stroke-width="2.6" stroke-linecap="round"/><line x1="12" y1="16" x2="17.5" y2="16" stroke="var(--gold)" stroke-width="2.6" stroke-linecap="round"/><line x1="12" y1="20" x2="19" y2="20" stroke="var(--gold)" stroke-width="2.6" stroke-linecap="round"/></svg>EDGE<span>.</span></a>
+    <div class="topbar-user">
+      <span id="userEmail">…</span>
+      <button id="logoutBtn" type="button">Выйти</button>
+    </div>
+  </div>
+</div>
+
+<nav class="app-nav">
+  <div class="wrap">
+    <a class="nav-pill" id="navFeedPill" href="feed.html">Лента ставок</a>
+    <a class="nav-pill" id="navDashboardPill" href="dashboard.html">Дашборд</a>
+    <a class="nav-pill" id="navAppPill" href="app.html">Ставки</a>
+    <a class="nav-pill" id="navBankPill" href="bank.html">Выводы и банк</a>
+    <div class="nav-pill nav-dropdown" id="statsDropdown">
+      <button type="button" class="nav-dropdown-btn" id="statsDropdownBtn" aria-haspopup="true" aria-expanded="false">
+        Детальная статистика
+        <svg class="nav-dropdown-caret" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><path d="M6 9l6 6 6-6" stroke-linecap="round" stroke-linejoin="round"/></svg>
+      </button>
+      <div class="nav-dropdown-panel" id="statsDropdownPanel" hidden>
+        <a class="nav-dropdown-item" href="disciplines.html">По дисциплинам</a>
+        <a class="nav-dropdown-item" href="bookmakers.html">По букмекерам</a>
+        <a class="nav-dropdown-item" href="cappers.html">По капперам</a>
+        <a class="nav-dropdown-item" href="markets.html">Рынки</a>
+        <a class="nav-dropdown-item" href="teams.html">Команды</a>
+        <a class="nav-dropdown-item" href="segmentation.html">Сегментация</a>
+      </div>
+    </div>
+    <a class="nav-pill" id="navEdgesPill" href="edges.html">Найденные эджи</a>
+    <a class="nav-pill" id="navClvPill" href="clv.html" style="display:none;">CLV Tracker</a>
+    <div class="nav-pill nav-dropdown active" id="settingsDropdown">
+      <button type="button" class="nav-dropdown-btn" id="settingsDropdownBtn" aria-haspopup="true" aria-expanded="false">
+        Настройки
+        <svg class="nav-dropdown-caret" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><path d="M6 9l6 6 6-6" stroke-linecap="round" stroke-linejoin="round"/></svg>
+      </button>
+      <div class="nav-dropdown-panel" id="settingsDropdownPanel" hidden>
+        <a class="nav-dropdown-item" id="navProfileSettingsItem" href="profile-settings.html">Публичный профиль</a>
+        <a class="nav-dropdown-item" id="navChannelTeamItem" href="channel-team.html">Доступ к каналу</a>
+        <a class="nav-dropdown-item active" id="navTelegramImportItem" href="telegram-import.html">Telegram-импорт</a>
+        <a class="nav-dropdown-item" href="personal-settings.html">Личные настройки</a>
+      </div>
+    </div>
+  </div>
+</nav>
+
+<section>
+  <div class="wrap">
+    <div class="section-head">
+      <h2>Telegram-импорт</h2>
+      <div class="section-note">Добавь бота в свой Telegram-канал — новые посты со ставками будут появляться здесь на подтверждение. Ничего не сохраняется в дневник само: каждую распознанную ставку нужно проверить и подтвердить формой, как и при заполнении по скриншоту.</div>
+    </div>
+
+    <div class="bet-form">
+      <h3>Привязка канала</h3>
+      <div class="tg-link-status" id="linkStatusRow">Загружаю…</div>
+      <div id="linkExtra"></div>
+    </div>
+
+    <div class="bet-form" style="margin-top:20px;">
+      <h3>Очередь на подтверждение</h3>
+      <div id="pendingRoot"><div class="empty-state">Загружаю…</div></div>
+    </div>
+  </div>
+</section>
+
+<script type="module">
+  import { supabase, requireSession, isClvEnabled } from './supabase-client.js';
+  import { initEmailPrivacyToggle, initNavDropdown, applyNavModes, channelHref, escapeHtml, fmtRelativeTime } from './lib.js';
+
+  const session = await requireSession();
+  if (session) {
+    initEmailPrivacyToggle(session.user.email);
+    initNavDropdown('statsDropdown');
+    initNavDropdown('settingsDropdown');
+    applyNavModes(supabase, session.user.id);
+  }
+  isClvEnabled().then(on => { if (on) document.getElementById('navClvPill').style.display = ''; });
+  document.getElementById('logoutBtn').addEventListener('click', async () => {
+    await supabase.auth.signOut();
+    window.location.href = 'index.html';
+  });
+
+  const linkStatusRow = document.getElementById('linkStatusRow');
+  const linkExtra = document.getElementById('linkExtra');
+  const pendingRoot = document.getElementById('pendingRoot');
+
+  async function callTelegramLink(action, extra) {
+    const { data, error } = await supabase.functions.invoke('telegram-link', { body: { action, ...extra } });
+    if (error || !data || data.error) {
+      throw new Error((data && data.error) || (error && error.message) || 'неизвестная ошибка');
+    }
+    return data.link;
+  }
+
+  async function renderLinkSection() {
+    const { data: link } = await supabase.from('telegram_links').select('*').eq('user_id', session.user.id).maybeSingle();
+
+    if (link && link.telegram_chat_id) {
+      linkStatusRow.innerHTML =
+        `<span class="tg-link-dot on"></span>Привязан канал «${escapeHtml(link.telegram_chat_title || String(link.telegram_chat_id))}»` +
+        (link.linked_at ? ` — с ${new Date(link.linked_at).toLocaleDateString('ru-RU')}` : '');
+      linkExtra.innerHTML = `
+        <div class="field" style="margin-top:14px; max-width:320px;">
+          <label for="tgChannelSelect">Ставки из этого канала попадают в</label>
+          <select id="tgChannelSelect">
+            <option value="default">Личный дневник</option>
+            <option value="cybervalue">Cybervalue</option>
+          </select>
+        </div>
+        <div class="form-actions" style="margin-top:14px;">
+          <button class="btn btn-ghost" type="button" id="unlinkBtn" style="width:auto;">Отвязать канал</button>
+          <span class="form-status" id="linkFormStatus"></span>
+        </div>`;
+      document.getElementById('tgChannelSelect').value = link.channel || 'default';
+      document.getElementById('tgChannelSelect').addEventListener('change', async (e) => {
+        const status = document.getElementById('linkFormStatus');
+        status.textContent = 'Сохраняю…';
+        try {
+          await callTelegramLink('set_channel', { channel: e.target.value });
+          status.textContent = 'Сохранено ✓';
+        } catch (err) {
+          status.textContent = 'Ошибка: ' + err.message;
+        }
+        setTimeout(() => { status.textContent = ''; }, 2500);
+      });
+      document.getElementById('unlinkBtn').addEventListener('click', async () => {
+        const status = document.getElementById('linkFormStatus');
+        status.textContent = 'Отвязываю…';
+        try {
+          await callTelegramLink('unlink');
+          await renderLinkSection();
+        } catch (err) {
+          status.textContent = 'Ошибка: ' + err.message;
+        }
+      });
+      return;
+    }
+
+    linkStatusRow.innerHTML = `<span class="tg-link-dot"></span>Канал ещё не привязан.`;
+    if (link && link.link_code) {
+      linkExtra.innerHTML = `
+        <div class="tg-code-box">
+          <span class="tg-code-value">${escapeHtml(link.link_code)}</span>
+          <span style="font-size:12.5px; color:var(--ink-dim);">опубликуй этот код одним постом в своём Telegram-канале — после этого сообщение можно удалить</span>
+        </div>
+        <ol class="tg-steps">
+          <li>Добавь бота EDGE в свой канал <b>администратором</b> (достаточно права видеть посты).</li>
+          <li>Опубликуй код выше <b>одним отдельным постом</b> в канале.</li>
+          <li>Обнови эту страницу — через несколько секунд появится подтверждение привязки.</li>
+        </ol>
+        <div class="form-actions" style="margin-top:14px;">
+          <button class="btn btn-ghost" type="button" id="regenCodeBtn" style="width:auto;">Сгенерировать новый код</button>
+          <span class="form-status" id="linkFormStatus"></span>
+        </div>`;
+      document.getElementById('regenCodeBtn').addEventListener('click', async () => {
+        const status = document.getElementById('linkFormStatus');
+        status.textContent = 'Генерирую…';
+        try {
+          await callTelegramLink('generate_code');
+          await renderLinkSection();
+        } catch (err) {
+          status.textContent = 'Ошибка: ' + err.message;
+        }
+      });
+    } else {
+      linkExtra.innerHTML = `
+        <div class="form-actions" style="margin-top:14px;">
+          <button class="btn btn-primary" type="button" id="genCodeBtn" style="width:auto;">Показать код привязки</button>
+          <span class="form-status" id="linkFormStatus"></span>
+        </div>`;
+      document.getElementById('genCodeBtn').addEventListener('click', async () => {
+        const status = document.getElementById('linkFormStatus');
+        status.textContent = 'Генерирую…';
+        try {
+          await callTelegramLink('generate_code');
+          await renderLinkSection();
+        } catch (err) {
+          status.textContent = 'Ошибка: ' + err.message;
+        }
+      });
+    }
+  }
+
+  const RESULT_RU = { Win: 'Win', Loss: 'Loss', Push: 'Push', Pending: 'Pending' };
+
+  function summaryOf(b) {
+    if (b.is_express) return `Экспресс (${(b.legs || []).length} события)`;
+    return [b.match, b.pick].filter(Boolean).join(' / ') || '(без описания)';
+  }
+
+  async function renderPendingQueue() {
+    const { data, error } = await supabase.from('telegram_pending_bets').select('*').eq('user_id', session.user.id).order('created_at', { ascending: false });
+    if (error) {
+      pendingRoot.innerHTML = `<div class="empty-state">Ошибка загрузки: ${escapeHtml(error.message)}</div>`;
+      return;
+    }
+    if (!data || !data.length) {
+      pendingRoot.innerHTML = '<div class="empty-state">Очередь пуста — как только в привязанном канале появится похожий на ставку пост, он окажется здесь.</div>';
+      return;
+    }
+    pendingRoot.innerHTML = `<div class="tg-pending-grid">${data.map(row => {
+      const b = row.parsed || {};
+      const low = b.confidence === 'low';
+      const uncertain = Array.isArray(b.uncertain_fields) && b.uncertain_fields.length
+        ? `<div class="tg-uncertain-badge">⚠ Перепроверить: ${escapeHtml(b.uncertain_fields.join(', '))}</div>` : '';
+      const base = channelHref('app.html', row.channel, session.user.id, session.user.id);
+      const addHref = base + (base.includes('?') ? '&' : '?') + 'tg=' + row.id;
+      return `
+        <div class="tg-pending-card${low ? ' tg-low-confidence' : ''}">
+          <div class="tg-pending-summary">${escapeHtml(summaryOf(b))}</div>
+          <div class="tg-pending-meta">
+            <span>${escapeHtml(b.discipline || '—')}</span>
+            <span>Кэф ${b.odds != null ? Number(b.odds).toFixed(2) : '—'}</span>
+            <span>Сумма ${b.stake != null ? b.stake : '—'}</span>
+            <span>${fmtRelativeTime(row.created_at)}</span>
+          </div>
+          ${uncertain}
+          <div class="tg-pending-raw">${escapeHtml(row.raw_text)}</div>
+          <div class="tg-pending-actions">
+            <a class="btn btn-primary" style="width:auto;" href="${addHref}">Заполнить и добавить →</a>
+            <button class="btn btn-ghost" type="button" style="width:auto;" data-discard="${row.id}">Отклонить</button>
+          </div>
+        </div>`;
+    }).join('')}</div>`;
+
+    pendingRoot.querySelectorAll('[data-discard]').forEach(btn => {
+      btn.addEventListener('click', async () => {
+        btn.disabled = true;
+        const { error: delErr } = await supabase.from('telegram_pending_bets').delete().eq('id', btn.getAttribute('data-discard'));
+        if (delErr) {
+          btn.disabled = false;
+          alert('Не удалось убрать: ' + delErr.message);
+          return;
+        }
+        await renderPendingQueue();
+      });
+    });
+  }
+
+  renderLinkSection();
+  renderPendingQueue();
+</script>
+
+</body>
+</html>

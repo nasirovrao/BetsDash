@@ -1,127 +1,34 @@
-// Supabase Edge Function: parse-bet-screenshot
+// Supabase Edge Function: telegram-link
 // -------------------------------------------------------------------------
-// Принимает картинку (скриншот бетслипа/купона у букмекера), просит Claude
-// (Anthropic API) распознать данные ставки и возвращает структурированный
-// JSON, которым app.html заполняет форму "Добавить ставку". Человек ВСЕГДА
-// проверяет и сам жмёт "Добавить ставку" — эта функция ничего не пишет в
-// базу сама, только распознаёт.
+// Обычная (Verify JWT ВКЛЮЧЁН, как у parse-bet-screenshot) функция для
+// UI-действий на telegram-import.html: сгенерировать код привязки, выбрать
+// целевой канал EDGE, отвязать канал. Дёргается фронтендом через
+// supabase.functions.invoke('telegram-link', {...}) от своего собственного
+// JWT — платформа Supabase уже проверила подпись токена до запуска кода
+// (тот же принцип, что у parse-bet-screenshot, см. userIdFromAuthHeader).
 //
-// Ключ модели живёт здесь, на сервере (Supabase secret), а не во фронтенде —
-// см. CHANGELOG.md → "Парсинг ставок со скриншота" для контекста решения.
+// Пишет в public.telegram_links сервис-ролью (SUPABASE_SERVICE_ROLE_KEY,
+// доступен автоматически, secrets set не нужен) — у таблицы нет
+// insert/update-политик для обычного пользователя специально, чтобы
+// telegram_chat_id нельзя было подделать прямым запросом в обход этой
+// функции (см. schema_milestone27.sql).
 //
-// ------------------------- ДЕПЛОЙ (сделать самому) -----------------------
-// 1. Установить Supabase CLI и залогиниться (supabase login), привязать
-//    проект: supabase link --project-ref <твой-project-ref>
-// 2. Положить ключ модели секретом (НЕ в .env фронтенда, НЕ в git):
-//      supabase secrets set ANTHROPIC_API_KEY=sk-ant-...
-//    Ключ берётся в консоли Anthropic (console.anthropic.com) → API Keys.
-// 3. Задеплоить саму функцию:
-//      supabase functions deploy parse-bet-screenshot
-//    По умолчанию Supabase проверяет JWT входящего запроса — это то, что
-//    нужно (только залогиненные пользователи твоего проекта могут дёргать
-//    функцию), НЕ добавляй флаг --no-verify-jwt.
-// 4. Проверить модель ставок (см. константу MODEL ниже) актуальна на момент
-//    деплоя — свериться с docs.claude.com/en/docs/about-claude/models
-//    (модели с поддержкой vision меняются со временем, дата в этом файле
-//    может отстать). Можно переопределить без переdeploy кода секретом
-//    ANTHROPIC_MODEL, если понадобится сменить модель.
+// Реальное ПОДТВЕРЖДЕНИЕ привязки (простановка telegram_chat_id) происходит
+// НЕ здесь, а в telegram-webhook/index.ts, когда код публикуется постом в
+// самом канале — эта функция только заводит/обновляет код и настройки.
+//
+// ------------------------- ДЕПЛОЙ -----------------------
+// Как и parse-bet-screenshot — через Supabase Dashboard (Functions →
+// Deploy a new function → Via Editor) или CLI (`supabase functions deploy
+// telegram-link`). Verify JWT должен остаться ВКЛЮЧЁН (по умолчанию) — это
+// обычная функция для залогиненных пользователей, в отличие от
+// telegram-webhook.
 // ---------------------------------------------------------------------------
-
-// deno-lint-ignore-file no-explicit-any
-
-const DEFAULT_MODEL = 'claude-sonnet-5';
-const ANTHROPIC_VERSION = '2023-06-01';
-const MAX_IMAGE_BYTES = 5 * 1024 * 1024; // ~5MB — практический лимит Anthropic API на одну картинку в base64
-
-// 31.08.2026: лимит на пользователя, добавлен по прямому запросу — каждый
-// вызов с картинкой стоит реальных денег на ключе Anthropic (см. README),
-// без потолка один аккаунт может случайно (или намеренно) нагенерировать
-// произвольный счёт. Считается сам ФАКТ вызова функции с картинкой, не
-// количество распознанных ставок внутри одного скриншота — см.
-// schema_milestone25.sql для схемы таблицы и обоснования выбора UTC-месяца.
-const MONTHLY_SCREENSHOT_LIMIT = 100;
 
 const CORS_HEADERS = {
   'Access-Control-Allow-Origin': '*',
   'Access-Control-Allow-Headers': 'authorization, x-client-info, apikey, content-type',
   'Access-Control-Allow-Methods': 'POST, OPTIONS',
-};
-
-// Единственный "инструмент" — заставляем модель вернуть строго такой JSON,
-// а не текст произвольного формата, который потом нужно было бы регэкспить.
-//
-// 30.08.2026, вторая итерация: раньше схема описывала РОВНО ОДНУ ставку.
-// Расширено под два запроса:
-// 1) распознавание букмекера по фирменному визуальному стилю интерфейса,
-//    если явного текста/логотипа с названием нет (см. описание bookmaker);
-// 2) один скриншот может содержать НЕСКОЛЬКО отдельных ставок (например,
-//    экран истории ставок с несколькими карточками) — теперь модель
-//    возвращает массив `bets`, а не одну ставку в корне объекта. Фронтенд
-//    (app.html) обрабатывает это как очередь: заполняет форму первой
-//    ставкой, после сохранения — следующей, и так по очереди.
-const BET_TOOL = {
-  name: 'record_bet_data',
-  description: 'Записать распознанные с изображения данные об одной или нескольких ставках на спорт (купон/бетслип букмекера, экран истории ставок).',
-  input_schema: {
-    type: 'object',
-    properties: {
-      detected: {
-        type: 'boolean',
-        description: 'true, если на изображении вообще похоже хотя бы на одну ставку. false, если это не похоже на ставку (случайный скриншот, другое приложение и т.п.) — тогда bets можно оставить пустым массивом.',
-      },
-      bets: {
-        type: 'array',
-        description: 'Список распознанных ставок, по одному элементу на каждую отдельную ставку на изображении, В ТОМ ПОРЯДКЕ, В КОТОРОМ они идут на скриншоте (обычно сверху вниз). Если на изображении одна ставка/один купон — массив из ОДНОГО элемента, не разбивай одну ставку на несколько. Если несколько отдельных карточек ставок (например, лента истории) — верни каждую отдельным элементом. Пусто, если detected=false.',
-        items: {
-          type: 'object',
-          properties: {
-            confidence: {
-              type: 'string',
-              enum: ['high', 'medium', 'low'],
-              description: 'Уверенность в распознавании именно ЭТОЙ ставки. low — если её часть обрезана/размыта/данные неоднозначны.',
-            },
-            bet_date: { type: ['string', 'null'], description: 'Дата ставки в формате YYYY-MM-DD, если видна. null, если не видна — НЕ подставлять сегодняшнюю дату самостоятельно.' },
-            discipline: { type: ['string', 'null'], description: 'Вид спорта/киберспорта, например "Dota2", "CS2", "Football", "Tennis". null, если не ясно.' },
-            bookmaker: {
-              type: ['string', 'null'],
-              description:
-                'Название букмекера. Если явного текста или логотипа с названием НЕТ на изображении — попробуй определить по узнаваемому фирменному визуальному стилю интерфейса: цветовая схема, форма и стиль иконок (например, значок геймпада для киберспорта), шрифт, вёрстка карточек истории ставок, характерные UI-элементы. Многие крупные букмекерские приложения/сайты (Fonbet, 1xBet, Winline, Marathon, Betcity, Пари, Лига Ставок, Pinnacle и т.п.) имеют узнаваемый стиль. Если удалось определить ТОЛЬКО по визуальному стилю (без явного текста/логотипа) — обязательно добавь "Букмекер" в uncertain_fields этой ставки, это предположение, а не факт, его нужно перепроверить человеку. Если ни текста, ни узнаваемого стиля нет — null.',
-            },
-            tournament: { type: ['string', 'null'], description: 'Название турнира/лиги, если указано.' },
-            is_express: { type: 'boolean', description: 'true, если это экспресс (несколько событий одной ставкой), false для одиночной ставки.' },
-            match: { type: ['string', 'null'], description: 'Название матча/события для ОДИНОЧНОЙ ставки (is_express=false), например "Spirit vs MOUZ". null для экспресса.' },
-            pick: { type: ['string', 'null'], description: 'Конкретный исход/пик для ОДИНОЧНОЙ ставки, например "Spirit 1x2 — Map 1". null для экспресса.' },
-            legs: {
-              type: 'array',
-              description: 'Только для is_express=true: список ног экспресса. Пусто для одиночной ставки.',
-              items: {
-                type: 'object',
-                properties: {
-                  text: { type: 'string', description: 'Описание одной ноги экспресса.' },
-                  odds: { type: ['number', 'null'], description: 'Кэф этой ноги.' },
-                },
-                required: ['text'],
-              },
-            },
-            odds: { type: ['number', 'null'], description: 'Итоговый кэф ставки (для экспресса — итоговый кэф всей связки, если он явно виден).' },
-            stake: { type: ['number', 'null'], description: 'Сумма ставки в валюте купона (просто число, без символа валюты). null, если не видна.' },
-            result: {
-              type: ['string', 'null'],
-              enum: ['Pending', 'Win', 'Loss', 'Push', null],
-              description: 'Результат, ЕСЛИ он явно виден (например, купон уже расчитан и подсвечен зелёным/красным, есть слово "Выигрыш"/"Проигрыш"). Если ставка открыта/на рассмотрении — "Pending". Если результат совсем не ясен — null, и фронтенд оставит поле как есть.',
-            },
-            uncertain_fields: {
-              type: 'array',
-              items: { type: 'string' },
-              description: 'Список названий полей ЭТОЙ ставки (на русском, как в форме — например "Кэф", "Сумма", "Дата", "Букмекер"), в которых модель не уверена и которые стоит особо перепроверить человеку, даже если значение подставлено.',
-            },
-          },
-          required: ['confidence', 'is_express', 'legs', 'uncertain_fields'],
-        },
-      },
-    },
-    required: ['detected', 'bets'],
-  },
 };
 
 function jsonResponse(body: unknown, status = 200) {
@@ -131,12 +38,8 @@ function jsonResponse(body: unknown, status = 200) {
   });
 }
 
-// Достаём user_id из JWT в заголовке Authorization — саму подпись токена
-// НЕ проверяем здесь: платформа Supabase уже это сделала на уровне
-// Edge Functions ДО того, как код функции вообще начал выполняться (см.
-// переключатель "Verify JWT with legacy secret" в Settings функции — он
-// включён, это то самое, что нужно). Здесь просто читаем payload уже
-// проверенного токена, чтобы узнать, чей это запрос.
+// Идентичен userIdFromAuthHeader в parse-bet-screenshot/index.ts — подпись
+// JWT не перепроверяем здесь повторно, платформа уже сделала это.
 function userIdFromAuthHeader(req: Request): string | null {
   const auth = req.headers.get('authorization') || '';
   const token = auth.replace(/^Bearer\s+/i, '');
@@ -151,66 +54,13 @@ function userIdFromAuthHeader(req: Request): string | null {
   }
 }
 
-// Проверяет и, если лимит не исчерпан, сразу инкрементирует счётчик
-// (резервируем ДО вызова Anthropic, а не после — иначе можно уйти в минус,
-// если несколько запросов улетят почти одновременно). SUPABASE_URL и
-// SUPABASE_SERVICE_ROLE_KEY — не наши секреты, их не нужно задавать через
-// `supabase secrets set`: Supabase сам инжектит их в env каждой Edge
-// Function проекта. Сервис-роль обходит RLS — то, что и нужно, чтобы писать
-// в таблицу, куда обычным пользователям (даже себе самим) запись закрыта.
-//
-// Простой read-then-write, не одна атомарная транзакция — известное
-// упрощение, см. комментарий в schema_milestone25.sql.
-async function checkAndIncrementUsage(userId: string): Promise<{ ok: boolean; count: number }> {
-  const supabaseUrl = Deno.env.get('SUPABASE_URL');
-  const serviceKey = Deno.env.get('SUPABASE_SERVICE_ROLE_KEY');
-  if (!supabaseUrl || !serviceKey) {
-    // Не должно происходить в реальном Supabase-проекте (оба всегда
-    // доступны), но если вдруг — не блокируем фичу целиком из-за этого,
-    // просто не считаем лимит в этом запросе.
-    console.error('checkAndIncrementUsage: SUPABASE_URL/SUPABASE_SERVICE_ROLE_KEY недоступны в env');
-    return { ok: true, count: -1 };
-  }
-  const month = new Date().toISOString().slice(0, 7); // UTC 'YYYY-MM'
-  const headers = {
-    apikey: serviceKey,
-    Authorization: `Bearer ${serviceKey}`,
-    'Content-Type': 'application/json',
-  };
-
-  const selectRes = await fetch(
-    `${supabaseUrl}/rest/v1/screenshot_parse_usage?user_id=eq.${encodeURIComponent(userId)}&month=eq.${month}&select=count`,
-    { headers: { ...headers, Accept: 'application/vnd.pgrst.object+json' } },
-  );
-  // 406 = PostgREST "не нашлось ровно одной строки" (Accept просит singular
-  // object) — это нормальный случай "ещё не было ни одного запроса в этом
-  // месяце", не ошибка.
-  let currentCount = 0;
-  if (selectRes.ok) {
-    const row = await selectRes.json().catch(() => null);
-    if (row && typeof row.count === 'number') currentCount = row.count;
-  } else if (selectRes.status !== 406) {
-    console.error('checkAndIncrementUsage: select failed', selectRes.status, await selectRes.text().catch(() => ''));
-    return { ok: true, count: -1 };
-  }
-
-  if (currentCount >= MONTHLY_SCREENSHOT_LIMIT) {
-    return { ok: false, count: currentCount };
-  }
-
-  const newCount = currentCount + 1;
-  const upsertRes = await fetch(`${supabaseUrl}/rest/v1/screenshot_parse_usage`, {
-    method: 'POST',
-    headers: { ...headers, Prefer: 'resolution=merge-duplicates' },
-    body: JSON.stringify([{ user_id: userId, month, count: newCount, updated_at: new Date().toISOString() }]),
-  });
-  if (!upsertRes.ok) {
-    console.error('checkAndIncrementUsage: upsert failed', upsertRes.status, await upsertRes.text().catch(() => ''));
-    // Не смогли записать инкремент — лучше пропустить запрос, чем ошибочно
-    // заблокировать пользователя из-за временного сбоя записи в базу.
-    return { ok: true, count: currentCount };
-  }
-  return { ok: true, count: newCount };
+// Код без похожих друг на друга символов (без 0/O/1/I/L) — публикуется
+// постом в Telegram-канале, человек его один раз копирует вручную.
+function randomLinkCode(): string {
+  const alphabet = 'ABCDEFGHJKMNPQRSTUVWXYZ23456789';
+  let out = 'EDGE-';
+  for (let i = 0; i < 6; i++) out += alphabet[Math.floor(Math.random() * alphabet.length)];
+  return out;
 }
 
 Deno.serve(async (req: Request) => {
@@ -221,11 +71,16 @@ Deno.serve(async (req: Request) => {
     return jsonResponse({ error: 'Метод не поддерживается, нужен POST.' }, 405);
   }
 
-  const apiKey = Deno.env.get('ANTHROPIC_API_KEY');
-  if (!apiKey) {
-    return jsonResponse({ error: 'ANTHROPIC_API_KEY не задан как секрет функции (supabase secrets set ANTHROPIC_API_KEY=...).' }, 500);
+  const supabaseUrl = Deno.env.get('SUPABASE_URL');
+  const serviceKey = Deno.env.get('SUPABASE_SERVICE_ROLE_KEY');
+  if (!supabaseUrl || !serviceKey) {
+    return jsonResponse({ error: 'SUPABASE_URL/SUPABASE_SERVICE_ROLE_KEY недоступны в env функции.' }, 500);
   }
-  const model = Deno.env.get('ANTHROPIC_MODEL') || DEFAULT_MODEL;
+
+  const userId = userIdFromAuthHeader(req);
+  if (!userId) {
+    return jsonResponse({ error: 'Не удалось определить пользователя по токену авторизации.' }, 401);
+  }
 
   let body: any;
   try {
@@ -233,113 +88,85 @@ Deno.serve(async (req: Request) => {
   } catch {
     return jsonResponse({ error: 'Некорректное тело запроса — ожидается JSON.' }, 400);
   }
-
-  const { image, mimeType } = body || {};
-  if (!image || typeof image !== 'string') {
-    return jsonResponse({ error: 'Не передана картинка (поле "image", base64 без префикса data:).' }, 400);
-  }
-  if (!mimeType || !/^image\/(png|jpe?g|webp|gif)$/i.test(mimeType)) {
-    return jsonResponse({ error: 'Неподдерживаемый или отсутствующий mimeType. Разрешены: png, jpeg, webp, gif.' }, 400);
-  }
-  // Грубая оценка размера декодированных данных по длине base64-строки —
-  // достаточно точно (base64 раздувает исходный размер примерно в 4/3
-  // раза), чтобы отсечь совсем большие файлы до похода к модели.
-  const approxBytes = Math.floor((image.length * 3) / 4);
-  if (approxBytes > MAX_IMAGE_BYTES) {
-    return jsonResponse({ error: 'Картинка слишком большая (>5MB после декодирования) — сожми или обрежь скриншот.' }, 413);
+  const action = body?.action;
+  if (!['generate_code', 'set_channel', 'unlink'].includes(action)) {
+    return jsonResponse({ error: 'Неизвестное действие (ожидается generate_code / set_channel / unlink).' }, 400);
   }
 
-  // Лимит проверяем и резервируем ДО похода к Anthropic — так деньги не
-  // тратятся на запрос, который всё равно будет отклонён.
-  const userId = userIdFromAuthHeader(req);
-  if (!userId) {
-    return jsonResponse({ error: 'Не удалось определить пользователя по токену авторизации.' }, 401);
-  }
-  const usage = await checkAndIncrementUsage(userId);
-  if (!usage.ok) {
-    return jsonResponse({
-      error: `Лимит распознавания скриншотов на этот месяц исчерпан (${usage.count}/${MONTHLY_SCREENSHOT_LIMIT}). Лимит сбрасывается в начале следующего месяца — а пока можно заполнить форму вручную.`,
-      usage: { count: usage.count, limit: MONTHLY_SCREENSHOT_LIMIT, remaining: 0 },
-    }, 429);
-  }
-
-  const anthropicReq = {
-    model,
-    // Увеличено с 1024: теперь ответ может содержать несколько ставок в
-    // массиве bets (см. комментарий у BET_TOOL), одной ставки может не
-    // хватить бюджета на скриншотах с длинной историей ставок.
-    max_tokens: 4096,
-    tools: [BET_TOOL],
-    tool_choice: { type: 'tool', name: 'record_bet_data' },
-    messages: [
-      {
-        role: 'user',
-        content: [
-          {
-            type: 'image',
-            source: { type: 'base64', media_type: mimeType, data: image },
-          },
-          {
-            type: 'text',
-            text:
-              'На изображении — скриншот ставки (или нескольких ставок) на спорт: купон букмекера, экран истории ставок ' +
-              'в приложении и т.п. Распознай ВСЕ отдельные ставки, которые видишь на изображении (это может быть одна, ' +
-              'а может быть несколько отдельных карточек в списке истории), и вызови record_bet_data строго по описанной ' +
-              'схеме — каждая ставка отдельным элементом массива bets, по порядку сверху вниз. Если букмекер не назван ' +
-              'явно текстом или логотипом — попробуй определить его по узнаваемому фирменному визуальному стилю ' +
-              'интерфейса (см. описание поля bookmaker) и обязательно отметь это в uncertain_fields той ставки. Если ' +
-              'каких-то данных на изображении нет или они нечитаемы — верни null для этого поля, НЕ придумывай ' +
-              'правдоподобные значения. Если изображение вообще не похоже ни на одну ставку — detected: false, bets: [].',
-          },
-        ],
-      },
-    ],
+  const headers = {
+    apikey: serviceKey,
+    Authorization: `Bearer ${serviceKey}`,
+    'Content-Type': 'application/json',
   };
 
-  let anthropicRes: Response;
-  try {
-    anthropicRes = await fetch('https://api.anthropic.com/v1/messages', {
+  const selectRes = await fetch(
+    `${supabaseUrl}/rest/v1/telegram_links?user_id=eq.${encodeURIComponent(userId)}&select=*`,
+    { headers: { ...headers, Accept: 'application/vnd.pgrst.object+json' } },
+  );
+  let existing: any = null;
+  if (selectRes.ok) {
+    existing = await selectRes.json().catch(() => null);
+  } else if (selectRes.status !== 406) {
+    return jsonResponse({ error: 'Не удалось прочитать текущую привязку: ' + (await selectRes.text().catch(() => selectRes.status)) }, 502);
+  }
+
+  if (action === 'generate_code') {
+    // Новый код — НЕ трогает уже подтверждённую привязку (telegram_chat_id/
+    // linked_at сохраняются как были), пока новый код реально не будет
+    // опубликован постом в канале и подхвачен telegram-webhook — так
+    // человек может сгенерировать код заново (например, если старый
+    // потерялся), не рискуя случайно "отвязать" уже работающий канал
+    // просто открыв страницу.
+    const payload = {
+      user_id: userId,
+      channel: existing?.channel || 'default',
+      link_code: randomLinkCode(),
+      telegram_chat_id: existing?.telegram_chat_id ?? null,
+      telegram_chat_title: existing?.telegram_chat_title ?? null,
+      linked_at: existing?.linked_at ?? null,
+    };
+    const upsertRes = await fetch(`${supabaseUrl}/rest/v1/telegram_links`, {
       method: 'POST',
-      headers: {
-        'content-type': 'application/json',
-        'x-api-key': apiKey,
-        'anthropic-version': ANTHROPIC_VERSION,
-      },
-      body: JSON.stringify(anthropicReq),
+      headers: { ...headers, Prefer: 'resolution=merge-duplicates,return=representation' },
+      body: JSON.stringify([payload]),
     });
-  } catch (e) {
-    return jsonResponse({ error: 'Не удалось обратиться к Anthropic API: ' + (e as Error).message }, 502);
+    if (!upsertRes.ok) {
+      return jsonResponse({ error: 'Не удалось сохранить код: ' + (await upsertRes.text().catch(() => upsertRes.status)) }, 502);
+    }
+    const rows = await upsertRes.json().catch(() => []);
+    return jsonResponse({ link: rows[0] || payload });
   }
 
-  if (!anthropicRes.ok) {
-    const text = await anthropicRes.text().catch(() => '');
-    return jsonResponse({ error: `Anthropic API вернул ошибку (${anthropicRes.status}): ${text.slice(0, 500)}` }, 502);
+  if (!existing) {
+    return jsonResponse({ error: 'Сначала сгенерируй код привязки.' }, 400);
   }
 
-  const data = await anthropicRes.json();
-  const toolUse = (data.content || []).find((b: any) => b.type === 'tool_use' && b.name === 'record_bet_data');
-  if (!toolUse) {
-    // stop_reason='max_tokens' здесь — самый вероятный практический случай:
-    // модель не уложилась в бюджет (например, скриншот с длинной историей
-    // ставок) и не успела закрыть tool_use блок валидным JSON. Отдаём это
-    // явно, а не generic-сообщением, чтобы было понятно, что дело не в
-    // "непохоже на ставку", а в лимите.
-    const reason = data.stop_reason ? ` (stop_reason: ${data.stop_reason})` : '';
-    console.error('parse-bet-screenshot: no tool_use in response' + reason, JSON.stringify(data).slice(0, 2000));
-    return jsonResponse({ error: `Модель не вернула структурированный ответ${reason} — попробуй другой/более чёткий скриншот.` }, 502);
+  if (action === 'set_channel') {
+    const channel = body?.channel === 'cybervalue' ? 'cybervalue' : 'default';
+    const updRes = await fetch(`${supabaseUrl}/rest/v1/telegram_links?user_id=eq.${encodeURIComponent(userId)}`, {
+      method: 'PATCH',
+      headers: { ...headers, Prefer: 'return=representation' },
+      body: JSON.stringify({ channel }),
+    });
+    if (!updRes.ok) {
+      return jsonResponse({ error: 'Не удалось сохранить канал: ' + (await updRes.text().catch(() => updRes.status)) }, 502);
+    }
+    const rows = await updRes.json().catch(() => []);
+    return jsonResponse({ link: rows[0] || { ...existing, channel } });
   }
 
-  // Лог сырого распознанного результата — если фронтенд после этого всё
-  // равно покажет "не похоже на купон" или что-то не так с массивом bets,
-  // тут в Supabase Logs (вкладка Logs у функции) будет видно, что именно
-  // вернула модель, без необходимости гадать вслепую.
-  console.log('parse-bet-screenshot: detected=' + toolUse.input?.detected + ', bets=' + (Array.isArray(toolUse.input?.bets) ? toolUse.input.bets.length : 'n/a'));
-
-  return jsonResponse({
-    result: toolUse.input,
-    // usage.count === -1 значит "не смогли посчитать лимит в этом запросе"
-    // (см. checkAndIncrementUsage) — фронтенд в этом случае просто не
-    // показывает счётчик, а не рисует "-1 из 100".
-    usage: usage.count >= 0 ? { count: usage.count, limit: MONTHLY_SCREENSHOT_LIMIT, remaining: MONTHLY_SCREENSHOT_LIMIT - usage.count } : null,
+  // action === 'unlink' — сбрасывает привязку к конкретному Telegram-каналу
+  // (chat_id/title/linked_at), но оставляет саму строку и код: так следующий
+  // "показать код" не создаёт новую строку с нуля, а просто позволяет
+  // привязать другой канал заново.
+  const updRes = await fetch(`${supabaseUrl}/rest/v1/telegram_links?user_id=eq.${encodeURIComponent(userId)}`, {
+    method: 'PATCH',
+    headers: { ...headers, Prefer: 'return=representation' },
+    body: JSON.stringify({ telegram_chat_id: null, telegram_chat_title: null, linked_at: null }),
   });
+  if (!updRes.ok) {
+    return jsonResponse({ error: 'Не удалось отвязать канал: ' + (await updRes.text().catch(() => updRes.status)) }, 502);
+  }
+  const rows = await updRes.json().catch(() => []);
+  return jsonResponse({ link: rows[0] || { ...existing, telegram_chat_id: null, telegram_chat_title: null, linked_at: null } });
 });

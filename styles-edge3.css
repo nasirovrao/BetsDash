@@ -471,7 +471,8 @@ body.hide-diary-nav #navAppPill,
 body.hide-diary-nav #navBankPill,
 body.hide-diary-nav #statsDropdown,
 body.hide-diary-nav #navEdgesPill,
-body.hide-diary-nav #navClvPill{ display:none !important; }
+body.hide-diary-nav #navClvPill,
+body.hide-diary-nav #navTelegramImportItem{ display:none !important; }
 body.hide-channel-nav #navProfileSettingsItem,
 body.hide-channel-nav #navChannelTeamItem{ display:none !important; }
 body.hide-reader-nav #navFeedPill{ display:none !important; }
