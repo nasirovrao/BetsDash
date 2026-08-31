@@ -13,6 +13,37 @@
 <link rel="stylesheet" href="styles-edge2.css?v=1">
 <link rel="stylesheet" href="styles-edge3.css?v=1">
 <script src="theme-toggle.js" defer></script>
+<style>
+  /* "Заполнить по скриншоту" (30.08.2026, CHANGELOG.md → "Парсинг ставок со
+     скриншота") — только на этой странице, поэтому по образцу import.html
+     держим здесь, а не в общем styles-edgeN.css. */
+  .parse-screenshot-row{ display:flex; align-items:center; gap:12px; margin-bottom:18px; flex-wrap:wrap; }
+  .parse-screenshot-btn{ position:relative; }
+  .parse-screenshot-btn input[type="file"]{
+    position:absolute; inset:0; opacity:0; cursor:pointer; width:100%; height:100%;
+  }
+  .parse-screenshot-status{ font-size:12.5px; color:var(--ink-dim); }
+  .parse-screenshot-status.err{ color:var(--rust); }
+  #betFormBlock.editing .parse-screenshot-row{ display:none; }
+
+  .parse-review-banner{
+    border:1px solid var(--gold); border-radius:12px; background:var(--bg-card);
+    padding:14px 16px; margin-bottom:18px; font-size:13px; color:var(--ink);
+  }
+  .parse-review-banner .prb-title{
+    font-family:'Unbounded', sans-serif; font-weight:700; font-size:13px; color:var(--gold);
+    margin-bottom:6px; display:flex; align-items:center; gap:8px;
+  }
+  .parse-review-banner.low .prb-title{ color:var(--rust); }
+  .parse-review-banner ul{ margin:6px 0 0; padding-left:18px; color:var(--ink-dim); }
+  .parse-review-banner .prb-dismiss{
+    margin-top:10px; background:none; border:1px solid var(--line); color:var(--ink-dim);
+    border-radius:8px; padding:5px 12px; font-size:12px; cursor:pointer;
+  }
+  .field.parse-uncertain input,
+  .field.parse-uncertain select{ border-color:var(--rust) !important; }
+  .field.parse-uncertain label::after{ content:" ⚠"; color:var(--rust); }
+</style>
 </head>
 <body>
 
@@ -71,6 +102,14 @@
 
     <div class="bet-form" id="betFormBlock">
       <h3 id="betFormHeading">Добавить ставку</h3>
+      <div class="parse-screenshot-row" id="parseScreenshotRow">
+        <label class="btn btn-ghost parse-screenshot-btn" style="width:auto;">
+          📷 Заполнить по скриншоту
+          <input type="file" id="parseScreenshotInput" accept="image/png,image/jpeg,image/webp,image/gif">
+        </label>
+        <span class="parse-screenshot-status" id="parseScreenshotStatus"></span>
+      </div>
+      <div class="parse-review-banner" id="parseReviewBanner" style="display:none;"></div>
       <form id="betForm">
         <input type="hidden" id="f_editId" value="">
         <div class="express-toggle-row">
@@ -1161,6 +1200,150 @@
     const isSold = resultSelect.value === 'Sold';
     manualProfitField.style.display = isSold ? '' : 'none';
     manualProfitInput.required = isSold;
+  });
+
+  // ---------------------------------------------------------------------
+  // "Заполнить по скриншоту" (30.08.2026, CHANGELOG.md → "Парсинг ставок
+  // со скриншота"). Вызывает Supabase Edge Function parse-bet-screenshot
+  // (Claude vision, ключ модели живёт на сервере — см.
+  // supabase/functions/parse-bet-screenshot/index.ts). Функция ТОЛЬКО
+  // заполняет форму, ничего не сохраняет сама — финальное "Добавить
+  // ставку" всегда жмёт человек, это обязательное условие, не опция.
+  // ---------------------------------------------------------------------
+  const parseScreenshotInput = document.getElementById('parseScreenshotInput');
+  const parseScreenshotStatus = document.getElementById('parseScreenshotStatus');
+  const parseReviewBanner = document.getElementById('parseReviewBanner');
+
+  const FIELD_LABEL_TO_ELEMENT = {
+    'Дата': 'f_date', 'Дисциплина': 'f_discipline', 'Букмекер': 'f_bookmaker',
+    'Турнир': 'f_tournament', 'Матч': 'f_match', 'Пик': 'f_pick', 'Кэф': 'f_odds',
+    'Флет': 'f_flat', 'Флет (×)': 'f_flat', 'Сумма': 'f_stake', 'Сумма ($)': 'f_stake',
+    'Результат': 'f_result',
+  };
+
+  function clearParseUncertainMarks(){
+    document.querySelectorAll('.field.parse-uncertain').forEach(f => f.classList.remove('parse-uncertain'));
+  }
+
+  function fileToBase64(file){
+    return new Promise((resolve, reject) => {
+      const reader = new FileReader();
+      reader.onload = () => {
+        // reader.result = "data:image/png;base64,AAAA…" — Anthropic ждёт
+        // чистый base64 без префикса.
+        resolve(String(reader.result).split(',')[1] || '');
+      };
+      reader.onerror = () => reject(reader.error);
+      reader.readAsDataURL(file);
+    });
+  }
+
+  // Дисциплина, которой ещё нет в списке (базовом или своих) — добавляем
+  // ВРЕМЕННЫЙ пункт только в выпадашку, не пишем в settings.custom_disciplines:
+  // пока ставка не сохранена, это черновик, а не подтверждённые данные.
+  function fillDisciplineFromParsed(name){
+    if (!name) return;
+    const trimmed = name.trim();
+    if (!trimmed) return;
+    const known = [...DEFAULT_DISCIPLINES, ...customDisciplines];
+    const match = known.find(n => n.toLowerCase() === trimmed.toLowerCase());
+    if (match) { disciplineSelect.value = match; return; }
+    const opt = document.createElement('option');
+    opt.value = trimmed;
+    opt.textContent = trimmed + ' (новая)';
+    disciplineSelect.appendChild(opt);
+    disciplineSelect.value = trimmed;
+  }
+
+  function showParseBanner(html, low){
+    parseReviewBanner.className = 'parse-review-banner' + (low ? ' low' : '');
+    parseReviewBanner.innerHTML = html + `<button type="button" class="prb-dismiss" id="prbDismissBtn">Скрыть подсказку</button>`;
+    parseReviewBanner.style.display = '';
+    document.getElementById('prbDismissBtn').addEventListener('click', () => { parseReviewBanner.style.display = 'none'; });
+  }
+
+  function handleParsedBetData(result){
+    clearParseUncertainMarks();
+    if (!result || result.detected === false) {
+      showParseBanner('<div class="prb-title">⚠ Не похоже на купон ставки</div>На этом изображении не удалось распознать ставку — заполни форму вручную.', true);
+      return;
+    }
+
+    if (result.is_express) {
+      setExpressMode(true);
+      populateExpressLegs((result.legs || []).map(l => ({ text: l.text, odds: l.odds })));
+    } else {
+      setExpressMode(false);
+      clearExpressLegs();
+      if (result.match != null) document.getElementById('f_match').value = result.match;
+      if (result.pick != null) document.getElementById('f_pick').value = result.pick;
+      if (result.odds != null) oddsInput.value = result.odds;
+    }
+
+    if (result.bet_date) document.getElementById('f_date').value = result.bet_date;
+    if (result.discipline) fillDisciplineFromParsed(result.discipline);
+    if (result.bookmaker) document.getElementById('f_bookmaker').value = result.bookmaker;
+    if (result.tournament) document.getElementById('f_tournament').value = result.tournament;
+    if (result.stake != null) {
+      stakeInput.value = Number(result.stake).toFixed(2);
+      // Тот же пересчёт, что и при ручном вводе суммы — Флет (×) подстроится
+      // под неё, если для этого канала задан флет по умолчанию.
+      applyStakeToFlat();
+    }
+    if (result.result) resultSelect.value = result.result;
+
+    const fieldsToFlag = Array.isArray(result.uncertain_fields) ? result.uncertain_fields : [];
+    fieldsToFlag.forEach(label => {
+      const id = FIELD_LABEL_TO_ELEMENT[String(label).trim()];
+      const input = id ? document.getElementById(id) : null;
+      const field = input ? input.closest('.field') : null;
+      if (field) field.classList.add('parse-uncertain');
+    });
+
+    const low = result.confidence === 'low';
+    const confidenceLabel = result.confidence === 'high' ? 'высокая' : low ? 'низкая' : 'средняя';
+    const uncertainList = fieldsToFlag.length ? `<ul>${fieldsToFlag.map(f => `<li>${escapeHtml(f)}</li>`).join('')}</ul>` : '';
+    showParseBanner(
+      `<div class="prb-title">${low ? '⚠' : '✓'} Заполнено по скриншоту — проверь перед сохранением</div>` +
+      `Ставка ещё НЕ сохранена. Уверенность распознавания: ${confidenceLabel}` +
+      `${fieldsToFlag.length ? ', особенно перепроверь поля, отмеченные красным' : ''}.` + uncertainList,
+      low
+    );
+  }
+
+  parseScreenshotInput.addEventListener('change', async () => {
+    const file = parseScreenshotInput.files[0];
+    parseScreenshotInput.value = ''; // разрешить повторно выбрать тот же файл
+    if (!file) return;
+    parseScreenshotStatus.classList.remove('err');
+    if (!/^image\//.test(file.type)) {
+      parseScreenshotStatus.textContent = 'Нужен файл изображения (png/jpeg/webp).';
+      parseScreenshotStatus.classList.add('err');
+      return;
+    }
+    if (file.size > 5 * 1024 * 1024) {
+      parseScreenshotStatus.textContent = 'Файл больше 5MB — сожми или обрежь скриншот.';
+      parseScreenshotStatus.classList.add('err');
+      return;
+    }
+    parseScreenshotStatus.textContent = 'Распознаю…';
+    parseReviewBanner.style.display = 'none';
+    try {
+      const base64 = await fileToBase64(file);
+      const { data, error } = await supabase.functions.invoke('parse-bet-screenshot', {
+        body: { image: base64, mimeType: file.type },
+      });
+      if (error || !data || data.error) {
+        parseScreenshotStatus.textContent = 'Не удалось распознать: ' + (data && data.error ? data.error : (error ? error.message : 'неизвестная ошибка'));
+        parseScreenshotStatus.classList.add('err');
+        return;
+      }
+      parseScreenshotStatus.textContent = '';
+      handleParsedBetData(data.result);
+    } catch (e) {
+      parseScreenshotStatus.textContent = 'Ошибка при распознавании: ' + e.message;
+      parseScreenshotStatus.classList.add('err');
+    }
   });
 
   document.getElementById('f_date').value = todayLocalStr();
