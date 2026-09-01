@@ -527,7 +527,11 @@ export function fmtDateTime(iso) {
 // Если updated_at заметно (>5 сек — запас на саму операцию сохранения)
 // позже settled_at, значит строку трогали ЕЩЁ раз уже после того, как
 // исход был известен.
-function wasEditedAfterSettle(b) {
+// 01.09.2026: экспортирована (была локальной) — нужна не только
+// renderBetsFlatTable(), но и dashboard.html/public.html для честного
+// счётчика "N изменений после исхода видны" (не выдуманная цифра, тот же
+// самый признак, что уже красит бейдж "✎ изменено" на карточках ставок).
+export function wasEditedAfterSettle(b) {
   if (!b.settled_at || !b.updated_at) return false;
   return new Date(b.updated_at).getTime() - new Date(b.settled_at).getTime() > 5000;
 }

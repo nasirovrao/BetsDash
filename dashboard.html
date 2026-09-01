@@ -14,6 +14,52 @@
 <link rel="stylesheet" href="styles-edge3.css?v=1">
 <link rel="stylesheet" href="styles-edge5.css?v=1">
 <script src="theme-toggle.js" defer></script>
+<style>
+  /* Вводный блок "3 способа занести ставку" (01.09.2026, по мотивам
+     Juice Reel — см. CHANGELOG.md). Page-scoped, тот же приём, что у
+     .parse-screenshot-row в app.html — стили нужны только на 1-2
+     страницах, тащить в общий styles-edgeN.css незачем. */
+  .feature-intro{ margin-bottom:28px; }
+  .fi-eyebrow{
+    display:inline-block; font-family:'JetBrains Mono', monospace; font-size:10.5px;
+    text-transform:uppercase; letter-spacing:0.06em; color:var(--gold);
+    border:1px solid var(--gold); border-radius:20px; padding:4px 12px; margin-bottom:14px;
+  }
+  .fi-heading{
+    font-family:'Unbounded', sans-serif; font-weight:800; font-size:24px; line-height:1.2;
+    margin:0 0 8px; text-wrap:balance;
+  }
+  .fi-sub{ color:var(--ink-dim); font-size:13.5px; max-width:60ch; line-height:1.6; margin:0 0 20px; }
+  .fi-grid{ display:grid; grid-template-columns:repeat(3,1fr); gap:14px; }
+  @media (max-width:720px){ .fi-grid{ grid-template-columns:1fr; } }
+  .fi-card{
+    display:block; width:100%; text-align:left; background:var(--bg-card); border:1px solid var(--line);
+    border-radius:12px; padding:18px 18px 16px; text-decoration:none; color:inherit; cursor:pointer;
+    font:inherit; transition:border-color .15s ease, background .15s ease;
+  }
+  .fi-card:hover{ border-color:var(--gold); background:var(--bg-raised); }
+  .fi-icon{
+    width:32px; height:32px; border-radius:9px; display:flex; align-items:center; justify-content:center;
+    margin-bottom:12px; font-size:15px;
+  }
+  .fi-icon-gold{ background:rgba(167,139,250,0.14); color:var(--gold); }
+  .fi-icon-teal{ background:rgba(110,231,160,0.14); color:var(--teal); }
+  .fi-icon-rust{ background:rgba(251,90,164,0.14); color:var(--rust); }
+  .fi-card h4{ font-family:'Golos Text', sans-serif; font-weight:700; font-size:13.5px; margin:0 0 5px; }
+  .fi-card p{ font-size:12px; color:var(--ink-dim); line-height:1.5; margin:0; }
+  .fi-chips{ display:flex; flex-wrap:wrap; gap:10px; margin-top:18px; }
+  .fi-chip{
+    display:flex; align-items:center; gap:7px; font-family:'JetBrains Mono', monospace; font-size:11.5px;
+    color:var(--ink-dim); background:var(--bg-card); border:1px solid var(--line); border-radius:20px;
+    padding:6px 12px 6px 8px;
+  }
+  .fi-chip .dot{
+    width:16px; height:16px; border-radius:50%; background:rgba(110,231,160,0.16); color:var(--teal);
+    display:flex; align-items:center; justify-content:center; font-size:10px; flex:none;
+  }
+  .fi-example{ margin-top:14px; padding-top:14px; border-top:1px solid var(--line); }
+  .fi-example-hint{ font-size:12px; color:var(--ink-dim); margin-bottom:8px; }
+</style>
 </head>
 <body>
 
@@ -73,6 +119,38 @@
 
     <div id="channelSwitch"></div>
 
+    <div class="feature-intro">
+      <span class="fi-eyebrow">Личный дневник</span>
+      <h3 class="fi-heading">Каждая ставка — с доказательством, а не на слово</h3>
+      <p class="fi-sub">Скриншот, пост в Telegram или форма вручную — любой способ работает
+        одинаково: ставка всегда ждёт твоего подтверждения перед сохранением.</p>
+      <div class="fi-grid">
+        <a class="fi-card" href="app.html" id="fiScreenshotCard">
+          <div class="fi-icon fi-icon-gold">📷</div>
+          <h4>Распознавание скриншота</h4>
+          <p>Кэф, сумма, букмекер — по фото купона, форма заполняется сама.</p>
+        </a>
+        <a class="fi-card" href="telegram-import.html">
+          <div class="fi-icon fi-icon-teal">✈</div>
+          <h4>Telegram-импорт</h4>
+          <p>Пост в привязанном канале попадает в очередь на подтверждение автоматически.</p>
+        </a>
+        <button class="fi-card" type="button" id="fiEditToggle" aria-expanded="false">
+          <div class="fi-icon fi-icon-rust">✎</div>
+          <h4>Видимые правки</h4>
+          <p>Изменение после того, как исход стал известен, — не скрывается, а помечается.</p>
+          <div class="fi-example" id="fiEditExample" hidden>
+            <div class="fi-example-hint">Так это выглядит на карточке ставки:</div>
+            <div style="display:flex; align-items:center; gap:8px; flex-wrap:wrap;">
+              <span class="res-pill win">Win</span>
+              <span class="edited-badge" title="пик: П1 → П2 (после исхода: 14:20 → 16:45)">✎ изменено</span>
+            </div>
+          </div>
+        </button>
+      </div>
+      <div class="fi-chips" id="fiChips"></div>
+    </div>
+
     <div id="setupPrompt" class="setup-card" style="display:none;">
       <h3>Укажи стартовый банк</h3>
       <p>Один раз укажи, с какой суммы ты начал(а) вести журнал — от неё считаются «Банк» и «Прирост банка». Изменить позже можно на странице «Выводы и банк».</p>
@@ -107,7 +185,7 @@
 
 <script type="module">
   import { supabase, requireSession, isClvEnabled } from './supabase-client.js';
-  import { fmtMoney, computeStats, computeStreak, computeFlatStats, escapeHtml, monthKeyOf, monthLabelOf, dayKeyOf, dayLabelOf, weekKeyOf, weekLabelOf, renderWLP, getChannelParams, loadMyChannels, renderChannelSwitch, preserveChannelInNav, initEmailPrivacyToggle, initNavDropdown, applyNavModes, channelHref, computeCardTrend, renderSparkline, renderWlpBars, renderTopBetsPop, initStatCardPopovers } from './lib.js';
+  import { fmtMoney, computeStats, computeStreak, computeFlatStats, escapeHtml, monthKeyOf, monthLabelOf, dayKeyOf, dayLabelOf, weekKeyOf, weekLabelOf, renderWLP, getChannelParams, loadMyChannels, renderChannelSwitch, preserveChannelInNav, initEmailPrivacyToggle, initNavDropdown, applyNavModes, channelHref, computeCardTrend, renderSparkline, renderWlpBars, renderTopBetsPop, initStatCardPopovers, wasEditedAfterSettle } from './lib.js';
 
   const session = await requireSession();
   if (session) {
@@ -141,6 +219,24 @@
   const appHref = channelHref('app.html', activeChannel, ownerUserId, session.user.id);
   const bankHref = channelHref('bank.html', activeChannel, ownerUserId, session.user.id);
   const importHref = channelHref('import.html', activeChannel, ownerUserId, session.user.id);
+  const telegramImportHref = channelHref('telegram-import.html', activeChannel, ownerUserId, session.user.id);
+
+  // Вводный блок "3 способа занести ставку" — ссылки сохраняют текущий
+  // канал (тот же принцип, что и у остальных ссылок дашборда).
+  document.getElementById('fiScreenshotCard').setAttribute('href', appHref);
+  const telegramCardLink = document.querySelector('.feature-intro a[href="telegram-import.html"]');
+  if (telegramCardLink) telegramCardLink.setAttribute('href', telegramImportHref);
+
+  // "Видимые правки" — не ссылка на другую страницу (там особо нечего
+  // показать без реальной отредактированной ставки под рукой), а пример
+  // прямо на месте: клик просто раскрывает/сворачивает готовый образец.
+  const fiEditToggle = document.getElementById('fiEditToggle');
+  const fiEditExample = document.getElementById('fiEditExample');
+  fiEditToggle.addEventListener('click', () => {
+    const willShow = fiEditExample.hidden;
+    fiEditExample.hidden = !willShow;
+    fiEditToggle.setAttribute('aria-expanded', String(willShow));
+  });
   const setupPrompt = document.getElementById('setupPrompt');
   const dashHint = document.getElementById('dashHint');
   const asOfNote = document.getElementById('asOfNote');
@@ -326,6 +422,23 @@
     applyDashFilters();
   });
 
+  // Ряд чипов под вводным блоком — реальные цифры по ВСЕЙ истории канала
+  // (не по текущему фильтру периода/турнира, это обзорная сводка, а не
+  // часть отфильтрованной статы). editedCount — тот же признак, что красит
+  // бейдж "✎ изменено" на карточках ставок (app.html) — честная цифра, не
+  // выдуманная "0" ради красивого вида.
+  function renderFeatureIntroChips(bets) {
+    const total = bets.length;
+    const editedCount = bets.filter(wasEditedAfterSettle).length;
+    const editedText = editedCount
+      ? `${editedCount} ${ruCount(editedCount, 'правка', 'правки', 'правок')} после исхода — все видны`
+      : 'Правок после исхода нет';
+    document.getElementById('fiChips').innerHTML = `
+      <span class="fi-chip"><span class="dot">✓</span>${total} ${ruCount(total, 'ставка', 'ставки', 'ставок')} в истории</span>
+      <span class="fi-chip"><span class="dot">✓</span>${escapeHtml(editedText)}</span>
+    `;
+  }
+
   async function load() {
     const [{ data: bets, error: betsErr }, { data: withdrawals, error: wErr }, { data: settings, error: sErr }] = await Promise.all([
       supabase.from('bets').select('*').eq('user_id', ownerUserId).eq('channel', activeChannel),
@@ -342,6 +455,7 @@
     allWithdrawals = withdrawals || [];
     startingBankroll = settings ? settings.starting_bankroll : 0;
     populateDashFilters(allBets);
+    renderFeatureIntroChips(allBets);
 
     if (!settings) {
       // Стартовый банк — это управление банком, а оно, как и решили,

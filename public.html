@@ -77,7 +77,7 @@
     groupBets, groupBetsMulti, renderGroupCards, renderBreakdownDetail,
     classifyMarket, teamKeysForBet, renderBetsFlatTable,
     computeCardTrend, renderSparkline, renderWlpBars, renderTopBetsPop, initStatCardPopovers,
-    computeRatingTier, computeSpecialization, renderProfileBanner,
+    computeRatingTier, computeSpecialization, renderProfileBanner, wasEditedAfterSettle,
   } from './lib.js';
 
   // Инициалы для аватара-заглушки, когда лого не загружено — до 2 букв,
@@ -221,7 +221,12 @@
             ${specialization.length ? `<div class="pf-spec">${specialization.map(sp => `<span class="pf-spec-chip"><span class="pf-spec-bar"><i style="width:${sp.pct}%"></i></span>${escapeHtml(sp.discipline)} <b>${sp.pct}%</b></span>`).join('')}</div>` : ''}
             <div class="trust-note" style="margin-top:16px;">
               <span class="trust-note-mark">⏱</span>
-              <span>Правки задним числом видно: наведи на «✎ изменено» в таблице — покажет, что именно поменяли.</span>
+              <span>${(() => {
+                const editedCount = allBets.filter(wasEditedAfterSettle).length;
+                return editedCount
+                  ? `${editedCount} ${ruCount(editedCount, 'ставка изменена', 'ставки изменены', 'ставок изменено')} после того, как исход уже был известен — наведи на «✎ изменено» в таблице, покажет, что именно поменяли.`
+                  : 'Ни одна ставка не менялась после того, как исход уже был известен. Если это произойдёт — будет видно по бейджу «✎ изменено» в таблице, а не скрыто.';
+              })()}</span>
             </div>
           </div>`;
 
