@@ -14,38 +14,138 @@
 <link rel="stylesheet" href="styles-edge3.css?v=1">
 <link rel="stylesheet" href="styles-edge4.css?v=1">
 <script src="theme-toggle.js" defer></script>
+<style>
+  /* 01.09.2026: страница была одной узкой колонкой (.feed-wrap max-width:640px)
+     без вообще какого-либо контекста, кроме самой ленты — по фидбоку "выглядит
+     очень скупо". Добавлен сайдбар слева: фильтр по результату (доп. к уже
+     существующему по дисциплине) и топ капперов с сортировкой. Page-scoped —
+     тот же приём, что и в других местах (стили нужны только этой странице). */
+  .feed-page-wrap{ max-width:1040px; margin:0 auto; }
+  .feed-layout{ display:grid; grid-template-columns:260px 1fr; gap:24px; align-items:start; }
+  @media (max-width:860px){
+    .feed-layout{ grid-template-columns:1fr; }
+    .feed-sidebar{ position:static !important; order:2; }
+  }
+  .feed-sidebar{ display:flex; flex-direction:column; gap:18px; position:sticky; top:20px; }
+  .feed-side-block{ background:var(--bg-card); border:1px solid var(--line); border-radius:12px; padding:16px; }
+  .feed-side-title{
+    font-family:'JetBrains Mono', monospace; font-size:10.5px; text-transform:uppercase;
+    letter-spacing:0.06em; color:var(--ink-faint);
+  }
+  .feed-side-title-row{ display:flex; align-items:center; justify-content:space-between; margin-bottom:12px; }
+  .feed-side-title-row .feed-side-title{ margin:0; }
+  .feed-side-select{
+    font-family:'JetBrains Mono', monospace; font-size:10px; background:var(--bg-raised);
+    border:1px solid var(--line); color:var(--ink-dim); border-radius:6px; padding:4px 6px; cursor:pointer;
+  }
+  .feed-side-block .feed-filter-row{ margin:12px 0 0; }
+  .lb-empty{ font-size:12px; color:var(--ink-faint); margin-top:10px; line-height:1.5; }
+  .lb-item{
+    display:flex; align-items:center; gap:9px; padding:8px 0; text-decoration:none; color:inherit;
+    border-bottom:1px solid var(--line-soft);
+  }
+  .lb-item:last-child{ border-bottom:none; }
+  .lb-item:hover .lb-name{ color:var(--gold); }
+  .lb-rank{ font-family:'JetBrains Mono', monospace; font-size:11px; color:var(--ink-faint); width:14px; flex:none; }
+  .lb-info{ min-width:0; flex:1; }
+  .lb-name{
+    font-size:12.5px; font-weight:600; color:var(--ink); white-space:nowrap; overflow:hidden;
+    text-overflow:ellipsis; transition:color .15s ease;
+  }
+  .lb-sub{ font-family:'JetBrains Mono', monospace; font-size:10px; color:var(--ink-faint); }
+  .lb-value{ font-family:'JetBrains Mono', monospace; font-size:12px; font-weight:600; flex:none; color:var(--ink); }
+  .lb-value.pos{ color:var(--teal); }
+  .lb-value.neg{ color:var(--rust); }
+</style>
 </head>
 <body>
 
 <div class="topbar">
   <div class="wrap">
     <a class="brand" href="index.html"><svg class="brand-mark" viewBox="0 0 32 32" width="20" height="20" aria-hidden="true"><circle cx="16" cy="16" r="12" fill="none" stroke="var(--gold)" stroke-width="1.6" opacity="0.28"/><path d="M16 4 A12 12 0 0 1 26.9 12.3" fill="none" stroke="var(--gold)" stroke-width="3" stroke-linecap="round"/><line x1="12" y1="12" x2="12" y2="20" stroke="var(--gold)" stroke-width="2.6" stroke-linecap="round"/><line x1="12" y1="12" x2="19" y2="12" stroke="var(--gold)" stroke-width="2.6" stroke-linecap="round"/><line x1="12" y1="16" x2="17.5" y2="16" stroke="var(--gold)" stroke-width="2.6" stroke-linecap="round"/><line x1="12" y1="20" x2="19" y2="20" stroke="var(--gold)" stroke-width="2.6" stroke-linecap="round"/></svg>EDGE<span>.</span></a>
-    <div class="topbar-user">
+    <div class="topbar-user" id="topbarUser">
       <a class="topbar-link" href="index.html">Войти в EDGE</a>
     </div>
   </div>
 </div>
 
 <section>
-  <div class="wrap feed-wrap">
+  <div class="wrap feed-page-wrap">
     <div class="section-head" style="margin-bottom:18px;">
       <h2>Лента ставок</h2>
       <div class="section-note">Все ставки из публичных каналов EDGE, в порядке публикации — видно, кто и когда каждую опубликовал.</div>
     </div>
-    <div class="feed-filter-row" id="feedFilters" style="display:none;"></div>
-    <div id="feedRoot"><div class="empty-state">Загружаю…</div></div>
+    <div class="feed-layout">
+      <aside class="feed-sidebar">
+        <div class="feed-side-block">
+          <div class="feed-side-title">Дисциплина</div>
+          <div class="feed-filter-row" id="feedFilters" style="display:none;"></div>
+        </div>
+        <div class="feed-side-block">
+          <div class="feed-side-title">Результат</div>
+          <div class="feed-filter-row" id="resultFilters"></div>
+        </div>
+        <div class="feed-side-block">
+          <div class="feed-side-title-row">
+            <div class="feed-side-title">Топ капперы</div>
+            <select id="leaderboardSort" class="feed-side-select">
+              <option value="rating">Рейтинг</option>
+              <option value="roi">ROI</option>
+              <option value="profit">Профит</option>
+            </select>
+          </div>
+          <div id="leaderboardRoot"><div class="lb-empty">Загружаю…</div></div>
+        </div>
+      </aside>
+      <div class="feed-main">
+        <div id="feedRoot"><div class="empty-state">Загружаю…</div></div>
+      </div>
+    </div>
   </div>
 </section>
 
 <script type="module">
   import { supabase } from './supabase-client.js';
-  import { escapeHtml, fmtRelativeTime, fmtDateTime } from './lib.js';
+  import { escapeHtml, fmtRelativeTime, fmtDateTime, initEmailPrivacyToggle, computeStats, computeRatingTier, fmtMoney } from './lib.js';
 
   const params = new URLSearchParams(location.search);
   const disciplineFilter = params.get('d') || '';
+  const resultFilter = params.get('r') || '';
+
+  // Строит ссылку на саму ленту с обоими фильтрами разом — переключение
+  // дисциплины не должно сбрасывать уже выбранный результат, и наоборот.
+  function feedHref(d, r) {
+    const p = new URLSearchParams();
+    if (d) p.set('d', d);
+    if (r) p.set('r', r);
+    const qs = p.toString();
+    return 'feed.html' + (qs ? '?' + qs : '');
+  }
+
+  // 01.09.2026: страница публичная (работает и вообще без входа), но раньше
+  // топбар ВСЕГДА показывал "Войти в EDGE", даже если человек уже залогинен
+  // в этом же браузере (сессия жива в другой вкладке/на другой странице) —
+  // requireSession() тут намеренно не используется (не хотим редиректить
+  // анонимного читателя на index.html), но и вообще не проверять сессию
+  // было неправильно. getSession() ничего никуда не редиректит сама по
+  // себе — просто смотрит, есть ли уже живая сессия, и красит топбар под
+  // неё, как на остальных страницах.
+  supabase.auth.getSession().then(({ data: { session } }) => {
+    if (!session) return;
+    const topbarUser = document.getElementById('topbarUser');
+    topbarUser.innerHTML = `<span id="userEmail">…</span><button id="logoutBtn" type="button">Выйти</button>`;
+    initEmailPrivacyToggle(session.user.email);
+    document.getElementById('logoutBtn').addEventListener('click', async () => {
+      await supabase.auth.signOut();
+      window.location.reload();
+    });
+  });
 
   const feedRoot = document.getElementById('feedRoot');
   const feedFilters = document.getElementById('feedFilters');
+  const resultFilters = document.getElementById('resultFilters');
+  const leaderboardRoot = document.getElementById('leaderboardRoot');
+  const leaderboardSort = document.getElementById('leaderboardSort');
 
   const RES_CLASS = { Win: 'win', Loss: 'loss', Push: 'push', Pending: 'pending', Sold: 'sold' };
   const RES_LABEL = { Win: 'WIN', Loss: 'LOSS', Push: 'PUSH', Pending: 'В ИГРЕ', Sold: 'ПРОДАНО' };
@@ -88,13 +188,85 @@
     if (disciplines.length > 1) {
       feedFilters.style.display = '';
       const allActive = !disciplineFilter ? ' active' : '';
-      feedFilters.innerHTML = `<a href="feed.html"${allActive ? ' class="active"' : ''}>Все</a>` +
-        disciplines.map(d => `<a href="feed.html?d=${encodeURIComponent(d)}"${d === disciplineFilter ? ' class="active"' : ''}>${escapeHtml(d)}</a>`).join('');
+      feedFilters.innerHTML = `<a href="${feedHref('', resultFilter)}"${allActive ? ' class="active"' : ''}>Все</a>` +
+        disciplines.map(d => `<a href="${feedHref(d, resultFilter)}"${d === disciplineFilter ? ' class="active"' : ''}>${escapeHtml(d)}</a>`).join('');
+    }
+
+    // Фильтр по результату (01.09.2026, по запросу) — та же механика, что и
+    // у дисциплины: список вариантов строится по факту встречающихся в
+    // ленте результатов, а не фиксированный набор.
+    const RESULT_ORDER = ['Win', 'Loss', 'Push', 'Pending', 'Sold'];
+    const resultsPresent = RESULT_ORDER.filter(r => items.some(it => it.bet.result === r));
+    if (resultsPresent.length > 1) {
+      const allActive = !resultFilter ? ' active' : '';
+      resultFilters.innerHTML = `<a href="${feedHref(disciplineFilter, '')}"${allActive ? ' class="active"' : ''}>Все</a>` +
+        resultsPresent.map(r => `<a href="${feedHref(disciplineFilter, r)}"${r === resultFilter ? ' class="active"' : ''}>${RES_LABEL[r]}</a>`).join('');
+    } else {
+      resultFilters.innerHTML = '';
     }
 
     if (disciplineFilter) {
       items = items.filter(it => it.bet.discipline === disciplineFilter);
     }
+    if (resultFilter) {
+      items = items.filter(it => it.bet.result === resultFilter);
+    }
+
+    // Топ капперы — считаем один раз по ПОЛНОМУ набору (results, ДО
+    // дисциплины/результата — рейтинг каппера не должен прыгать от того,
+    // какой фильтр ленты сейчас выбран), группируя те же самые данные, что
+    // уже загружены для самой ленты — ни одного лишнего запроса к базе.
+    // Порог в 5 ставок — отсекает шум от каппера с одной случайно удачной
+    // ставкой наверху таблицы по ROI/профиту.
+    const MIN_BETS_FOR_LEADERBOARD = 5;
+    const byProfile = new Map();
+    results.flat().forEach(({ bet, profile }) => {
+      if (!byProfile.has(profile.user_id)) byProfile.set(profile.user_id, { profile, bets: [] });
+      byProfile.get(profile.user_id).bets.push(bet);
+    });
+    const leaderboardEntries = Array.from(byProfile.values())
+      .filter(e => e.bets.length >= MIN_BETS_FOR_LEADERBOARD)
+      .map(e => ({
+        profile: e.profile,
+        stats: computeStats(e.bets, [], 0),
+        rating: computeRatingTier(e.bets),
+      }));
+
+    function renderLeaderboard(sortKey) {
+      if (!leaderboardEntries.length) {
+        leaderboardRoot.innerHTML = `<div class="lb-empty">Пока нет капперов минимум с ${MIN_BETS_FOR_LEADERBOARD} ставками в истории.</div>`;
+        return;
+      }
+      const sorted = leaderboardEntries.slice().sort((a, b) => {
+        if (sortKey === 'roi') return (b.stats.roi ?? -Infinity) - (a.stats.roi ?? -Infinity);
+        if (sortKey === 'profit') return b.stats.totalProfit - a.stats.totalProfit;
+        return b.rating.score - a.rating.score;
+      }).slice(0, 5);
+      leaderboardRoot.innerHTML = sorted.map((e, i) => {
+        const name = escapeHtml(e.profile.display_name || e.profile.username);
+        let valueHtml;
+        if (sortKey === 'roi') {
+          const roi = e.stats.roi;
+          valueHtml = `<span class="lb-value ${roi > 0 ? 'pos' : roi < 0 ? 'neg' : ''}">${roi == null ? '—' : (roi >= 0 ? '+' : '') + roi.toFixed(1) + '%'}</span>`;
+        } else if (sortKey === 'profit') {
+          const p = e.stats.totalProfit;
+          valueHtml = `<span class="lb-value ${p > 0 ? 'pos' : p < 0 ? 'neg' : ''}">${fmtMoney(p)}</span>`;
+        } else {
+          valueHtml = `<span class="lb-value">${e.rating.score}</span>`;
+        }
+        return `
+        <a class="lb-item" href="public.html?u=${encodeURIComponent(e.profile.username)}">
+          <span class="lb-rank">${i + 1}</span>
+          <span class="lb-info">
+            <span class="lb-name">${name}</span>
+            <span class="lb-sub">@${escapeHtml(e.profile.username)}</span>
+          </span>
+          ${valueHtml}
+        </a>`;
+      }).join('');
+    }
+    renderLeaderboard(leaderboardSort.value);
+    leaderboardSort.addEventListener('change', () => renderLeaderboard(leaderboardSort.value));
 
     items.sort((a, b) => {
       const ta = a.bet.created_at || a.bet.bet_date || '';

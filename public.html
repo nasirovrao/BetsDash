@@ -50,7 +50,7 @@
     <a class="brand" href="index.html"><svg class="brand-mark" viewBox="0 0 32 32" width="20" height="20" aria-hidden="true"><circle cx="16" cy="16" r="12" fill="none" stroke="var(--gold)" stroke-width="1.6" opacity="0.28"/><path d="M16 4 A12 12 0 0 1 26.9 12.3" fill="none" stroke="var(--gold)" stroke-width="3" stroke-linecap="round"/><line x1="12" y1="12" x2="12" y2="20" stroke="var(--gold)" stroke-width="2.6" stroke-linecap="round"/><line x1="12" y1="12" x2="19" y2="12" stroke="var(--gold)" stroke-width="2.6" stroke-linecap="round"/><line x1="12" y1="16" x2="17.5" y2="16" stroke="var(--gold)" stroke-width="2.6" stroke-linecap="round"/><line x1="12" y1="20" x2="19" y2="20" stroke="var(--gold)" stroke-width="2.6" stroke-linecap="round"/></svg>EDGE<span>.</span></a>
     <div class="topbar-user">
       <a class="topbar-link" href="feed.html">Лента ставок</a>
-      <a class="topbar-link" href="index.html">Войти в EDGE</a>
+      <span id="topbarAuthArea"><a class="topbar-link" href="index.html">Войти в EDGE</a></span>
     </div>
   </div>
 </div>
@@ -78,7 +78,23 @@
     classifyMarket, teamKeysForBet, renderBetsFlatTable,
     computeCardTrend, renderSparkline, renderWlpBars, renderTopBetsPop, initStatCardPopovers,
     computeRatingTier, computeSpecialization, renderProfileBanner, wasEditedAfterSettle,
+    initEmailPrivacyToggle,
   } from './lib.js';
+
+  // 01.09.2026: та же правка, что и на feed.html — топбар раньше всегда
+  // показывал "Войти в EDGE", даже если человек уже залогинен в этом же
+  // браузере. getSession() ничего не редиректит сама по себе, просто
+  // красит топбар под реальное состояние.
+  supabase.auth.getSession().then(({ data: { session } }) => {
+    if (!session) return;
+    const area = document.getElementById('topbarAuthArea');
+    area.innerHTML = `<span id="userEmail">…</span><button id="logoutBtn" type="button" style="margin-left:14px;">Выйти</button>`;
+    initEmailPrivacyToggle(session.user.email);
+    document.getElementById('logoutBtn').addEventListener('click', async () => {
+      await supabase.auth.signOut();
+      window.location.reload();
+    });
+  });
 
   // Инициалы для аватара-заглушки, когда лого не загружено — до 2 букв,
   // из первых двух "слов" отображаемого имени (или username, если имени нет).
