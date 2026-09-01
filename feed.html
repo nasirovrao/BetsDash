@@ -89,9 +89,10 @@
           <div class="feed-side-title-row">
             <div class="feed-side-title">Топ капперы</div>
             <select id="leaderboardSort" class="feed-side-select">
-              <option value="rating">Рейтинг</option>
               <option value="roi">ROI</option>
               <option value="profit">Профит</option>
+              <option value="winrate">Винрейт</option>
+              <option value="rating">Рейтинг</option>
             </select>
           </div>
           <div id="leaderboardRoot"><div class="lb-empty">Загружаю…</div></div>
@@ -232,38 +233,59 @@
         rating: computeRatingTier(e.bets),
       }));
 
+    // 01.09.2026, по фидбоку: "Рейтинг" по умолчанию сбивал с толку — его
+    // число растёт почти линейно от ЧИСЛА ставок (см. computeRatingTier в
+    // lib.js), выглядит как "у кого больше ставок, тот и топ", а не как
+    // качество игры. Дефолт — ROI, "Рейтинг" остаётся отдельным вариантом
+    // в списке, не главным. Плюс под именем теперь всегда видно реальное
+    // число ставок (winrateInfo) — откуда вообще взялась цифра ранжирования,
+    // не приходится гадать.
     function renderLeaderboard(sortKey) {
       if (!leaderboardEntries.length) {
         leaderboardRoot.innerHTML = `<div class="lb-empty">Пока нет капперов минимум с ${MIN_BETS_FOR_LEADERBOARD} ставками в истории.</div>`;
         return;
       }
       const sorted = leaderboardEntries.slice().sort((a, b) => {
-        if (sortKey === 'roi') return (b.stats.roi ?? -Infinity) - (a.stats.roi ?? -Infinity);
         if (sortKey === 'profit') return b.stats.totalProfit - a.stats.totalProfit;
-        return b.rating.score - a.rating.score;
+        if (sortKey === 'winrate') return (b.stats.winrate ?? -Infinity) - (a.stats.winrate ?? -Infinity);
+        if (sortKey === 'rating') return b.rating.score - a.rating.score;
+        return (b.stats.roi ?? -Infinity) - (a.stats.roi ?? -Infinity);
       }).slice(0, 5);
       leaderboardRoot.innerHTML = sorted.map((e, i) => {
         const name = escapeHtml(e.profile.display_name || e.profile.username);
+        const betsSub = `${e.stats.total} ${ruCount(e.stats.total, 'ставка', 'ставки', 'ставок')}`;
         let valueHtml;
-        if (sortKey === 'roi') {
-          const roi = e.stats.roi;
-          valueHtml = `<span class="lb-value ${roi > 0 ? 'pos' : roi < 0 ? 'neg' : ''}">${roi == null ? '—' : (roi >= 0 ? '+' : '') + roi.toFixed(1) + '%'}</span>`;
-        } else if (sortKey === 'profit') {
+        if (sortKey === 'profit') {
           const p = e.stats.totalProfit;
           valueHtml = `<span class="lb-value ${p > 0 ? 'pos' : p < 0 ? 'neg' : ''}">${fmtMoney(p)}</span>`;
-        } else {
+        } else if (sortKey === 'winrate') {
+          const wr = e.stats.winrate;
+          valueHtml = `<span class="lb-value">${wr == null ? '—' : wr.toFixed(1) + '%'}</span>`;
+        } else if (sortKey === 'rating') {
           valueHtml = `<span class="lb-value">${e.rating.score}</span>`;
+        } else {
+          const roi = e.stats.roi;
+          valueHtml = `<span class="lb-value ${roi > 0 ? 'pos' : roi < 0 ? 'neg' : ''}">${roi == null ? '—' : (roi >= 0 ? '+' : '') + roi.toFixed(1) + '%'}</span>`;
         }
         return `
         <a class="lb-item" href="public.html?u=${encodeURIComponent(e.profile.username)}">
           <span class="lb-rank">${i + 1}</span>
           <span class="lb-info">
             <span class="lb-name">${name}</span>
-            <span class="lb-sub">@${escapeHtml(e.profile.username)}</span>
+            <span class="lb-sub">${betsSub}</span>
           </span>
           ${valueHtml}
         </a>`;
       }).join('');
+    }
+    // "ruCount" — то же русское склонение, что уже используется в других
+    // местах проекта (dashboard.html и т.п.), локальная копия — общего
+    // экспортируемого варианта под именно эти три формы в lib.js ещё нет.
+    function ruCount(n, one, few, many) {
+      const mod10 = n % 10, mod100 = n % 100;
+      if (mod10 === 1 && mod100 !== 11) return one;
+      if (mod10 >= 2 && mod10 <= 4 && !(mod100 >= 12 && mod100 <= 14)) return few;
+      return many;
     }
     renderLeaderboard(leaderboardSort.value);
     leaderboardSort.addEventListener('change', () => renderLeaderboard(leaderboardSort.value));
