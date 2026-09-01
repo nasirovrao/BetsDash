@@ -41,10 +41,11 @@
   .feed-side-block .feed-filter-row{ margin:12px 0 0; }
   .lb-empty{ font-size:12px; color:var(--ink-faint); margin-top:10px; line-height:1.5; }
   .lb-item{
-    display:flex; align-items:center; gap:9px; padding:8px 0; text-decoration:none; color:inherit;
+    display:flex; align-items:center; gap:6px; padding:8px 0;
     border-bottom:1px solid var(--line-soft);
   }
   .lb-item:last-child{ border-bottom:none; }
+  .lb-item-link{ display:flex; align-items:center; gap:9px; min-width:0; flex:1; text-decoration:none; color:inherit; }
   .lb-item:hover .lb-name{ color:var(--gold); }
   .lb-rank{ font-family:'JetBrains Mono', monospace; font-size:11px; color:var(--ink-faint); width:14px; flex:none; }
   .lb-info{ min-width:0; flex:1; }
@@ -56,6 +57,43 @@
   .lb-value{ font-family:'JetBrains Mono', monospace; font-size:12px; font-weight:600; flex:none; color:var(--ink); }
   .lb-value.pos{ color:var(--teal); }
   .lb-value.neg{ color:var(--rust); }
+
+  /* 01.09.2026: фильтр по капперу + букмекеру (по факту скрина "Детальная
+     статистика" — По букмекерам/По капперам уже есть как признанная категория
+     в других разделах сайта, значит это реальные, а не придуманные оси). */
+  .lb-filter-btn{
+    flex:none; width:24px; height:24px; border-radius:6px; border:1px solid transparent;
+    background:none; color:var(--ink-faint); display:flex; align-items:center; justify-content:center;
+    cursor:pointer; transition:color .15s ease, border-color .15s ease, background .15s ease;
+  }
+  .lb-filter-btn:hover, .lb-filter-btn:focus-visible{ color:var(--gold); border-color:var(--line); background:var(--bg-raised); }
+  .lb-filter-btn svg{ width:13px; height:13px; }
+
+  .feed-active-filters{ display:flex; flex-wrap:wrap; gap:8px; margin-bottom:14px; }
+  .feed-active-chip{
+    display:inline-flex; align-items:center; gap:6px; font-family:'JetBrains Mono', monospace;
+    font-size:11px; color:var(--ink); background:var(--bg-card); border:1px solid var(--line);
+    border-radius:999px; padding:5px 6px 5px 12px; text-decoration:none;
+  }
+  .feed-active-chip b{ font-weight:600; }
+  .feed-active-chip .x{
+    width:16px; height:16px; border-radius:50%; background:var(--bg-raised); color:var(--ink-faint);
+    display:flex; align-items:center; justify-content:center; font-size:12px; line-height:1;
+  }
+  .feed-active-chip:hover .x{ color:var(--rust); }
+
+  .feed-post-headline{ display:flex; align-items:center; gap:10px; min-width:0; flex:1; text-decoration:none; color:inherit; }
+  .feed-post-body{ display:block; text-decoration:none; color:inherit; }
+  .feed-name-link{ text-decoration:none; color:inherit; min-width:0; }
+  .feed-name-link:hover .feed-name-row{ color:var(--gold); }
+  .feed-post-filter{
+    flex:none; width:26px; height:26px; border-radius:7px; border:1px solid var(--line);
+    background:var(--bg-raised); color:var(--ink-faint); display:flex; align-items:center;
+    justify-content:center; cursor:pointer; text-decoration:none; transition:color .15s ease, border-color .15s ease;
+  }
+  .feed-post-filter:hover, .feed-post-filter:focus-visible{ color:var(--gold); border-color:var(--gold); }
+  .feed-post-filter svg{ width:12px; height:12px; }
+  .feed-bk{ font-family:'JetBrains Mono', monospace; }
 </style>
 </head>
 <body>
@@ -85,6 +123,10 @@
           <div class="feed-side-title">Результат</div>
           <div class="feed-filter-row" id="resultFilters"></div>
         </div>
+        <div class="feed-side-block" id="bkFilterBlock" style="display:none;">
+          <div class="feed-side-title">Букмекер</div>
+          <div class="feed-filter-row" id="bkFilters"></div>
+        </div>
         <div class="feed-side-block">
           <div class="feed-side-title-row">
             <div class="feed-side-title">Топ капперы</div>
@@ -99,6 +141,7 @@
         </div>
       </aside>
       <div class="feed-main">
+        <div class="feed-active-filters" id="activeFilters"></div>
         <div id="feedRoot"><div class="empty-state">Загружаю…</div></div>
       </div>
     </div>
@@ -112,16 +155,22 @@
   const params = new URLSearchParams(location.search);
   const disciplineFilter = params.get('d') || '';
   const resultFilter = params.get('r') || '';
+  const bkFilter = params.get('b') || '';
+  const authorFilter = params.get('u') || '';
 
-  // Строит ссылку на саму ленту с обоими фильтрами разом — переключение
-  // дисциплины не должно сбрасывать уже выбранный результат, и наоборот.
-  function feedHref(d, r) {
+  // Строит ссылку на саму ленту сразу со всеми фильтрами — переключение
+  // одного не должно сбрасывать остальные уже выбранные. Порядок аргументов
+  // фиксированный (d, r, b, u), вызовы ниже всегда передают все четыре.
+  function feedHref(d, r, b, u) {
     const p = new URLSearchParams();
     if (d) p.set('d', d);
     if (r) p.set('r', r);
+    if (b) p.set('b', b);
+    if (u) p.set('u', u);
     const qs = p.toString();
     return 'feed.html' + (qs ? '?' + qs : '');
   }
+  const FILTER_ICON = '<svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><polygon points="4 4 20 4 14 12.5 14 19 10 21 10 12.5 4 4"/></svg>';
 
   // 01.09.2026: страница публичная (работает и вообще без входа), но раньше
   // топбар ВСЕГДА показывал "Войти в EDGE", даже если человек уже залогинен
@@ -145,6 +194,9 @@
   const feedRoot = document.getElementById('feedRoot');
   const feedFilters = document.getElementById('feedFilters');
   const resultFilters = document.getElementById('resultFilters');
+  const bkFilterBlock = document.getElementById('bkFilterBlock');
+  const bkFilters = document.getElementById('bkFilters');
+  const activeFilters = document.getElementById('activeFilters');
   const leaderboardRoot = document.getElementById('leaderboardRoot');
   const leaderboardSort = document.getElementById('leaderboardSort');
 
@@ -189,8 +241,8 @@
     if (disciplines.length > 1) {
       feedFilters.style.display = '';
       const allActive = !disciplineFilter ? ' active' : '';
-      feedFilters.innerHTML = `<a href="${feedHref('', resultFilter)}"${allActive ? ' class="active"' : ''}>Все</a>` +
-        disciplines.map(d => `<a href="${feedHref(d, resultFilter)}"${d === disciplineFilter ? ' class="active"' : ''}>${escapeHtml(d)}</a>`).join('');
+      feedFilters.innerHTML = `<a href="${feedHref('', resultFilter, bkFilter, authorFilter)}"${allActive ? ' class="active"' : ''}>Все</a>` +
+        disciplines.map(d => `<a href="${feedHref(d, resultFilter, bkFilter, authorFilter)}"${d === disciplineFilter ? ' class="active"' : ''}>${escapeHtml(d)}</a>`).join('');
     }
 
     // Фильтр по результату (01.09.2026, по запросу) — та же механика, что и
@@ -200,10 +252,22 @@
     const resultsPresent = RESULT_ORDER.filter(r => items.some(it => it.bet.result === r));
     if (resultsPresent.length > 1) {
       const allActive = !resultFilter ? ' active' : '';
-      resultFilters.innerHTML = `<a href="${feedHref(disciplineFilter, '')}"${allActive ? ' class="active"' : ''}>Все</a>` +
-        resultsPresent.map(r => `<a href="${feedHref(disciplineFilter, r)}"${r === resultFilter ? ' class="active"' : ''}>${RES_LABEL[r]}</a>`).join('');
+      resultFilters.innerHTML = `<a href="${feedHref(disciplineFilter, '', bkFilter, authorFilter)}"${allActive ? ' class="active"' : ''}>Все</a>` +
+        resultsPresent.map(r => `<a href="${feedHref(disciplineFilter, r, bkFilter, authorFilter)}"${r === resultFilter ? ' class="active"' : ''}>${RES_LABEL[r]}</a>`).join('');
     } else {
       resultFilters.innerHTML = '';
+    }
+
+    // Фильтр по букмекеру (01.09.2026) — вместе с фильтром по капперу это
+    // и есть те две реальные оси из "Детальной статистики" (По букмекерам /
+    // По капперам), в отличие от диапазона кэфа и периода — от них решили
+    // отказаться как от несвойственных именно ленте метрик.
+    const bookmakers = Array.from(new Set(items.map(it => it.bet.bookmaker).filter(Boolean))).sort();
+    if (bookmakers.length > 1) {
+      bkFilterBlock.style.display = '';
+      const allActive = !bkFilter ? ' active' : '';
+      bkFilters.innerHTML = `<a href="${feedHref(disciplineFilter, resultFilter, '', authorFilter)}"${allActive ? ' class="active"' : ''}>Все</a>` +
+        bookmakers.map(b => `<a href="${feedHref(disciplineFilter, resultFilter, b, authorFilter)}"${b === bkFilter ? ' class="active"' : ''}>${escapeHtml(b)}</a>`).join('');
     }
 
     if (disciplineFilter) {
@@ -211,6 +275,24 @@
     }
     if (resultFilter) {
       items = items.filter(it => it.bet.result === resultFilter);
+    }
+    if (bkFilter) {
+      items = items.filter(it => it.bet.bookmaker === bkFilter);
+    }
+    if (authorFilter) {
+      items = items.filter(it => it.profile.username === authorFilter);
+    }
+
+    // Фильтр по капперу задаётся не списком в сайдбаре (капперов может быть
+    // много и не всех стоит перечислять), а кликом по иконке-воронке у имени
+    // в топе или прямо на карточке в ленте — активный фильтр показывается
+    // отдельным чипом над лентой, с крестиком для сброса.
+    if (authorFilter) {
+      const authorItem = results.flat().find(({ profile }) => profile.username === authorFilter);
+      const authorName = authorItem ? escapeHtml(authorItem.profile.display_name || authorItem.profile.username) : escapeHtml(authorFilter);
+      activeFilters.innerHTML = `<a class="feed-active-chip" href="${feedHref(disciplineFilter, resultFilter, bkFilter, '')}">Каппер: <b>${authorName}</b><span class="x">✕</span></a>`;
+    } else {
+      activeFilters.innerHTML = '';
     }
 
     // Топ капперы — считаем один раз по ПОЛНОМУ набору (results, ДО
@@ -268,14 +350,17 @@
           valueHtml = `<span class="lb-value ${roi > 0 ? 'pos' : roi < 0 ? 'neg' : ''}">${roi == null ? '—' : (roi >= 0 ? '+' : '') + roi.toFixed(1) + '%'}</span>`;
         }
         return `
-        <a class="lb-item" href="public.html?u=${encodeURIComponent(e.profile.username)}">
-          <span class="lb-rank">${i + 1}</span>
-          <span class="lb-info">
-            <span class="lb-name">${name}</span>
-            <span class="lb-sub">${betsSub}</span>
-          </span>
-          ${valueHtml}
-        </a>`;
+        <div class="lb-item">
+          <a class="lb-item-link" href="public.html?u=${encodeURIComponent(e.profile.username)}">
+            <span class="lb-rank">${i + 1}</span>
+            <span class="lb-info">
+              <span class="lb-name">${name}</span>
+              <span class="lb-sub">${betsSub}</span>
+            </span>
+            ${valueHtml}
+          </a>
+          <a class="lb-filter-btn" href="${feedHref(disciplineFilter, resultFilter, bkFilter, e.profile.username)}" title="Показать только его ставки в этой ленте" aria-label="Показать в ленте только ${name}">${FILTER_ICON}</a>
+        </div>`;
       }).join('');
     }
     // "ruCount" — то же русское склонение, что уже используется в других
@@ -307,27 +392,35 @@
         const matchTitle = bet.match || '';
         const pickTitle = bet.pick || '';
         const addedTitle = bet.created_at ? `Добавлено в систему: ${fmtDateTime(bet.created_at)}` : '';
+        const profileHref = `public.html?u=${encodeURIComponent(profile.username)}`;
+        const filterHref = feedHref(disciplineFilter, resultFilter, bkFilter, profile.username);
         return `
-        <a class="feed-post" href="public.html?u=${encodeURIComponent(profile.username)}" title="${escapeHtml(addedTitle)}">
+        <div class="feed-post">
           <div class="feed-post-head">
-            <div class="feed-avatar">${profile.logo_url ? `<img src="${escapeHtml(profile.logo_url)}" alt="">` : escapeHtml(initialsOf(profile.display_name || profile.username))}</div>
-            <div class="feed-who">
-              <div class="feed-name-row">${name}${profile.is_verified ? `<span class="feed-verify">${VERIFY_ICON}</span>` : ''}</div>
-              <div class="feed-handle">@${escapeHtml(profile.username)}</div>
-            </div>
+            <a class="feed-post-headline" href="${profileHref}" title="${escapeHtml(addedTitle)}">
+              <div class="feed-avatar">${profile.logo_url ? `<img src="${escapeHtml(profile.logo_url)}" alt="">` : escapeHtml(initialsOf(profile.display_name || profile.username))}</div>
+              <div class="feed-who">
+                <div class="feed-name-row">${name}${profile.is_verified ? `<span class="feed-verify">${VERIFY_ICON}</span>` : ''}</div>
+                <div class="feed-handle">@${escapeHtml(profile.username)}</div>
+              </div>
+            </a>
             <div class="feed-time">${fmtRelativeTime(bet.created_at || bet.bet_date)}</div>
+            <a class="feed-post-filter" href="${filterHref}" title="Показать только его ставки в этой ленте" aria-label="Показать в ленте только ${name}">${FILTER_ICON}</a>
           </div>
-          <div class="feed-tags">
-            <span class="res-pill ${cls}">${label}</span>
-            <span class="feed-disc">${escapeHtml(bet.discipline || '—')}</span>
-          </div>
-          ${matchTitle ? `<div class="feed-match">${escapeHtml(matchTitle)}</div>` : ''}
-          ${pickTitle && pickTitle !== matchTitle ? `<div class="feed-pick">${escapeHtml(pickTitle)}</div>` : ''}
-          <div class="feed-meta">
-            <span>Кэф <b>${bet.odds != null ? Number(bet.odds).toFixed(2) : '—'}</b></span>
-            ${bet.flat_mult ? `<span>Флет <b>${Number(bet.flat_mult).toFixed(2)}</b></span>` : ''}
-          </div>
-        </a>`;
+          <a class="feed-post-body" href="${profileHref}" title="${escapeHtml(addedTitle)}">
+            <div class="feed-tags">
+              <span class="res-pill ${cls}">${label}</span>
+              <span class="feed-disc">${escapeHtml(bet.discipline || '—')}</span>
+            </div>
+            ${matchTitle ? `<div class="feed-match">${escapeHtml(matchTitle)}</div>` : ''}
+            ${pickTitle && pickTitle !== matchTitle ? `<div class="feed-pick">${escapeHtml(pickTitle)}</div>` : ''}
+            <div class="feed-meta">
+              <span>Кэф <b>${bet.odds != null ? Number(bet.odds).toFixed(2) : '—'}</b></span>
+              ${bet.bookmaker ? `<span class="feed-bk">${escapeHtml(bet.bookmaker)}</span>` : ''}
+              ${bet.flat_mult ? `<span>Флет <b>${Number(bet.flat_mult).toFixed(2)}</b></span>` : ''}
+            </div>
+          </a>
+        </div>`;
       }).join('');
     }
   }
