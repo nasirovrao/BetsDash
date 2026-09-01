@@ -692,3 +692,20 @@ table.clv-table tbody tr.clv-row:hover .clv-match{ color: var(--gold); }
 }
 .channel-pill:hover{ color: var(--ink); border-color: var(--ink-faint); }
 .channel-pill.active{ color: var(--gold-ink); background: var(--gold); border-color: var(--gold); }
+
+/* 01.09.2026: у всех текстовых полей формы outline:none на :focus заменён
+   ТОЛЬКО сменой цвета границы на --gold (1px) — для клавиатурной навигации
+   (Tab) это слишком слабый сигнал "здесь сейчас фокус". Тот же паттерн
+   :focus-visible + видимый outline, что уже применён у .theme-toggle-btn
+   (styles-edge3.css) и .select-dropdown-btn (styles-edge4.css) — срабатывает
+   только при фокусе с клавиатуры (браузерная эвристика), не мешает обычному
+   клику мышью, поэтому существующий :focus{ outline:none; border-color:... }
+   выше не трогаем — оба правила работают вместе, не конфликтуют. */
+.field input:focus-visible,
+.leg-input:focus-visible,
+.filter-search:focus-visible,
+.feed-filters select:focus-visible,
+.match-input:focus-visible,
+.note-textarea:focus-visible,
+.pending-select:focus-visible,
+.mini-profit-input:focus-visible{ outline: 2px solid var(--gold); outline-offset: 2px; }

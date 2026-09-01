@@ -403,7 +403,10 @@ table.clv-table tbody tr.clv-row:has(.res-pill.loss) td:first-child{ box-shadow:
   --line-soft: #ece8f7;
   --ink: #1c1a2b;
   --ink-dim: #6b6580;
-  --ink-faint: #a29cb8;
+  /* 01.09.2026: было #a29cb8 — контраст на светлом фоне выходил ≈2.4:1,
+     ещё хуже тёмной темы (см. тот же фикс в styles-edge2.css). Затемнил до
+     ≈4.6:1. */
+  --ink-faint: #726c86;
 
   --gold: #7c3aed;
   --gold-ink: #ffffff;
