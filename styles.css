@@ -410,6 +410,17 @@ table.bets-table tbody tr:hover td.num{ color: var(--gold); }
 .bet-stat{ display:flex; flex-direction:column; gap:3px; min-width:56px; }
 .bet-stat-label{ font-family:'JetBrains Mono', monospace; font-size:9.5px; text-transform:uppercase; letter-spacing:0.05em; color: var(--ink-faint); }
 .bet-stat-value{ font-family:'JetBrains Mono', monospace; font-size:14px; color: var(--ink); font-variant-numeric: tabular-nums; }
+/* 01.09.2026: .pos-text/.neg-text (общие классы, объявлены выше в этом же
+   файле, строки ~298) при равной специфичности проигрывали правилу
+   .bet-stat-value{ color: var(--ink) } — побеждает последнее по порядку в
+   каскаде, а не по смыслу. Профит на карточке ставки (app.html) всегда
+   красился в обычный цвет текста, а не в зелёный/красный, на ОБЕИХ темах —
+   на тёмной было не так заметно, всплыло на скриншоте светлой. Составной
+   селектор здесь специфичнее одиночного класса, побеждает независимо от
+   порядка — тот же приём, что уже работает у .stat-value.pos/.neg в
+   styles-edge3.css, просто не был применён здесь. */
+.bet-stat-value.pos-text{ color: var(--teal); }
+.bet-stat-value.neg-text{ color: var(--rust); }
 .bet-card-actions{ display:flex; align-items:center; gap:2px; flex:none; }
 .bet-card-edit,
 .bet-card-del{
