@@ -145,6 +145,8 @@
         <a class="nav-dropdown-item" href="markets.html">Рынки</a>
         <a class="nav-dropdown-item" href="teams.html">Команды</a>
         <a class="nav-dropdown-item" href="segmentation.html">Сегментация</a>
+        <a class="nav-dropdown-item" href="tournaments.html">Турниры</a>
+        <a class="nav-dropdown-item" href="months.html">Месяцы</a>
       </div>
     </div>
     <a class="nav-pill" id="navEdgesPill" href="edges.html">Найденные эджи</a>
@@ -291,7 +293,6 @@
                 <option value="RUB">₽</option>
                 <option value="EUR">€</option>
                 <option value="KZT">₸</option>
-                <option value="UAH">₴</option>
               </select>
               <button type="button" id="stakeConvertBtn" class="btn btn-ghost stake-convert-btn" title="Сконвертировать сумму выше из выбранной валюты в доллары">→ $</button>
             </div>
@@ -471,7 +472,7 @@
   // Автоподстановка из "Флет по умолчанию" (см. applyDefaultFlatToStake
   // ниже) в любом случае откатит обратно на $ сама, как только сработает —
   // она всегда пишет доллары.
-  if (['RUB', 'EUR', 'KZT', 'UAH'].includes(dispCurrency)) stakeCurrencySelect.value = dispCurrency;
+  if (['RUB', 'EUR', 'KZT'].includes(dispCurrency)) stakeCurrencySelect.value = dispCurrency;
   const stakeConvertBtn = document.getElementById('stakeConvertBtn');
   const stakeConvertNote = document.getElementById('stakeConvertNote');
   function setStakeConvertNote(text, isErr) {
@@ -506,7 +507,7 @@
       stakeInput.value = usd.toFixed(2);
       applyStakeToFlat();
       stakeCurrencySelect.value = 'USD';
-      const symbol = { RUB: '₽', EUR: '€', KZT: '₸', UAH: '₴' }[currency] || currency;
+      const symbol = { RUB: '₽', EUR: '€', KZT: '₸' }[currency] || currency;
       setStakeConvertNote(`Сконвертировано из ${amount}${symbol} по курсу ~${rate.toFixed(5)} (курс на сейчас, может отличаться от курса на момент ставки).`);
       return true;
     } catch (e) {
@@ -1549,7 +1550,7 @@
     // пользователя личная валюта не доллар, возвращаем её обратно (та же
     // логика, что при первом открытии страницы, см. выше); applyDefaultFlatToStake
     // ниже в любом случае откатит на $ сама, если сработает.
-    if (['RUB', 'EUR', 'KZT', 'UAH'].includes(dispCurrency)) stakeCurrencySelect.value = dispCurrency;
+    if (['RUB', 'EUR', 'KZT'].includes(dispCurrency)) stakeCurrencySelect.value = dispCurrency;
     // betForm.reset() возвращает f_stake к HTML-дефолту (пусто) — если флет
     // по умолчанию задан, сразу подставляем сумму заново, как и при первом
     // открытии страницы (см. выше), а не оставляем поле пустым до первого

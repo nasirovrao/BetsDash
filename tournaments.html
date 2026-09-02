@@ -2,18 +2,23 @@
 <html lang="ru">
 <head>
 <meta charset="utf-8">
+<script>(function(){try{if(localStorage.getItem('edge-theme')==='light')document.documentElement.setAttribute('data-theme','light');}catch(e){}})();</script>
 <meta name="viewport" content="width=device-width, initial-scale=1">
 <title>Турниры — EDGE</title>
 <link rel="preconnect" href="https://fonts.googleapis.com">
 <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
-<link href="https://fonts.googleapis.com/css2?family=Space+Grotesk:wght@500;600;700&family=Inter:wght@400;500;600;700&family=JetBrains+Mono:wght@400;500;600&display=swap" rel="stylesheet">
-<link rel="stylesheet" href="styles.css?v=20">
+<link href="https://fonts.googleapis.com/css2?family=Unbounded:wght@600;700;800&family=Golos+Text:wght@400;500;600;700&family=JetBrains+Mono:wght@400;500;600&display=swap" rel="stylesheet">
+<link rel="stylesheet" href="styles.css?v=29">
+<!-- EDGE 2.0 — новая дизайн-система (палитра/типографика/фон), см. styles-edge2.css -->
+<link rel="stylesheet" href="styles-edge2.css?v=1">
+<link rel="stylesheet" href="styles-edge3.css?v=1">
+<script src="theme-toggle.js" defer></script>
 </head>
 <body>
 
 <div class="topbar">
   <div class="wrap">
-    <a class="brand" href="dashboard.html"><svg class="brand-mark" viewBox="0 0 32 32" width="20" height="20" aria-hidden="true"><path d="M16 2L28 12L22 30H10L4 12Z" fill="var(--gold)" opacity="0.16"/><path d="M16 2L28 12L16 18L4 12Z" fill="var(--gold)"/><path d="M16 18L28 12L22 30H16Z" fill="var(--gold)" opacity="0.55"/><path d="M16 18L4 12L10 30H16Z" fill="var(--gold)" opacity="0.75"/></svg>EDGE<span>.</span></a>
+    <a class="brand" href="dashboard.html"><svg class="brand-mark" viewBox="0 0 32 32" width="20" height="20" aria-hidden="true"><circle cx="16" cy="16" r="12" fill="none" stroke="var(--gold)" stroke-width="1.6" opacity="0.28"/><path d="M16 4 A12 12 0 0 1 26.9 12.3" fill="none" stroke="var(--gold)" stroke-width="3" stroke-linecap="round"/><line x1="12" y1="12" x2="12" y2="20" stroke="var(--gold)" stroke-width="2.6" stroke-linecap="round"/><line x1="12" y1="12" x2="19" y2="12" stroke="var(--gold)" stroke-width="2.6" stroke-linecap="round"/><line x1="12" y1="16" x2="17.5" y2="16" stroke="var(--gold)" stroke-width="2.6" stroke-linecap="round"/><line x1="12" y1="20" x2="19" y2="20" stroke="var(--gold)" stroke-width="2.6" stroke-linecap="round"/></svg>EDGE<span>.</span></a>
     <div class="topbar-user">
       <span id="userEmail">…</span>
       <button id="logoutBtn" type="button">Выйти</button>
@@ -23,18 +28,40 @@
 
 <nav class="app-nav">
   <div class="wrap">
-    <a class="nav-pill" href="dashboard.html">Дашборд</a>
-    <a class="nav-pill" href="app.html">Ставки</a>
-    <a class="nav-pill" href="bank.html">Выводы и банк</a>
-    <a class="nav-pill" href="disciplines.html">По дисциплинам</a>
-    <a class="nav-pill" href="bookmakers.html">По букмекерам</a>
-    <a class="nav-pill" href="markets.html">Рынки</a>
-    <a class="nav-pill" href="teams.html">Команды</a>
-    <a class="nav-pill active" href="tournaments.html">Турниры</a>
-    <a class="nav-pill" href="months.html">Месяцы</a>
-    <a class="nav-pill" href="segmentation.html">Сегментация</a>
-    <a class="nav-pill" href="edges.html">Найденные эджи</a>
+    <a class="nav-pill" id="navFeedPill" href="feed.html">Лента ставок</a>
+    <a class="nav-pill" id="navDashboardPill" href="dashboard.html">Дашборд</a>
+    <a class="nav-pill" id="navAppPill" href="app.html">Ставки</a>
+    <a class="nav-pill" id="navBankPill" href="bank.html">Выводы и банк</a>
+    <div class="nav-pill nav-dropdown active" id="statsDropdown">
+      <button type="button" class="nav-dropdown-btn" id="statsDropdownBtn" aria-haspopup="true" aria-expanded="false">
+        Детальная статистика
+        <svg class="nav-dropdown-caret" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><path d="M6 9l6 6 6-6" stroke-linecap="round" stroke-linejoin="round"/></svg>
+      </button>
+      <div class="nav-dropdown-panel" id="statsDropdownPanel" hidden>
+        <a class="nav-dropdown-item" href="disciplines.html">По дисциплинам</a>
+        <a class="nav-dropdown-item" href="bookmakers.html">По букмекерам</a>
+        <a class="nav-dropdown-item" href="cappers.html">По капперам</a>
+        <a class="nav-dropdown-item" href="markets.html">Рынки</a>
+        <a class="nav-dropdown-item" href="teams.html">Команды</a>
+        <a class="nav-dropdown-item" href="segmentation.html">Сегментация</a>
+        <a class="nav-dropdown-item active" href="tournaments.html">Турниры</a>
+        <a class="nav-dropdown-item" href="months.html">Месяцы</a>
+      </div>
+    </div>
+    <a class="nav-pill" id="navEdgesPill" href="edges.html">Найденные эджи</a>
     <a class="nav-pill" id="navClvPill" href="clv.html" style="display:none;">CLV Tracker</a>
+    <div class="nav-pill nav-dropdown" id="settingsDropdown">
+      <button type="button" class="nav-dropdown-btn" id="settingsDropdownBtn" aria-haspopup="true" aria-expanded="false">
+        Настройки
+        <svg class="nav-dropdown-caret" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><path d="M6 9l6 6 6-6" stroke-linecap="round" stroke-linejoin="round"/></svg>
+      </button>
+      <div class="nav-dropdown-panel" id="settingsDropdownPanel" hidden>
+        <a class="nav-dropdown-item" id="navProfileSettingsItem" href="profile-settings.html">Публичный профиль</a>
+        <a class="nav-dropdown-item" id="navChannelTeamItem" href="channel-team.html">Доступ к каналу</a>
+        <a class="nav-dropdown-item" id="navTelegramImportItem" href="telegram-import.html">Telegram-импорт</a>
+        <a class="nav-dropdown-item" href="personal-settings.html">Личные настройки</a>
+      </div>
+    </div>
   </div>
 </nav>
 
@@ -44,17 +71,21 @@
       <h2>Турниры</h2>
       <div class="section-note">Мини-дашборд по каждому турниру из поля «Турнир». Клик по карточке — полная статистика и список ставок.</div>
     </div>
+    <div id="channelSwitch"></div>
     <div id="breakdownRoot"><div class="empty-state">Загружаю…</div></div>
   </div>
 </section>
 
 <script type="module">
   import { supabase, requireSession, isClvEnabled } from './supabase-client.js';
-  import { groupBets, renderGroupCards, renderBreakdownDetail } from './lib.js';
+  import { groupBets, renderGroupCards, renderBreakdownDetail, getChannelParams, loadMyChannels, renderChannelSwitch, preserveChannelInNav, channelHref, initEmailPrivacyToggle, initNavDropdown, applyNavModes, getDisplayCurrency } from './lib.js';
 
   const session = await requireSession();
   if (session) {
-    document.getElementById('userEmail').textContent = session.user.email;
+    initEmailPrivacyToggle(session.user.email);
+    initNavDropdown('statsDropdown');
+    initNavDropdown('settingsDropdown');
+    applyNavModes(supabase, session.user.id);
   }
   isClvEnabled().then(on => { if (on) document.getElementById('navClvPill').style.display = ''; });
   document.getElementById('logoutBtn').addEventListener('click', async () => {
@@ -62,19 +93,37 @@
     window.location.href = 'index.html';
   });
 
+  // 02.09.2026: страница полностью переписана — старая версия (styles.css?v=20,
+  // отдельные старые шрифты, плоский список <a class="nav-pill"> без выпадашки
+  // "Детальная статистика", и главное — .from('bets').select('*') БЕЗ фильтра
+  // по каналу/пользователю вообще) была заброшена ещё до появления
+  // channel-архитектуры и просто не обновлялась вместе с остальными
+  // разбивками. Теперь 1:1 по тому же паттерну, что bookmakers.html/
+  // disciplines.html/markets.html и т.д.
+  const { channel: activeChannel, owner: ownerParam } = getChannelParams();
+  const ownerUserId = ownerParam || session.user.id;
+  preserveChannelInNav(activeChannel, ownerUserId, session.user.id);
+  const pageFile = channelHref('tournaments.html', activeChannel, ownerUserId, session.user.id);
+  const { currency: dispCurrency, rate: dispRate } = await getDisplayCurrency(supabase, session.user.id);
+
+  loadMyChannels(supabase, session.user.id).then(channels => {
+    document.getElementById('channelSwitch').innerHTML =
+      renderChannelSwitch(channels, activeChannel, ownerUserId, 'tournaments.html');
+  });
+
   const root = document.getElementById('breakdownRoot');
   const keyParam = new URLSearchParams(location.search).get('key');
 
-  const { data, error } = await supabase.from('bets').select('*');
+  const { data, error } = await supabase.from('bets').select('*').eq('user_id', ownerUserId).eq('channel', activeChannel);
   if (error) {
     root.innerHTML = `<div class="empty-state">Ошибка загрузки: ${error.message}</div>`;
   } else {
     const groups = groupBets(data, b => b.tournament);
     if (keyParam) {
       const group = groups.find(g => g.key === keyParam);
-      root.innerHTML = renderBreakdownDetail('Турнир', keyParam, group, 'tournaments.html');
+      root.innerHTML = renderBreakdownDetail('Турнир', keyParam, group, pageFile, false, dispCurrency, dispRate);
     } else {
-      root.innerHTML = renderGroupCards(groups, 'Турнир', 'tournaments.html');
+      root.innerHTML = renderGroupCards(groups, 'Турнир', pageFile, dispCurrency, dispRate);
     }
   }
 </script>

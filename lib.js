@@ -7,7 +7,7 @@
 // число показывается КОНКРЕТНОМУ зрителю. currency/rate необязательны
 // (по умолчанию USD, rate=1) — старый код, вызывающий fmtMoney(n) одним
 // аргументом, продолжает работать ровно как раньше, ничего не ломается.
-export const CURRENCY_SYMBOLS = { USD: '$', RUB: '₽', EUR: '€', KZT: '₸', UAH: '₴' };
+export const CURRENCY_SYMBOLS = { USD: '$', RUB: '₽', EUR: '€', KZT: '₸' };
 
 export function fmtMoney(n, currency = 'USD', rate = 1) {
   const converted = n * rate;

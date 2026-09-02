@@ -4,7 +4,7 @@
 --
 -- ЧТО ДОБАВЛЕНО:
 -- profiles.display_currency — ЛИЧНАЯ настройка каждого пользователя, ЧТО
--- показывать (доллары/рубли/евро/тенге/гривны) на его дашбордах, в дневнике,
+-- показывать (доллары/рубли/евро/тенге) на его дашбордах, в дневнике,
 -- банке, публичном профиле, ленте. НЕ меняет то, как данные ХРАНЯТСЯ —
 -- bets.stake, withdrawals.amount и всё остальное как было в долларах, так
 -- и остаётся, для абсолютно всех пользователей, старых и новых. Меняется
@@ -32,4 +32,4 @@ alter table public.profiles add column if not exists display_currency text not n
 
 alter table public.profiles drop constraint if exists profiles_display_currency_check;
 alter table public.profiles add constraint profiles_display_currency_check
-  check (display_currency in ('USD', 'RUB', 'EUR', 'KZT', 'UAH'));
+  check (display_currency in ('USD', 'RUB', 'EUR', 'KZT'));

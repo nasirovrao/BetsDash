@@ -148,8 +148,8 @@ const BET_TOOL = {
             stake: { type: ['number', 'null'], description: 'Сумма ставки, если явно указана числом, В ТОЙ ВАЛЮТЕ, В КОТОРОЙ ОНА УКАЗАНА (не конвертируй сам). null, если не указана.' },
             stake_currency: {
               type: ['string', 'null'],
-              enum: ['USD', 'RUB', 'EUR', 'KZT', 'UAH', null],
-              description: 'Валюта суммы ставки — по символу/коду рядом с числом (₽/руб/RUB → RUB, $/USD → USD, €/EUR → EUR, ₸/KZT → KZT, ₴/грн/UAH → UAH). null, если не удалось определить — тогда считается уже долларами.',
+              enum: ['USD', 'RUB', 'EUR', 'KZT', null],
+              description: 'Валюта суммы ставки — по символу/коду рядом с числом (₽/руб/RUB → RUB, $/USD → USD, €/EUR → EUR, ₸/KZT → KZT). null, если не удалось определить — тогда считается уже долларами.',
             },
             result: {
               type: ['string', 'null'],
