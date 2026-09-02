@@ -239,16 +239,22 @@
               <select id="f_bookmaker" required></select>
               <button type="button" id="bookmakerAddBtn" class="discipline-add-btn" title="Добавить нового букмекера" aria-label="Добавить нового букмекера">+</button>
             </div>
-            <div class="discipline-add-row" id="bookmakerAddRow">
-              <input type="text" id="bookmakerNewInput" placeholder="Например: Betcity" autocomplete="off">
-              <button type="button" id="bookmakerConfirmBtn" class="btn btn-primary discipline-add-confirm">Добавить</button>
-              <button type="button" id="bookmakerCancelBtn" class="discipline-add-cancel" title="Отмена" aria-label="Отмена">✕</button>
+            <div class="bookmaker-add-block" id="bookmakerAddRow">
+              <div class="bookmaker-add-row">
+                <input type="text" id="bookmakerNewInput" placeholder="Например: Betcity" autocomplete="off">
+                <button type="button" id="bookmakerConfirmBtn" class="btn btn-primary discipline-add-confirm">Добавить</button>
+                <button type="button" id="bookmakerCancelBtn" class="discipline-add-cancel" title="Отмена" aria-label="Отмена">✕</button>
+              </div>
+              <input type="text" id="bookmakerNoteInput" class="bookmaker-note-input" placeholder="Необязательно: как выглядит интерфейс (цвета, иконки, вёрстка) — поможет распознавать его скриншоты" autocomplete="off">
             </div>
           </div>
           <div class="field">
             <label for="f_tournament">Турнир</label>
-            <input id="f_tournament" type="text" placeholder="Esports World Cup" list="tournamentList" autocomplete="off">
-            <datalist id="tournamentList"></datalist>
+            <div class="combo-row">
+              <input id="f_tournament" type="text" placeholder="Esports World Cup" autocomplete="off">
+              <button type="button" id="tournamentToggleBtn" class="combo-toggle-btn" title="Показать сохранённые турниры" aria-label="Показать сохранённые турниры">▾</button>
+              <div class="combo-list" id="tournamentComboList"></div>
+            </div>
           </div>
           <div class="field" id="f_matchField">
             <label for="f_match">Матч</label>
@@ -428,8 +434,13 @@
   // сохранения нужен именно insert(), а не update().
   let customDisciplines = [];
   let customBookmakers = [];
+  // {имя_букмекера: "как выглядит его интерфейс"} — необязательные заметки,
+  // добавленные вместе с кнопкой "+" у "Букмекер" (schema_milestone29.sql).
+  // Передаются в parse-bet-screenshot как подсказка модели для узнавания
+  // незнакомых интерфейсов на будущих скриншотах — см. confirmAddBookmaker.
+  let bookmakerNotes = {};
   let settingsRowExists = false;
-  supabase.from('settings').select('default_flat_size, custom_disciplines, custom_bookmakers').eq('user_id', ownerUserId).eq('channel', activeChannel).maybeSingle()
+  supabase.from('settings').select('default_flat_size, custom_disciplines, custom_bookmakers, bookmaker_notes').eq('user_id', ownerUserId).eq('channel', activeChannel).maybeSingle()
     .then(({ data, error }) => {
       // Известная ловушка (.maybeSingle() на составном ключе user_id+channel,
       // см. CLV Tracker-баг в HISTORY.md): если по этому user_id+channel почему-то
@@ -444,6 +455,7 @@
       defaultFlatSize = data && data.default_flat_size != null ? Number(data.default_flat_size) : null;
       customDisciplines = data && Array.isArray(data.custom_disciplines) ? data.custom_disciplines : [];
       customBookmakers = data && Array.isArray(data.custom_bookmakers) ? data.custom_bookmakers : [];
+      bookmakerNotes = data && data.bookmaker_notes && typeof data.bookmaker_notes === 'object' ? data.bookmaker_notes : {};
       renderDisciplineOptions();
       renderBookmakerOptions();
       // Подставляем сразу при открытии формы "Добавить ставку" (флет там
@@ -500,7 +512,10 @@
   const disciplineCancelBtn = document.getElementById('disciplineCancelBtn');
   const bookmakerConfirmBtn = document.getElementById('bookmakerConfirmBtn');
   const bookmakerCancelBtn = document.getElementById('bookmakerCancelBtn');
-  const tournamentList = document.getElementById('tournamentList');
+  const bookmakerNoteInput = document.getElementById('bookmakerNoteInput');
+  const tournamentInput = document.getElementById('f_tournament');
+  const tournamentToggleBtn = document.getElementById('tournamentToggleBtn');
+  const tournamentComboList = document.getElementById('tournamentComboList');
   const edgeList = document.getElementById('edgeList');
   const betForm = document.getElementById('betForm');
   const betFormBlock = document.getElementById('betFormBlock');
@@ -1114,6 +1129,7 @@
     bookmakerAddRow.classList.add('is-open');
     bookmakerAddBtn.style.display = 'none';
     bookmakerNewInput.value = '';
+    bookmakerNoteInput.value = '';
     bookmakerNewInput.focus();
   });
   function closeBookmakerAddRow(){
@@ -1129,30 +1145,39 @@
   async function confirmAddBookmaker(){
     const name = bookmakerNewInput.value.trim();
     if (!name) return;
+    const note = bookmakerNoteInput.value.trim();
     const exists = [...DEFAULT_BOOKMAKERS, ...customBookmakers].some(n => n.toLowerCase() === name.toLowerCase());
-    if (exists) {
-      // Уже есть в списке (свой или базовый) — просто выбираем его, ничего
-      // заново сохранять не нужно.
+    const canonicalName = exists
+      ? [...DEFAULT_BOOKMAKERS, ...customBookmakers].find(n => n.toLowerCase() === name.toLowerCase())
+      : name;
+    if (exists && !note) {
+      // Уже есть в списке (свой или базовый) и заметку не дописали —
+      // просто выбираем его, ничего заново сохранять не нужно.
       renderBookmakerOptions();
-      bookmakerSelect.value = [...DEFAULT_BOOKMAKERS, ...customBookmakers].find(n => n.toLowerCase() === name.toLowerCase());
+      bookmakerSelect.value = canonicalName;
       closeBookmakerAddRow();
       return;
     }
     bookmakerConfirmBtn.disabled = true;
-    const updated = [...customBookmakers, name];
-    const payload = { custom_bookmakers: updated };
+    const updated = exists ? customBookmakers : [...customBookmakers, name];
+    // Заметку сохраняем даже для уже существующего букмекера (canonicalName)
+    // — так можно дописать/поправить описание стиля позже, не только в
+    // момент первого добавления.
+    const updatedNotes = note ? { ...bookmakerNotes, [canonicalName]: note } : bookmakerNotes;
+    const payload = { custom_bookmakers: updated, bookmaker_notes: updatedNotes };
     const { error } = settingsRowExists
       ? await supabase.from('settings').update(payload).eq('user_id', ownerUserId).eq('channel', activeChannel)
       : await supabase.from('settings').insert({ user_id: ownerUserId, channel: activeChannel, ...payload });
     bookmakerConfirmBtn.disabled = false;
     if (error) {
-      formStatus.textContent = 'Не удалось сохранить нового букмекера: ' + error.message;
+      formStatus.textContent = 'Не удалось сохранить букмекера: ' + error.message;
       return;
     }
     settingsRowExists = true;
     customBookmakers = updated;
+    bookmakerNotes = updatedNotes;
     renderBookmakerOptions();
-    bookmakerSelect.value = name;
+    bookmakerSelect.value = canonicalName;
     closeBookmakerAddRow();
   }
 
@@ -1239,10 +1264,56 @@
   // подсказки из уже введённых своих же турниров (без дефолтного набора —
   // в отличие от дисциплины, тут нет разумного фиксированного стартового
   // списка, всё приходит из данных).
+  //
+  // 02.09.2026: раньше был браузерный datalist — тот же баг-репорт, что и
+  // у "Букмекер" ("жму на раскрыть список, он не раскрывается"). Турнир
+  // остаётся свободным текстом (в отличие от Букмекера НЕ переведён в
+  // <select> — турниров слишком много и они разные почти на каждой ставке),
+  // но список сохранённых теперь раскрывается по клику на кнопку-стрелку
+  // и фильтруется по мере набора текста — реальный кликабельный дропдаун,
+  // а не невидимая браузерная подсказка.
+  let tournamentNames = [];
   function updateTournamentList(data){
-    const names = Array.from(new Set(data.map(b => (b.tournament || '').trim()).filter(Boolean))).sort();
-    tournamentList.innerHTML = names.map(n => `<option value="${escapeHtml(n)}"></option>`).join('');
+    tournamentNames = Array.from(new Set(data.map(b => (b.tournament || '').trim()).filter(Boolean))).sort((a, b) => a.localeCompare(b, 'ru'));
+    renderTournamentCombo();
   }
+  function renderTournamentCombo(){
+    const q = tournamentInput.value.trim().toLowerCase();
+    const filtered = q ? tournamentNames.filter(n => n.toLowerCase().includes(q)) : tournamentNames;
+    tournamentComboList.innerHTML = filtered.length
+      ? filtered.map(n => `<button type="button" data-val="${escapeHtml(n)}">${escapeHtml(n)}</button>`).join('')
+      : `<div class="combo-empty">${tournamentNames.length ? 'Ничего не найдено' : 'Пока нет сохранённых турниров — начни печатать, чтобы добавить новый'}</div>`;
+  }
+  function openTournamentCombo(){
+    renderTournamentCombo();
+    tournamentComboList.classList.add('is-open');
+    tournamentToggleBtn.classList.add('is-open');
+  }
+  function closeTournamentCombo(){
+    tournamentComboList.classList.remove('is-open');
+    tournamentToggleBtn.classList.remove('is-open');
+  }
+  tournamentToggleBtn.addEventListener('click', () => {
+    if (tournamentComboList.classList.contains('is-open')) closeTournamentCombo();
+    else openTournamentCombo();
+  });
+  tournamentInput.addEventListener('input', () => {
+    if (tournamentComboList.classList.contains('is-open')) renderTournamentCombo();
+  });
+  tournamentInput.addEventListener('focus', openTournamentCombo);
+  tournamentComboList.addEventListener('click', e => {
+    const btn = e.target.closest('button[data-val]');
+    if (!btn) return;
+    tournamentInput.value = btn.getAttribute('data-val');
+    closeTournamentCombo();
+  });
+  // Клик мимо поля/списка — закрыть, как у любого обычного дропдауна.
+  document.addEventListener('click', e => {
+    if (!e.target.closest('.combo-row')) closeTournamentCombo();
+  });
+  tournamentInput.addEventListener('keydown', e => {
+    if (e.key === 'Escape') closeTournamentCombo();
+  });
 
   // Эдж-паттерны — та же идея, что и с букмекерами: вводишь метку один раз,
   // дальше она подсказывается автодополнением, чтобы одна и та же метка не
@@ -1708,7 +1779,11 @@
     try {
       const base64 = await fileToBase64(file);
       const { data, error } = await supabase.functions.invoke('parse-bet-screenshot', {
-        body: { image: base64, mimeType: file.type },
+        // bookmakerNotes — заметки о визуальном стиле незнакомых боту
+        // букмекеров, добавленные через "+" у поля "Букмекер" (см.
+        // confirmAddBookmaker, schema_milestone29.sql) — подмешиваются
+        // в промпт распознавания на сервере.
+        body: { image: base64, mimeType: file.type, bookmakerNotes },
       });
       if (error || !data || data.error) {
         // Ошибка лимита (429) приходит в том же поле data.error, что и любая

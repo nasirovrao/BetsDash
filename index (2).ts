@@ -126,7 +126,7 @@ const BET_TOOL = {
             bookmaker: {
               type: ['string', 'null'],
               description:
-                'Название букмекера. Если явного текста/логотипа с названием нет (актуально для скриншотов) — попробуй определить по узнаваемому фирменному визуальному стилю интерфейса (цветовая схема, иконки, шрифт, вёрстка — Fonbet/1xBet/Winline/Marathon/Betcity/Пари/Лига Ставок/Pinnacle и т.п.). Если определил ТОЛЬКО по стилю — обязательно добавь "Букмекер" в uncertain_fields. Для обычного текстового поста букмекер указывается, только если явно упомянут словами. Если ни того ни другого нет — null.',
+                'Название букмекера. Если явного текста/логотипа с названием нет (актуально для скриншотов) — попробуй определить по узнаваемому фирменному визуальному стилю интерфейса (цветовая схема, иконки, шрифт, вёрстка — Fonbet/1xBet/Winline/Marathon/Betcity/Пари/Лига Ставок/Pinnacle/Пинко(Pinco) и т.п.). Если определил ТОЛЬКО по стилю — обязательно добавь "Букмекер" в uncertain_fields. Для обычного текстового поста букмекер указывается, только если явно упомянут словами. Если ни того ни другого нет — null, и это НЕ повод считать всю ставку нераспознанной — незнакомый визуальный стиль конкретного букмекера не мешает распознать саму ставку (кэф/сумму/исход) по тексту/картинке.',
             },
             tournament: { type: ['string', 'null'], description: 'Название турнира/лиги, если указано.' },
             is_express: { type: 'boolean', description: 'true, если это экспресс (несколько событий одной ставкой), false для одиночной ставки.' },
@@ -399,6 +399,30 @@ Deno.serve(async (req: Request) => {
   const linkRow = linkRowRes.ok ? await linkRowRes.json().catch(() => null) : null;
   const targetChannel = linkRow?.channel || 'default';
 
+  // 02.09.2026: заметки о визуальном стиле букмекеров (settings.bookmaker_notes,
+  // schema_milestone29.sql) — то же самое ручное "обучение" незнакомым
+  // интерфейсам, что и в parse-bet-screenshot (см. комментарий там же),
+  // подмешивается в промпт ниже только для постов с картинкой (для
+  // текстовых постов визуальный стиль ни при чём).
+  const settingsRes = await supaFetch(
+    `settings?user_id=eq.${userId}&channel=eq.${encodeURIComponent(targetChannel)}&select=bookmaker_notes`,
+    { headers: { Accept: 'application/vnd.pgrst.object+json' } },
+    supabaseUrl, serviceKey,
+  );
+  const settingsRow = settingsRes.ok ? await settingsRes.json().catch(() => null) : null;
+  const bookmakerNotes = settingsRow?.bookmaker_notes && typeof settingsRow.bookmaker_notes === 'object' ? settingsRow.bookmaker_notes : {};
+  let bookmakerNotesBlock = '';
+  {
+    const lines = Object.entries(bookmakerNotes)
+      .filter(([name, note]) => typeof name === 'string' && typeof note === 'string' && (note as string).trim())
+      .map(([name, note]) => `- ${name}: ${(note as string).trim()}`);
+    if (lines.length) {
+      bookmakerNotesBlock =
+        ' Пользователь заранее описал, как выглядят интерфейсы некоторых букмекеров (сверься с этим списком в первую ' +
+        'очередь при определении bookmaker по визуальному стилю): ' + lines.join('; ') + '.';
+    }
+  }
+
   // Картинку скачиваем ДО фильтра/лимита — если скачать не удалось (и
   // текста тоже нет), тратить платный вызов модели незачем.
   let image: { base64: string; mimeType: string } | null = null;
@@ -454,7 +478,9 @@ Deno.serve(async (req: Request) => {
         (textOrCaption ? `, к посту есть подпись: "${textOrCaption}".` : ', подписи к посту нет.') +
         ' Определи, похоже ли это (картинка и/или подпись вместе) на объявление ставки, и если да — вызови record_bet_data строго по описанной схеме. ' +
         'Если букмекер не назван явно текстом/логотипом на картинке — попробуй определить его по узнаваемому фирменному визуальному стилю интерфейса ' +
-        'и обязательно отметь это в uncertain_fields той ставки. Если это не похоже на ставку — detected: false, bets: [].',
+        'и обязательно отметь это в uncertain_fields той ставки. ВАЖНО: интерфейс конкретного букмекера тебе может быть незнаком — это НЕ повод считать ' +
+        'ставку нераспознанной, тогда просто bookmaker: null. Если на картинке видны признаки ставки (исход/пик, кэф, сумма, результат — не обязательно ' +
+        'все сразу) — это detected: true. Если это ДЕЙСТВИТЕЛЬНО не похоже на ставку — detected: false, bets: [].' + bookmakerNotesBlock,
     });
   } else {
     content.push({

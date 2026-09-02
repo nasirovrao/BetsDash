@@ -165,6 +165,54 @@ h1,h2{ font-family: 'Space Grotesk', -apple-system, sans-serif; font-weight: 600
   display:flex; align-items:center; justify-content:center; transition: border-color 0.15s ease, color 0.15s ease;
 }
 .discipline-add-cancel:hover{ border-color: var(--rust); color: var(--rust); }
+
+/* ---- Заметка о стиле букмекера (02.09.2026) — необязательное второе
+   поле в блоке добавления букмекера ("+" у "Букмекер"): свободный текст
+   про то, как выглядит его интерфейс (цвета, иконки, вёрстка). Отдельная
+   обёртка .bookmaker-add-block вместо переиспользования .discipline-add-row
+   — там жёстко задан display:flex в одну строку (см. комментарий выше),
+   а тут нужна колонка из двух строк (имя+кнопки, затем заметка). ---- */
+.bookmaker-add-block{ display:none; flex-direction:column; gap:8px; margin-top:8px; }
+.bookmaker-add-block.is-open{ display:flex; }
+.bookmaker-add-row{ display:flex; align-items:stretch; gap:8px; }
+.bookmaker-add-row input{ flex:1 1 auto; min-width:0; }
+.bookmaker-note-input{
+  font-family:'Inter', sans-serif; font-size:12.5px; padding:9px 12px; border:1px dashed var(--line);
+  border-radius: var(--radius); background: var(--bg-raised); color: var(--ink-dim);
+}
+.bookmaker-note-input:focus{ outline:none; border-style:solid; border-color: var(--gold); color: var(--ink); }
+
+/* ---- Турнир: свободный текст + кликабельный список сохранённых
+   (02.09.2026, тот же баг-репорт, что и у "Букмекер" — нативный datalist
+   не даёт ощущения рабочего дропдауна, "жму на раскрыть список, он не
+   раскрывается"). В отличие от "Букмекер" турниры НЕ переведены в
+   <select> — их слишком много и они разные почти на каждой ставке,
+   форсить "сначала добавь через +" было бы неудобно. Вместо этого —
+   обычный текстовый ввод (можно печатать что угодно, включая совсем
+   новый турнир) плюс отдельная кнопка со стрелкой, раскрывающая список
+   уже сохранённых турниров кликом — та же специфичность/порядок в
+   каскаде, что у блока "Дисциплина" выше, по той же причине. ---- */
+.combo-row{ position:relative; display:flex; align-items:stretch; gap:8px; }
+.combo-row input{ flex:1 1 auto; min-width:0; }
+.combo-toggle-btn{
+  flex:none; width:38px; height:38px; border-radius: var(--radius); border:1px solid var(--line);
+  background: var(--bg-raised); color: var(--ink-dim); font-size:11px; cursor:pointer;
+  display:flex; align-items:center; justify-content:center; transition: border-color 0.15s ease, color 0.15s ease;
+}
+.combo-toggle-btn:hover, .combo-toggle-btn.is-open{ border-color: var(--gold); color: var(--gold); }
+.combo-list{
+  display:none; position:absolute; top:calc(100% + 4px); left:0; right:0; z-index:20;
+  max-height:220px; overflow-y:auto; background: var(--bg-card); border:1px solid var(--line);
+  border-radius: var(--radius); box-shadow: var(--shadow);
+}
+.combo-list.is-open{ display:block; }
+.combo-list button{
+  display:block; width:100%; text-align:left; padding:9px 13px; background:none; border:none;
+  color: var(--ink); font-family:'Inter', sans-serif; font-size:13.5px; cursor:pointer;
+}
+.combo-list button:hover{ background: var(--bg-raised); color: var(--gold); }
+.combo-list .combo-empty{ padding:9px 13px; color: var(--ink-faint); font-size:13px; }
+
 .bet-form.editing{ border-color: var(--gold); }
 .auth-toggle{ margin-top:18px; text-align:center; font-size:13px; color: var(--ink-faint); }
 .auth-toggle a{ color: var(--gold); text-decoration:none; cursor:pointer; }
