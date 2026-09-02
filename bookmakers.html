@@ -72,13 +72,14 @@
       <div class="section-note">Кто из букмекеров реально приносит профит. Клик по карточке — полная статистика и список ставок.</div>
     </div>
     <div id="channelSwitch"></div>
+    <div id="hideBookmakerPanel"></div>
     <div id="breakdownRoot"><div class="empty-state">Загружаю…</div></div>
   </div>
 </section>
 
 <script type="module">
   import { supabase, requireSession, isClvEnabled } from './supabase-client.js';
-  import { groupBets, renderGroupCards, renderBreakdownDetail, getChannelParams, loadMyChannels, renderChannelSwitch, preserveChannelInNav, channelHref, initEmailPrivacyToggle, initNavDropdown, applyNavModes, getDisplayCurrency } from './lib.js';
+  import { groupBets, renderGroupCards, renderBreakdownDetail, escapeHtml, getChannelParams, loadMyChannels, renderChannelSwitch, preserveChannelInNav, channelHref, initEmailPrivacyToggle, initNavDropdown, applyNavModes, getDisplayCurrency } from './lib.js';
 
   const session = await requireSession();
   if (session) {
@@ -95,6 +96,7 @@
 
   const { channel: activeChannel, owner: ownerParam } = getChannelParams();
   const ownerUserId = ownerParam || session.user.id;
+  const isEditorView = ownerUserId !== session.user.id;
   preserveChannelInNav(activeChannel, ownerUserId, session.user.id);
   const pageFile = channelHref('bookmakers.html', activeChannel, ownerUserId, session.user.id);
   // "Валюта отображения" (personal-settings.html, schema_milestone30.sql).
@@ -106,13 +108,64 @@
   });
 
   const root = document.getElementById('breakdownRoot');
+  const hidePanel = document.getElementById('hideBookmakerPanel');
   const keyParam = new URLSearchParams(location.search).get('key');
+
+  // 02.09.2026: "скрывать букмекеров по запросу" — ставишь на Пинко, но не
+  // хочешь, чтобы это видели в ленте/публичном профиле. settingsRowExists
+  // нужен для insert-vs-update (тот же паттерн, что и в app.html у
+  // custom_bookmakers) — здесь тоже пишем в settings, только владелец
+  // канала может её менять (isEditorView скрывает панель целиком).
+  let hiddenBookmakers = [];
+  let settingsRowExists = false;
+  if (!isEditorView) {
+    const { data: settingsRow } = await supabase.from('settings').select('hidden_bookmakers').eq('user_id', ownerUserId).eq('channel', activeChannel).maybeSingle();
+    settingsRowExists = !!settingsRow;
+    hiddenBookmakers = settingsRow && Array.isArray(settingsRow.hidden_bookmakers) ? settingsRow.hidden_bookmakers : [];
+  }
+
+  async function toggleHiddenBookmaker(name, hide){
+    const updated = hide ? Array.from(new Set([...hiddenBookmakers, name])) : hiddenBookmakers.filter(n => n !== name);
+    const payload = { hidden_bookmakers: updated };
+    const { error } = settingsRowExists
+      ? await supabase.from('settings').update(payload).eq('user_id', ownerUserId).eq('channel', activeChannel)
+      : await supabase.from('settings').insert({ user_id: ownerUserId, channel: activeChannel, ...payload });
+    if (error) {
+      alert('Не удалось сохранить: ' + error.message);
+      return;
+    }
+    settingsRowExists = true;
+    hiddenBookmakers = updated;
+  }
+
+  function renderHidePanel(bookmakerNames){
+    if (isEditorView || keyParam || !bookmakerNames.length) {
+      hidePanel.innerHTML = '';
+      return;
+    }
+    hidePanel.innerHTML = `
+      <div class="bet-form" style="margin-bottom:22px;">
+        <h3>Скрыть от публики</h3>
+        <div class="section-note" style="margin-bottom:12px;">Отмеченные букмекеры не показываются посторонним (лента ставок, публичный профиль) — тебе самому в приватной статистике всегда видны реальные названия. Ставки на скрытого букмекера в публичных местах помечаются просто «Скрыто», а не пропадают из счёта.</div>
+        <div class="hide-bookmaker-list">
+          ${bookmakerNames.map(n => `
+            <label class="hide-bookmaker-row">
+              <input type="checkbox" data-bk="${escapeHtml(n)}" ${hiddenBookmakers.includes(n) ? 'checked' : ''}>
+              <span>${escapeHtml(n)}</span>
+            </label>`).join('')}
+        </div>
+      </div>`;
+    hidePanel.querySelectorAll('input[data-bk]').forEach(cb => {
+      cb.addEventListener('change', () => toggleHiddenBookmaker(cb.getAttribute('data-bk'), cb.checked));
+    });
+  }
 
   const { data, error } = await supabase.from('bets').select('*').eq('user_id', ownerUserId).eq('channel', activeChannel);
   if (error) {
     root.innerHTML = `<div class="empty-state">Ошибка загрузки: ${error.message}</div>`;
   } else {
     const groups = groupBets(data, b => b.bookmaker);
+    renderHidePanel(groups.map(g => g.key));
     if (keyParam) {
       const group = groups.find(g => g.key === keyParam);
       root.innerHTML = renderBreakdownDetail('Букмекер', keyParam, group, pageFile, true, dispCurrency, dispRate);

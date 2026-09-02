@@ -176,7 +176,14 @@
       if (betsErr) {
         tabRoot.innerHTML = `<div class="empty-state">Ошибка загрузки: ${escapeHtml(betsErr.message)}</div>`;
       } else {
-        const allBets = bets || [];
+        // 02.09.2026: "скрывать букмекеров по запросу" — settings.hidden_bookmakers
+        // (bookmakers.html, schema_milestone31.sql). Маскируем ЗДЕСЬ, один раз,
+        // до того как allBets попадёт в статистику/группировку/таблицу — так
+        // проще, чем протаскивать список скрытых имён через каждую функцию
+        // рендера отдельно, и ROI/винрейт/профит считаются как обычно (ставка
+        // остаётся в счёте, скрывается только название конкретного букмекера).
+        const hiddenBk = settings && Array.isArray(settings.hidden_bookmakers) ? settings.hidden_bookmakers : [];
+        const allBets = (bets || []).map(b => hiddenBk.includes(b.bookmaker) ? { ...b, bookmaker: 'Скрыто' } : b);
         const allWithdrawals = withdrawals || [];
         const startingBankroll = settings ? settings.starting_bankroll : 0;
 

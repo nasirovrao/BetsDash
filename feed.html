@@ -239,8 +239,17 @@
   } else {
     const results = await Promise.all(profiles.map(async p => {
       const channel = p.channel || 'cybervalue';
-      const { data: bets } = await supabase.from('bets').select('*').eq('user_id', p.user_id).eq('channel', channel);
-      return (bets || []).map(b => ({ bet: b, profile: p }));
+      const [{ data: bets }, { data: settingsRow }] = await Promise.all([
+        supabase.from('bets').select('*').eq('user_id', p.user_id).eq('channel', channel),
+        supabase.from('settings').select('hidden_bookmakers').eq('user_id', p.user_id).eq('channel', channel).maybeSingle(),
+      ]);
+      // 02.09.2026: "скрывать букмекеров по запросу" (bookmakers.html,
+      // schema_milestone31.sql) — тот же принцип, что и на public.html:
+      // маскируем название прямо здесь, один раз на каждого автора, до того
+      // как ставки попадут в саму ленту/фильтр по букмекеру/лидерборд.
+      const hiddenBk = settingsRow && Array.isArray(settingsRow.hidden_bookmakers) ? settingsRow.hidden_bookmakers : [];
+      const maskedBets = (bets || []).map(b => hiddenBk.includes(b.bookmaker) ? { ...b, bookmaker: 'Скрыто' } : b);
+      return maskedBets.map(b => ({ bet: b, profile: p }));
     }));
     let items = results.flat();
 
