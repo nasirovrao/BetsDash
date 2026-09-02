@@ -235,8 +235,15 @@
           </div>
           <div class="field">
             <label for="f_bookmaker">Букмекер</label>
-            <input id="f_bookmaker" type="text" placeholder="Pinnacle" list="bookmakerList" required autocomplete="off">
-            <datalist id="bookmakerList"></datalist>
+            <div class="discipline-select-row">
+              <select id="f_bookmaker" required></select>
+              <button type="button" id="bookmakerAddBtn" class="discipline-add-btn" title="Добавить нового букмекера" aria-label="Добавить нового букмекера">+</button>
+            </div>
+            <div class="discipline-add-row" id="bookmakerAddRow">
+              <input type="text" id="bookmakerNewInput" placeholder="Например: Betcity" autocomplete="off">
+              <button type="button" id="bookmakerConfirmBtn" class="btn btn-primary discipline-add-confirm">Добавить</button>
+              <button type="button" id="bookmakerCancelBtn" class="discipline-add-cancel" title="Отмена" aria-label="Отмена">✕</button>
+            </div>
           </div>
           <div class="field">
             <label for="f_tournament">Турнир</label>
@@ -420,8 +427,9 @@
   // молча не делает ничего (0 строк, без ошибки), поэтому для первого
   // сохранения нужен именно insert(), а не update().
   let customDisciplines = [];
+  let customBookmakers = [];
   let settingsRowExists = false;
-  supabase.from('settings').select('default_flat_size, custom_disciplines').eq('user_id', ownerUserId).eq('channel', activeChannel).maybeSingle()
+  supabase.from('settings').select('default_flat_size, custom_disciplines, custom_bookmakers').eq('user_id', ownerUserId).eq('channel', activeChannel).maybeSingle()
     .then(({ data, error }) => {
       // Известная ловушка (.maybeSingle() на составном ключе user_id+channel,
       // см. CLV Tracker-баг в HISTORY.md): если по этому user_id+channel почему-то
@@ -435,7 +443,9 @@
       settingsRowExists = !!data;
       defaultFlatSize = data && data.default_flat_size != null ? Number(data.default_flat_size) : null;
       customDisciplines = data && Array.isArray(data.custom_disciplines) ? data.custom_disciplines : [];
+      customBookmakers = data && Array.isArray(data.custom_bookmakers) ? data.custom_bookmakers : [];
       renderDisciplineOptions();
+      renderBookmakerOptions();
       // Подставляем сразу при открытии формы "Добавить ставку" (флет там
       // по умолчанию уже "1×" в разметке) — только если сумму ещё никто не
       // тронул, чтобы не перебить то, что пользователь уже успел ввести
@@ -477,14 +487,19 @@
   const emptyState = document.getElementById('emptyState');
   const countNote = document.getElementById('countNote');
   const formStatus = document.getElementById('formStatus');
-  const bookmakerList = document.getElementById('bookmakerList');
   const pickSourceList = document.getElementById('pickSourceList');
   const disciplineSelect = document.getElementById('f_discipline');
   const disciplineAddBtn = document.getElementById('disciplineAddBtn');
   const disciplineAddRow = document.getElementById('disciplineAddRow');
   const disciplineNewInput = document.getElementById('disciplineNewInput');
+  const bookmakerSelect = document.getElementById('f_bookmaker');
+  const bookmakerAddBtn = document.getElementById('bookmakerAddBtn');
+  const bookmakerAddRow = document.getElementById('bookmakerAddRow');
+  const bookmakerNewInput = document.getElementById('bookmakerNewInput');
   const disciplineConfirmBtn = document.getElementById('disciplineConfirmBtn');
   const disciplineCancelBtn = document.getElementById('disciplineCancelBtn');
+  const bookmakerConfirmBtn = document.getElementById('bookmakerConfirmBtn');
+  const bookmakerCancelBtn = document.getElementById('bookmakerCancelBtn');
   const tournamentList = document.getElementById('tournamentList');
   const edgeList = document.getElementById('edgeList');
   const betForm = document.getElementById('betForm');
@@ -1055,7 +1070,7 @@
     const channelLabel = activeChannel === 'default' ? 'Личный дневник' : activeChannel;
     const editorTag = isEditorView ? ' (ты — редактор)' : '';
     countNote.textContent = `${channelLabel}${editorTag} · ${allBets.length} ${allBets.length === 1 ? 'ставка' : 'ставок'}`;
-    updateBookmakerList(allBets);
+    renderBookmakerOptions();
     updatePickSourceList(allBets);
     renderDisciplineOptions();
     updateTournamentList(allBets);
@@ -1068,12 +1083,77 @@
     applyFilters();
   }
 
-  // Букмекеры, которые пользователь уже вводил, — предлагаются подсказкой
-  // при следующем вводе (без отдельной таблицы: просто уникальные значения
-  // из его же ставок).
-  function updateBookmakerList(data){
-    const names = Array.from(new Set(data.map(b => (b.bookmaker || '').trim()).filter(Boolean))).sort();
-    bookmakerList.innerHTML = names.map(n => `<option value="${escapeHtml(n)}"></option>`).join('');
+  // Букмекер — выпадающий список тем же паттерном, что и "Дисциплина"
+  // (см. renderDisciplineOptions): базовый набор (те же названия, что бот
+  // распознаёт по фирменному стилю на скриншотах/в Telegram — см. BET_TOOL
+  // в supabase/functions/telegram-webhook/index.ts) + свои, сохранённые
+  // через "+" (settings.custom_bookmakers, schema_milestone28.sql) + то,
+  // что уже встречается в самих ставках (старые записи со значением вне
+  // обоих списков — чтобы их можно было открыть на редактирование, не
+  // теряя значение).
+  //
+  // 02.09.2026: раньше было текстовым полем с браузерным datalist —
+  // список подсказок появлялся только при клике/наборе текста, без явной
+  // стрелки-дропдауна как у "Дисциплина"/"Уверенность"/"Тип ставки", что
+  // выглядело как нерабочее меню. Теперь тот же select-паттерн, что и у
+  // дисциплины — см. комментарий про specificity-баг в styles.css у
+  // .discipline-select-row, эти классы переиспользуются здесь же.
+  const DEFAULT_BOOKMAKERS = ['Pinnacle', '1xBet', 'Fonbet', 'Winline', 'Marathon', 'Betcity', 'Пари', 'Лига Ставок'];
+  function renderBookmakerOptions(){
+    const used = allBets.map(b => (b.bookmaker || '').trim()).filter(Boolean);
+    const all = new Set([...DEFAULT_BOOKMAKERS, ...customBookmakers, ...used]);
+    const extra = Array.from(all).filter(n => !DEFAULT_BOOKMAKERS.includes(n)).sort((a, b) => a.localeCompare(b, 'ru'));
+    const ordered = [...DEFAULT_BOOKMAKERS, ...extra];
+    const prevValue = bookmakerSelect.value;
+    bookmakerSelect.innerHTML = ordered.map(n => `<option value="${escapeHtml(n)}">${escapeHtml(n)}</option>`).join('');
+    if (prevValue && ordered.includes(prevValue)) bookmakerSelect.value = prevValue;
+  }
+  renderBookmakerOptions();
+
+  bookmakerAddBtn.addEventListener('click', () => {
+    bookmakerAddRow.classList.add('is-open');
+    bookmakerAddBtn.style.display = 'none';
+    bookmakerNewInput.value = '';
+    bookmakerNewInput.focus();
+  });
+  function closeBookmakerAddRow(){
+    bookmakerAddRow.classList.remove('is-open');
+    bookmakerAddBtn.style.display = '';
+  }
+  bookmakerCancelBtn.addEventListener('click', closeBookmakerAddRow);
+  bookmakerNewInput.addEventListener('keydown', e => {
+    if (e.key === 'Enter') { e.preventDefault(); confirmAddBookmaker(); }
+    if (e.key === 'Escape') { e.preventDefault(); closeBookmakerAddRow(); }
+  });
+  bookmakerConfirmBtn.addEventListener('click', confirmAddBookmaker);
+  async function confirmAddBookmaker(){
+    const name = bookmakerNewInput.value.trim();
+    if (!name) return;
+    const exists = [...DEFAULT_BOOKMAKERS, ...customBookmakers].some(n => n.toLowerCase() === name.toLowerCase());
+    if (exists) {
+      // Уже есть в списке (свой или базовый) — просто выбираем его, ничего
+      // заново сохранять не нужно.
+      renderBookmakerOptions();
+      bookmakerSelect.value = [...DEFAULT_BOOKMAKERS, ...customBookmakers].find(n => n.toLowerCase() === name.toLowerCase());
+      closeBookmakerAddRow();
+      return;
+    }
+    bookmakerConfirmBtn.disabled = true;
+    const updated = [...customBookmakers, name];
+    const payload = { custom_bookmakers: updated };
+    const { error } = settingsRowExists
+      ? await supabase.from('settings').update(payload).eq('user_id', ownerUserId).eq('channel', activeChannel)
+      : await supabase.from('settings').insert({ user_id: ownerUserId, channel: activeChannel, ...payload });
+    bookmakerConfirmBtn.disabled = false;
+    if (error) {
+      formStatus.textContent = 'Не удалось сохранить нового букмекера: ' + error.message;
+      return;
+    }
+    settingsRowExists = true;
+    customBookmakers = updated;
+    renderBookmakerOptions();
+    bookmakerSelect.value = name;
+    closeBookmakerAddRow();
   }
 
   // Источники пиков (капперы), которых пользователь уже вписывал — тот же
@@ -1446,6 +1526,24 @@
     disciplineSelect.value = trimmed;
   }
 
+  // Букмекер, которого ещё нет в списке (базовом или своих) — тот же
+  // принцип, что и у fillDisciplineFromParsed выше: добавляем ВРЕМЕННЫЙ
+  // пункт только в выпадашку, не пишем в settings.custom_bookmakers — пока
+  // ставка не сохранена, это черновик, а не подтверждённые данные.
+  function fillBookmakerFromParsed(name){
+    if (!name) return;
+    const trimmed = name.trim();
+    if (!trimmed) return;
+    const known = [...DEFAULT_BOOKMAKERS, ...customBookmakers];
+    const match = known.find(n => n.toLowerCase() === trimmed.toLowerCase());
+    if (match) { bookmakerSelect.value = match; return; }
+    const opt = document.createElement('option');
+    opt.value = trimmed;
+    opt.textContent = trimmed + ' (новый)';
+    bookmakerSelect.appendChild(opt);
+    bookmakerSelect.value = trimmed;
+  }
+
   function showParseBanner(html, low){
     parseReviewBanner.className = 'parse-review-banner' + (low ? ' low' : '');
     parseReviewBanner.innerHTML = html;
@@ -1509,7 +1607,7 @@
 
     if (bet.bet_date) document.getElementById('f_date').value = bet.bet_date;
     if (bet.discipline) fillDisciplineFromParsed(bet.discipline);
-    if (bet.bookmaker) document.getElementById('f_bookmaker').value = bet.bookmaker;
+    if (bet.bookmaker) fillBookmakerFromParsed(bet.bookmaker);
     if (bet.tournament) document.getElementById('f_tournament').value = bet.tournament;
     if (bet.stake != null) {
       stakeInput.value = Number(bet.stake).toFixed(2);
