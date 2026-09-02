@@ -185,7 +185,7 @@
 
 <script type="module">
   import { supabase, requireSession, isClvEnabled } from './supabase-client.js';
-  import { fmtMoney, computeStats, computeStreak, computeFlatStats, escapeHtml, monthKeyOf, monthLabelOf, dayKeyOf, dayLabelOf, weekKeyOf, weekLabelOf, renderWLP, getChannelParams, loadMyChannels, renderChannelSwitch, preserveChannelInNav, initEmailPrivacyToggle, initNavDropdown, applyNavModes, channelHref, computeCardTrend, renderSparkline, renderWlpBars, renderTopBetsPop, initStatCardPopovers, wasEditedAfterSettle } from './lib.js';
+  import { fmtMoney, computeStats, computeStreak, computeFlatStats, escapeHtml, monthKeyOf, monthLabelOf, dayKeyOf, dayLabelOf, weekKeyOf, weekLabelOf, renderWLP, getChannelParams, loadMyChannels, renderChannelSwitch, preserveChannelInNav, initEmailPrivacyToggle, initNavDropdown, applyNavModes, channelHref, computeCardTrend, renderSparkline, renderWlpBars, renderTopBetsPop, initStatCardPopovers, wasEditedAfterSettle, getDisplayCurrency } from './lib.js';
 
   const session = await requireSession();
   if (session) {
@@ -195,6 +195,12 @@
     applyNavModes(supabase, session.user.id);
   }
   isClvEnabled().then(on => { if (on) document.getElementById('navClvPill').style.display = ''; });
+
+  // "Валюта отображения" (personal-settings.html, schema_milestone30.sql) —
+  // личная настройка, не то, как хранятся данные (bets.stake всегда
+  // доллары). Один запрос на всю страницу, дальше передаётся во все
+  // fmtMoney()/renderTopBetsPop() ниже.
+  const { currency: dispCurrency, rate: dispRate } = await getDisplayCurrency(supabase, session.user.id);
 
   // Канал/владелец из ?channel=&owner= — тот же паттерн, что и на app.html,
   // чтобы "переключиться внутри дашборда" реально работало, а не только
@@ -316,9 +322,9 @@
       { label: 'Всего ставок', value: s.total, sub: s.pending ? `${s.pending} в ожидании` : '', href: appHref, pop: () => renderSparkline(computeCardTrend('total', filteredBets)) },
       { label: 'W / L / P', value: renderWLP(s.wins, s.losses, s.pushes), sub: '', href: appHref, pop: () => renderWlpBars(s.wins, s.losses, s.pushes) },
       { label: 'Винрейт', value: s.winrate == null ? '—' : s.winrate.toFixed(1) + '%', sub: (s.wins + s.losses) ? `${s.wins + s.losses} решённых` : '', href: appHref, pop: () => renderSparkline(computeCardTrend('winrate', filteredBets)) },
-      { label: 'Профит', value: fmtMoney(s.totalProfit), cls: s.totalProfit > 0 ? 'pos' : s.totalProfit < 0 ? 'neg' : '', sub: '', href: appHref, pop: () => renderSparkline(computeCardTrend('profit', filteredBets)) },
+      { label: 'Профит', value: fmtMoney(s.totalProfit, dispCurrency, dispRate), cls: s.totalProfit > 0 ? 'pos' : s.totalProfit < 0 ? 'neg' : '', sub: '', href: appHref, pop: () => renderSparkline(computeCardTrend('profit', filteredBets)) },
       { label: 'ROI', value: s.roi == null ? '—' : s.roi.toFixed(2) + '%', cls: s.roi > 0 ? 'pos' : s.roi < 0 ? 'neg' : '', sub: '', href: appHref, pop: () => renderSparkline(computeCardTrend('roi', filteredBets)) },
-      { label: 'Средний кэф', value: s.avgOdds == null ? '—' : s.avgOdds.toFixed(2), sub: '', href: appHref, pop: () => renderTopBetsPop(filteredBets, 3) },
+      { label: 'Средний кэф', value: s.avgOdds == null ? '—' : s.avgOdds.toFixed(2), sub: '', href: appHref, pop: () => renderTopBetsPop(filteredBets, 3, dispCurrency, dispRate) },
       // Профит по флетам — то же самое, что и ROI выше, только в единицах
       // "флет" (см. computeFlatStats в lib.js), а не в $ и не в %: не
       // плывёт вместе с ростом банка/размера ставки со временем, поэтому
@@ -330,8 +336,8 @@
     ];
     if (!hideBankCards) {
       cards.push(
-        { label: 'Банк', value: fmtMoney(s.currentBank), cls: s.currentBank > s.startingBankroll ? 'pos' : s.currentBank < s.startingBankroll ? 'neg' : '', sub: `старт $${s.startingBankroll}`, href: bankHref, pop: () => renderSparkline(computeCardTrend('bank', filteredBets, allWithdrawals, startingBankroll)) },
-        { label: 'Прирост банка', value: s.bankGrowthPct == null ? '—' : s.bankGrowthPct.toFixed(1) + '%', cls: s.bankGrowthPct > 0 ? 'pos' : s.bankGrowthPct < 0 ? 'neg' : '', sub: fmtMoney(s.totalProfit) + ' по ставкам', href: bankHref, pop: () => renderSparkline(computeCardTrend('growth', filteredBets, allWithdrawals, startingBankroll)) },
+        { label: 'Банк', value: fmtMoney(s.currentBank, dispCurrency, dispRate), cls: s.currentBank > s.startingBankroll ? 'pos' : s.currentBank < s.startingBankroll ? 'neg' : '', sub: `старт ${fmtMoney(s.startingBankroll, dispCurrency, dispRate)}`, href: bankHref, pop: () => renderSparkline(computeCardTrend('bank', filteredBets, allWithdrawals, startingBankroll)) },
+        { label: 'Прирост банка', value: s.bankGrowthPct == null ? '—' : s.bankGrowthPct.toFixed(1) + '%', cls: s.bankGrowthPct > 0 ? 'pos' : s.bankGrowthPct < 0 ? 'neg' : '', sub: fmtMoney(s.totalProfit, dispCurrency, dispRate) + ' по ставкам', href: bankHref, pop: () => renderSparkline(computeCardTrend('growth', filteredBets, allWithdrawals, startingBankroll)) },
       );
     }
     // Всегда 3 колонки (как на public.html). Раньше здесь ещё дорисовывались

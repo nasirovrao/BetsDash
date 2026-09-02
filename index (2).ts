@@ -145,7 +145,12 @@ const BET_TOOL = {
               },
             },
             odds: { type: ['number', 'null'], description: 'Итоговый кэф ставки. null, если не указан/не виден.' },
-            stake: { type: ['number', 'null'], description: 'Сумма ставки, если явно указана числом. null, если не указана.' },
+            stake: { type: ['number', 'null'], description: 'Сумма ставки, если явно указана числом, В ТОЙ ВАЛЮТЕ, В КОТОРОЙ ОНА УКАЗАНА (не конвертируй сам). null, если не указана.' },
+            stake_currency: {
+              type: ['string', 'null'],
+              enum: ['USD', 'RUB', 'EUR', 'KZT', 'UAH', null],
+              description: 'Валюта суммы ставки — по символу/коду рядом с числом (₽/руб/RUB → RUB, $/USD → USD, €/EUR → EUR, ₸/KZT → KZT, ₴/грн/UAH → UAH). null, если не удалось определить — тогда считается уже долларами.',
+            },
             result: {
               type: ['string', 'null'],
               enum: ['Pending', 'Win', 'Loss', 'Push', null],
@@ -164,6 +169,41 @@ const BET_TOOL = {
     required: ['detected', 'bets'],
   },
 };
+
+// 02.09.2026: та же конвертация валюты, что и в parse-bet-screenshot (см.
+// его index.ts, комментарий 02.09.2026, полное обоснование там) — очередь
+// telegram_pending_bets хранит "Сумма" как просто число в предположении
+// доллара, конвертим по курсу на момент распознавания и всегда отмечаем
+// uncertain_fields (курс приблизительный, не на момент самой ставки).
+const RATE_CACHE = new Map<string, number>();
+async function usdRateFor(currency: string): Promise<number | null> {
+  if (currency === 'USD') return 1;
+  if (RATE_CACHE.has(currency)) return RATE_CACHE.get(currency)!;
+  try {
+    const res = await fetch(`https://open.er-api.com/v6/latest/${currency}`);
+    if (!res.ok) return null;
+    const data = await res.json();
+    const rate = data?.rates?.USD;
+    if (typeof rate !== 'number') return null;
+    RATE_CACHE.set(currency, rate);
+    return rate;
+  } catch (e) {
+    console.error('usdRateFor: не удалось получить курс для', currency, (e as Error).message);
+    return null;
+  }
+}
+async function convertStakesToUsd(bets: any[]): Promise<void> {
+  for (const b of bets) {
+    if (b == null || typeof b !== 'object') continue;
+    const currency = typeof b.stake_currency === 'string' ? b.stake_currency.toUpperCase() : null;
+    if (!currency || currency === 'USD' || b.stake == null || typeof b.stake !== 'number') continue;
+    const rate = await usdRateFor(currency);
+    if (rate == null) continue;
+    b.stake = Math.round(b.stake * rate * 100) / 100;
+    if (!Array.isArray(b.uncertain_fields)) b.uncertain_fields = [];
+    if (!b.uncertain_fields.includes('Сумма')) b.uncertain_fields.push('Сумма');
+  }
+}
 
 function jsonResponse(body: unknown, status = 200) {
   return new Response(JSON.stringify(body), { status, headers: { 'Content-Type': 'application/json' } });
@@ -530,7 +570,11 @@ Deno.serve(async (req: Request) => {
       console.error('telegram-webhook: не удалось разобрать вложенный JSON в bets', (e as Error).message);
     }
   }
-  const detectedBets = verdict?.detected && Array.isArray(verdict.bets) ? verdict.bets : [];
+  // 02.09.2026: страховка на случай, когда bets — настоящий непустой массив,
+  // а detected просто не пришло полем (не строка-обёртка выше, а буквально
+  // отсутствует) — модель явно распознала ставки, забытое поле detected не
+  // повод их выбрасывать. Блокирует только ЯВНОЕ detected: false.
+  const detectedBets = verdict?.detected !== false && Array.isArray(verdict?.bets) ? verdict.bets : [];
   // Временное диагностическое логирование (01.09.2026) — раньше при
   // detected:false не логировалось вообще ничего, что делало "почему не
   // распозналось" непроверяемым без гадания. Печатаем сырой вердикт модели
@@ -572,6 +616,7 @@ Deno.serve(async (req: Request) => {
   //      доставка вставила бы дубликат. На обычном новом посте это
   //      безопасный no-op — удалять по этому message_id ещё нечего.
   await clearPendingForMessage(userId, post.message_id, supabaseUrl, serviceKey);
+  await convertStakesToUsd(detectedBets);
 
   // raw_text для очереди на telegram-import.html — при посте-картинке без
   // подписи там нечего показать как "исходный текст", подставляем короткую

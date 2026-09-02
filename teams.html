@@ -76,7 +76,7 @@
 
 <script type="module">
   import { supabase, requireSession, isClvEnabled } from './supabase-client.js';
-  import { groupBetsMulti, renderGroupCards, renderBreakdownDetail, teamKeysForBet, getChannelParams, loadMyChannels, renderChannelSwitch, preserveChannelInNav, channelHref, initEmailPrivacyToggle, initNavDropdown, applyNavModes} from './lib.js';
+  import { groupBetsMulti, renderGroupCards, renderBreakdownDetail, teamKeysForBet, getChannelParams, loadMyChannels, renderChannelSwitch, preserveChannelInNav, channelHref, initEmailPrivacyToggle, initNavDropdown, applyNavModes, getDisplayCurrency } from './lib.js';
 
   const session = await requireSession();
   if (session) {
@@ -95,6 +95,7 @@
   const ownerUserId = ownerParam || session.user.id;
   preserveChannelInNav(activeChannel, ownerUserId, session.user.id);
   const pageFile = channelHref('teams.html', activeChannel, ownerUserId, session.user.id);
+  const { currency: dispCurrency, rate: dispRate } = await getDisplayCurrency(supabase, session.user.id);
 
   loadMyChannels(supabase, session.user.id).then(channels => {
     document.getElementById('channelSwitch').innerHTML =
@@ -111,9 +112,9 @@
     const groups = groupBetsMulti(data, teamKeysForBet);
     if (keyParam) {
       const group = groups.find(g => g.key === keyParam);
-      root.innerHTML = renderBreakdownDetail('Команда', keyParam, group, pageFile);
+      root.innerHTML = renderBreakdownDetail('Команда', keyParam, group, pageFile, false, dispCurrency, dispRate);
     } else {
-      root.innerHTML = renderGroupCards(groups, 'Команда', pageFile);
+      root.innerHTML = renderGroupCards(groups, 'Команда', pageFile, dispCurrency, dispRate);
     }
   }
 </script>

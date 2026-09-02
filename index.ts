@@ -104,7 +104,12 @@ const BET_TOOL = {
               },
             },
             odds: { type: ['number', 'null'], description: 'Итоговый кэф ставки (для экспресса — итоговый кэф всей связки, если он явно виден).' },
-            stake: { type: ['number', 'null'], description: 'Сумма ставки в валюте купона (просто число, без символа валюты). null, если не видна.' },
+            stake: { type: ['number', 'null'], description: 'Сумма ставки — просто число, без символа валюты, В ТОЙ ВАЛЮТЕ, В КОТОРОЙ ОНА ВИДНА на купоне (не конвертируй сам). null, если не видна.' },
+            stake_currency: {
+              type: ['string', 'null'],
+              enum: ['USD', 'RUB', 'EUR', 'KZT', 'UAH', null],
+              description: 'Валюта суммы ставки — определи по символу/коду рядом с числом (₽/руб/RUB → RUB, $/USD → USD, €/EUR → EUR, ₸/KZT → KZT, ₴/грн/UAH → UAH). Если не удалось определить — null, тогда фронтенд считает валюту уже долларами и не конвертирует.',
+            },
             result: {
               type: ['string', 'null'],
               enum: ['Pending', 'Win', 'Loss', 'Push', null],
@@ -129,6 +134,47 @@ function jsonResponse(body: unknown, status = 200) {
     status,
     headers: { ...CORS_HEADERS, 'Content-Type': 'application/json' },
   });
+}
+
+// 02.09.2026: приложение хранит "Сумма ($)" как просто число в предположении
+// доллара — если купон в рублях/другой валюте, раньше это число просто
+// подставлялось как есть (10 000 ₽ становилось "10000" долларов). Конвертим
+// в USD по актуальному курсу (open.er-api.com — бесплатный, без ключа, ЦБ/
+// агрегированные источники). Курс на МОМЕНТ РАСПОЗНАВАНИЯ, а не на момент
+// самой ставки (которая могла быть неделю назад) — поэтому дальше сумма
+// всегда помечается uncertain_fields, а не подставляется молча как факт.
+const RATE_CACHE = new Map<string, number>(); // на время жизни одного холодного старта функции
+async function usdRateFor(currency: string): Promise<number | null> {
+  if (currency === 'USD') return 1;
+  if (RATE_CACHE.has(currency)) return RATE_CACHE.get(currency)!;
+  try {
+    const res = await fetch(`https://open.er-api.com/v6/latest/${currency}`);
+    if (!res.ok) return null;
+    const data = await res.json();
+    const rate = data?.rates?.USD;
+    if (typeof rate !== 'number') return null;
+    RATE_CACHE.set(currency, rate);
+    return rate;
+  } catch (e) {
+    console.error('usdRateFor: не удалось получить курс для', currency, (e as Error).message);
+    return null;
+  }
+}
+
+// Мутирует bets на месте: конвертирует stake в USD, если stake_currency
+// указана и отличается от USD, отмечает "Сумма" как uncertain (курс
+// приблизительный/текущий, не на момент ставки).
+async function convertStakesToUsd(bets: any[]): Promise<void> {
+  for (const b of bets) {
+    if (b == null || typeof b !== 'object') continue;
+    const currency = typeof b.stake_currency === 'string' ? b.stake_currency.toUpperCase() : null;
+    if (!currency || currency === 'USD' || b.stake == null || typeof b.stake !== 'number') continue;
+    const rate = await usdRateFor(currency);
+    if (rate == null) continue; // не смогли получить курс — оставляем как есть, не портим данные
+    b.stake = Math.round(b.stake * rate * 100) / 100;
+    if (!Array.isArray(b.uncertain_fields)) b.uncertain_fields = [];
+    if (!b.uncertain_fields.includes('Сумма')) b.uncertain_fields.push('Сумма');
+  }
 }
 
 // Достаём user_id из JWT в заголовке Authorization — саму подпись токена
@@ -263,23 +309,48 @@ Deno.serve(async (req: Request) => {
     }, 429);
   }
 
-  // 02.09.2026: заметки о визуальном стиле букмекеров, которые пользователь
-  // сам описал через "+" у поля "Букмекер" на app.html (bookmakerNotes в
-  // settings.bookmaker_notes, schema_milestone29.sql) — по сути ручное
-  // "обучение" модели незнакомым интерфейсам текстовым описанием, а не
-  // запоминанием самих картинок (у модели нет состояния между вызовами).
-  // Повод: репорт "плохо распознаёт скрины с конторы Пинко" — Пинко не было
+  // 02.09.2026: референс-скриншоты букмекеров, добавленные пользователем
+  // через "+" у поля "Букмекер" на app.html (bookmakerNotes в
+  // settings.bookmaker_notes, schema_milestone29.sql). Изначально было
+  // текстовое описание стиля — заменено на реальные картинки по прямому
+  // запросу ("может фоткой интерфейс показывать уж лучше?"): few-shot
+  // изображением модель узнаёт визуальный стиль ощутимо надёжнее, чем по
+  // словесному описанию. У модели нет состояния между вызовами — каждый
+  // раз подкладываем референсы заново прямо в этот запрос. Повод исходной
+  // фичи: репорт "плохо распознаёт скрины с конторы Пинко" — Пинко не было
   // в захардкоженном списке "узнаваемых" букмекеров внутри промпта.
-  let bookmakerNotesBlock = '';
+  //
+  // MAX_BOOKMAKER_REFS — потолок на число референсов В ОДНОМ запросе:
+  // каждый референс — это ещё одна картинка в теле запроса к Anthropic
+  // (токены/деньги), без потолка список рос бы бесконечно с каждым новым
+  // добавленным букмекером.
+  const MAX_BOOKMAKER_REFS = 6;
+  const referenceContent: any[] = [];
+  const legacyTextNotes: string[] = []; // на случай старых текстовых заметок (до этой правки)
   if (bookmakerNotes && typeof bookmakerNotes === 'object') {
-    const lines = Object.entries(bookmakerNotes)
-      .filter(([name, note]) => typeof name === 'string' && typeof note === 'string' && note.trim())
-      .map(([name, note]) => `- ${name}: ${(note as string).trim()}`);
-    if (lines.length) {
-      bookmakerNotesBlock =
-        '\n\nПользователь заранее описал, как выглядят интерфейсы некоторых букмекеров (сверься с этим списком в ' +
-        'первую очередь при определении bookmaker по визуальному стилю):\n' + lines.join('\n');
+    let refCount = 0;
+    for (const [name, note] of Object.entries(bookmakerNotes)) {
+      if (typeof name !== 'string' || !note) continue;
+      if (typeof note === 'string') {
+        if (note.trim()) legacyTextNotes.push(`- ${name}: ${note.trim()}`);
+        continue;
+      }
+      const ref = note as { image?: string; mimeType?: string };
+      if (refCount >= MAX_BOOKMAKER_REFS || !ref.image || !ref.mimeType) continue;
+      referenceContent.push({ type: 'text', text: `Пример интерфейса букмекера "${name}":` });
+      referenceContent.push({ type: 'image', source: { type: 'base64', media_type: ref.mimeType, data: ref.image } });
+      refCount++;
     }
+  }
+  let bookmakerNotesBlock = '';
+  if (referenceContent.length) {
+    bookmakerNotesBlock =
+      '\n\nВыше приложены примеры интерфейсов известных пользователю букмекеров (каждый подписан именем) — сравни ' +
+      'визуальный стиль РЕАЛЬНОГО изображения ниже с этими примерами в первую очередь при определении bookmaker.';
+  }
+  if (legacyTextNotes.length) {
+    bookmakerNotesBlock +=
+      '\n\nТакже пользователь заранее описал словами, как выглядят интерфейсы некоторых букмекеров:\n' + legacyTextNotes.join('\n');
   }
 
   const anthropicReq = {
@@ -293,7 +364,11 @@ Deno.serve(async (req: Request) => {
     messages: [
       {
         role: 'user',
+        // Референсы (если есть) идут ПЕРЕД реальным изображением — модель
+        // читает контент по порядку, к моменту реального скриншота уже
+        // "видела" примеры стилей.
         content: [
+          ...referenceContent,
           {
             type: 'image',
             source: { type: 'base64', media_type: mimeType, data: image },
@@ -301,12 +376,13 @@ Deno.serve(async (req: Request) => {
           {
             type: 'text',
             text:
-              'На изображении — скриншот ставки (или нескольких ставок) на спорт: купон букмекера, экран истории ставок ' +
-              'в приложении и т.п. Распознай ВСЕ отдельные ставки, которые видишь на изображении (это может быть одна, ' +
-              'а может быть несколько отдельных карточек в списке истории), и вызови record_bet_data строго по описанной ' +
-              'схеме — каждая ставка отдельным элементом массива bets, по порядку сверху вниз. Если букмекер не назван ' +
-              'явно текстом или логотипом — попробуй определить его по узнаваемому фирменному визуальному стилю ' +
-              'интерфейса (см. описание поля bookmaker) и обязательно отметь это в uncertain_fields той ставки. ' +
+              'На изображении ВЫШЕ (последнем, после примеров интерфейсов, если они были приложены) — скриншот ставки ' +
+              '(или нескольких ставок) на спорт: купон букмекера, экран истории ставок в приложении и т.п. Распознай ВСЕ ' +
+              'отдельные ставки, которые видишь на этом изображении (это может быть одна, а может быть несколько ' +
+              'отдельных карточек в списке истории), и вызови record_bet_data строго по описанной схеме — каждая ставка ' +
+              'отдельным элементом массива bets, по порядку сверху вниз. Если букмекер не назван явно текстом или ' +
+              'логотипом — попробуй определить его по узнаваемому фирменному визуальному стилю интерфейса (см. описание ' +
+              'поля bookmaker) и обязательно отметь это в uncertain_fields той ставки. ' +
               'ВАЖНО: интерфейс конкретного букмекера тебе может быть незнаком — это НЕ повод считать ставку ' +
               'нераспознанной. Если на экране видны признаки ставки (исход/пик, кэф, сумма, результат — в любом ' +
               'сочетании, не обязательно все сразу) — это detected: true, даже если название букмекера определить не ' +
@@ -354,14 +430,39 @@ Deno.serve(async (req: Request) => {
     return jsonResponse({ error: `Модель не вернула структурированный ответ${reason} — попробуй другой/более чёткий скриншот.` }, 502);
   }
 
+  // 02.09.2026: тот же баг, что уже чинился в telegram-webhook (см. его
+  // index.ts, комментарий 02.09.2026) — модель иногда возвращает не
+  // {detected, bets} на верхнем уровне, а {bets: "<весь правильный JSON,
+  // включая detected и bets, ещё раз запакованный строкой>"}. Разворачиваем
+  // тот же один уровень "двойной упаковки", если verdict.detected не
+  // нашёлся напрямую.
+  let verdict: any = toolUse.input;
+  if (verdict && verdict.detected === undefined && typeof verdict.bets === 'string') {
+    try {
+      const unwrapped = JSON.parse(verdict.bets);
+      if (unwrapped && typeof unwrapped === 'object') verdict = unwrapped;
+    } catch (e) {
+      console.error('parse-bet-screenshot: не удалось разобрать вложенный JSON в bets', (e as Error).message);
+    }
+  }
+  // Дополнительная страховка: если bets — настоящий непустой массив, а
+  // detected просто не пришло полем (не строка-обёртка, а буквально
+  // отсутствует), считаем это подтверждением, а не отказом — модель явно
+  // распознала ставки (иначе зачем бы возвращала их), забытое поле
+  // detected не повод показывать "не похоже на купон" при реальных данных
+  // в руках. Блокирует только ЯВНОЕ detected: false.
+  const detected = verdict?.detected !== false && Array.isArray(verdict?.bets) && verdict.bets.length > 0;
+  const normalized = { detected, bets: Array.isArray(verdict?.bets) ? verdict.bets : [] };
+  await convertStakesToUsd(normalized.bets);
+
   // Лог сырого распознанного результата — если фронтенд после этого всё
   // равно покажет "не похоже на купон" или что-то не так с массивом bets,
   // тут в Supabase Logs (вкладка Logs у функции) будет видно, что именно
   // вернула модель, без необходимости гадать вслепую.
-  console.log('parse-bet-screenshot: detected=' + toolUse.input?.detected + ', bets=' + (Array.isArray(toolUse.input?.bets) ? toolUse.input.bets.length : 'n/a'));
+  console.log('parse-bet-screenshot: detected=' + normalized.detected + ', bets=' + normalized.bets.length + ', rawDetected=' + toolUse.input?.detected);
 
   return jsonResponse({
-    result: toolUse.input,
+    result: normalized,
     // usage.count === -1 значит "не смогли посчитать лимит в этом запросе"
     // (см. checkAndIncrementUsage) — фронтенд в этом случае просто не
     // показывает счётчик, а не рисует "-1 из 100".

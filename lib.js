@@ -1,9 +1,53 @@
 // Общая логика подсчёта статистики — используется на Дашборде и странице
 // "Выводы и банк", чтобы не дублировать формулы в двух файлах.
 
-export function fmtMoney(n) {
-  const sign = n < 0 ? '−' : '';
-  return sign + '$' + Math.abs(n).toFixed(2).replace(/\.00$/, '');
+// 02.09.2026: "Валюта отображения" — личная настройка каждого пользователя
+// (profiles.display_currency, schema_milestone30.sql), НЕ то, как данные
+// хранятся (bets.stake и т.п. всегда доллары для всех) — только то, КАК
+// число показывается КОНКРЕТНОМУ зрителю. currency/rate необязательны
+// (по умолчанию USD, rate=1) — старый код, вызывающий fmtMoney(n) одним
+// аргументом, продолжает работать ровно как раньше, ничего не ломается.
+export const CURRENCY_SYMBOLS = { USD: '$', RUB: '₽', EUR: '€', KZT: '₸', UAH: '₴' };
+
+export function fmtMoney(n, currency = 'USD', rate = 1) {
+  const converted = n * rate;
+  const symbol = CURRENCY_SYMBOLS[currency] || '$';
+  const sign = converted < 0 ? '−' : '';
+  return sign + symbol + Math.abs(converted).toFixed(2).replace(/\.00$/, '');
+}
+
+// Достаёт личную валюту отображения текущего пользователя и, если она не
+// доллар, актуальный курс USD→эта_валюта (open.er-api.com, публичный, без
+// ключа). Результат кэшируется в памяти модуля на время жизни вкладки —
+// эта функция вызывается почти на каждой странице с деньгами, незачем
+// дёргать и profiles, и курс заново при каждом вызове. userId может быть
+// null (например анонимный зритель feed.html/public.html) — тогда просто
+// USD без похода в сеть.
+let _displayCurrencyCache = null;
+export async function getDisplayCurrency(supabase, userId) {
+  if (_displayCurrencyCache) return _displayCurrencyCache;
+  let currency = 'USD';
+  if (userId) {
+    try {
+      const { data } = await supabase.from('profiles').select('display_currency').eq('user_id', userId).maybeSingle();
+      if (data && data.display_currency) currency = data.display_currency;
+    } catch (e) {
+      console.warn('getDisplayCurrency: не удалось прочитать profiles.display_currency', e && e.message);
+    }
+  }
+  let rate = 1;
+  if (currency !== 'USD') {
+    try {
+      const res = await fetch('https://open.er-api.com/v6/latest/USD');
+      const json = await res.json();
+      if (json && json.rates && typeof json.rates[currency] === 'number') rate = json.rates[currency];
+    } catch (e) {
+      console.warn('getDisplayCurrency: не удалось получить курс, показываю как доллары', e && e.message);
+      currency = 'USD'; // не смогли сконвертировать — честнее показать доллары, чем соврать курсом 1:1 под чужим значком
+    }
+  }
+  _displayCurrencyCache = { currency, rate };
+  return _displayCurrencyCache;
 }
 
 // Разметка для карточки "W / L / P" — вместо голого "15 / 11 / 1" (непонятно
@@ -430,7 +474,7 @@ export function renderGroupTable(groups, labelHeader) {
 // и мини-полоской винрейта; если pageFile задан — карточка кликабельна и
 // ведёт на ?key=... той же страницы, где renderBreakdownDetail() покажет
 // полную статистику и список ставок именно по этой сущности.
-export function renderGroupCards(groups, labelHeader, pageFile) {
+export function renderGroupCards(groups, labelHeader, pageFile, currency, rate) {
   if (!groups.length) {
     return '<div class="empty-state">Пока нет данных для этой разбивки — добавь ставки с этим полем на странице «Ставки».</div>';
   }
@@ -454,7 +498,7 @@ export function renderGroupCards(groups, labelHeader, pageFile) {
       <div class="bd-card-stats">
         <div class="bd-card-stat"><span class="bd-card-stat-label">Винрейт</span><span class="bd-card-stat-value">${g.winrate == null ? '—' : g.winrate.toFixed(1) + '%'}</span></div>
         <div class="bd-card-stat"><span class="bd-card-stat-label">ROI</span><span class="bd-card-stat-value ${g.roi > 0 ? 'pos-text' : g.roi < 0 ? 'neg-text' : ''}">${g.roi == null ? '—' : g.roi.toFixed(1) + '%'}</span></div>
-        <div class="bd-card-stat"><span class="bd-card-stat-label">Профит</span><span class="bd-card-stat-value ${profitCls}">${fmtMoney(g.totalProfit)}</span></div>
+        <div class="bd-card-stat"><span class="bd-card-stat-label">Профит</span><span class="bd-card-stat-value ${profitCls}">${fmtMoney(g.totalProfit, currency, rate)}</span></div>
       </div>
       ${pageFile ? '<div class="bd-card-arrow">→</div>' : ''}
     `;
@@ -473,7 +517,7 @@ export function renderGroupCards(groups, labelHeader, pageFile) {
 
 // Полная статистика по одной сущности (клик по карточке из renderGroupCards) —
 // повторяет вид дашборда (сетка stat-card) + список конкретных ставок ниже.
-export function renderBreakdownDetail(labelHeader, keyLabel, group, backHref, hideBookmakerCol) {
+export function renderBreakdownDetail(labelHeader, keyLabel, group, backHref, hideBookmakerCol, currency, rate) {
   if (!group) {
     return `
       <a class="bd-back" href="${backHref}">← Назад к списку</a>
@@ -483,7 +527,7 @@ export function renderBreakdownDetail(labelHeader, keyLabel, group, backHref, hi
     { label: 'Ставок', value: group.total, sub: group.pending ? `${group.pending} в ожидании` : '' },
     { label: 'W / L / P', value: renderWLP(group.wins, group.losses, group.pushes), sub: '' },
     { label: 'Винрейт', value: group.winrate == null ? '—' : group.winrate.toFixed(1) + '%', sub: (group.wins + group.losses) ? `${group.wins + group.losses} решённых` : '' },
-    { label: 'Профит', value: fmtMoney(group.totalProfit), cls: group.totalProfit > 0 ? 'pos' : group.totalProfit < 0 ? 'neg' : '', sub: '' },
+    { label: 'Профит', value: fmtMoney(group.totalProfit, currency, rate), cls: group.totalProfit > 0 ? 'pos' : group.totalProfit < 0 ? 'neg' : '', sub: '' },
     { label: 'ROI', value: group.roi == null ? '—' : group.roi.toFixed(2) + '%', cls: group.roi > 0 ? 'pos' : group.roi < 0 ? 'neg' : '', sub: '' },
     { label: 'Средний кэф', value: group.avgOdds == null ? '—' : group.avgOdds.toFixed(2), sub: '' },
   ];
@@ -502,7 +546,7 @@ export function renderBreakdownDetail(labelHeader, keyLabel, group, backHref, hi
       ${group.description ? `<div class="bd-detail-desc">${escapeHtml(group.description)}</div>` : ''}
     </div>
     <div class="stat-grid stat-grid-3">${statHtml}</div>
-    ${renderBetsFlatTable(group.list, { hideBookmaker: !!hideBookmakerCol })}
+    ${renderBetsFlatTable(group.list, { hideBookmaker: !!hideBookmakerCol, currency, rate })}
   `;
 }
 
@@ -541,6 +585,8 @@ export function renderBetsFlatTable(bets, opts) {
     return '<div class="empty-state">Ставок не найдено.</div>';
   }
   const hideBookmaker = !!(opts && opts.hideBookmaker);
+  const dispCurrency = (opts && opts.currency) || 'USD';
+  const dispRate = (opts && opts.rate) || 1;
   const sorted = bets.slice().sort((a, b) => (b.bet_date || '').localeCompare(a.bet_date || '') || (b.id - a.id));
   const rows = sorted.map(b => {
     const profit = computeProfit(b);
@@ -578,7 +624,7 @@ export function renderBetsFlatTable(bets, opts) {
         ${hideBookmaker ? '' : `<td>${escapeHtml(b.bookmaker || '—')}</td>`}
         <td class="num">${b.odds != null ? Number(b.odds).toFixed(2) : '—'}</td>
         <td><span class="res-pill ${{ Win: 'win', Loss: 'loss', Push: 'push', Pending: 'pending', Sold: 'sold' }[b.result] || 'pending'}">${escapeHtml(b.result)}</span>${editedBadge}</td>
-        <td class="num ${profitCls}">${profit == null ? '—' : fmtMoney(profit)}</td>
+        <td class="num ${profitCls}">${profit == null ? '—' : fmtMoney(profit, dispCurrency, dispRate)}</td>
       </tr>`;
   }).join('');
   return `
@@ -1010,13 +1056,13 @@ export function renderWlpBars(wins, losses, pushes) {
 }
 
 // Короткий список лучших по профиту ставок — попап для карточки "Средний кэф".
-export function renderTopBetsPop(bets, n) {
+export function renderTopBetsPop(bets, n, currency, rate) {
   const top = computeTopBets(bets, n || 3);
   if (!top.length) return '<div class="spark-empty">Пока нет сыгранных ставок</div>';
   return `<div class="spark-topbets">${top.map(({ b, profit }) => `
     <div class="spark-topbet-row">
       <span class="spark-topbet-name">${escapeHtml(b.match || b.pick || '—')}</span>
-      <span class="spark-topbet-val">${fmtMoney(profit)}</span>
+      <span class="spark-topbet-val">${fmtMoney(profit, currency, rate)}</span>
     </div>`).join('')}</div>`;
 }
 

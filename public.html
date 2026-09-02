@@ -78,23 +78,28 @@
     classifyMarket, teamKeysForBet, renderBetsFlatTable,
     computeCardTrend, renderSparkline, renderWlpBars, renderTopBetsPop, initStatCardPopovers,
     computeRatingTier, computeSpecialization, renderProfileBanner, wasEditedAfterSettle,
-    initEmailPrivacyToggle,
+    initEmailPrivacyToggle, getDisplayCurrency,
   } from './lib.js';
 
   // 01.09.2026: та же правка, что и на feed.html — топбар раньше всегда
   // показывал "Войти в EDGE", даже если человек уже залогинен в этом же
   // браузере. getSession() ничего не редиректит сама по себе, просто
-  // красит топбар под реальное состояние.
-  supabase.auth.getSession().then(({ data: { session } }) => {
-    if (!session) return;
+  // красит топбар под реальное состояние. Дальше этот же session
+  // используется ещё и для "Валюты отображения" (02.09.2026,
+  // schema_milestone30.sql) — публичный профиль виден и анонимусам
+  // (session тогда null), для них просто доллары по умолчанию.
+  const { data: { session: viewerSession } } = await supabase.auth.getSession();
+  if (viewerSession) {
     const area = document.getElementById('topbarAuthArea');
     area.innerHTML = `<span id="userEmail">…</span><button id="logoutBtn" type="button" style="margin-left:14px;">Выйти</button>`;
-    initEmailPrivacyToggle(session.user.email);
+    initEmailPrivacyToggle(viewerSession.user.email);
     document.getElementById('logoutBtn').addEventListener('click', async () => {
       await supabase.auth.signOut();
       window.location.reload();
     });
-  });
+  }
+  const { currency: dispCurrency, rate: dispRate } = await getDisplayCurrency(supabase, viewerSession?.user?.id || null);
+  const fm = (n) => fmtMoney(n, dispCurrency, dispRate);
 
   // Инициалы для аватара-заглушки, когда лого не загружено — до 2 букв,
   // из первых двух "слов" отображаемого имени (или username, если имени нет).
@@ -223,7 +228,7 @@
               <div class="pf-stat"><div class="pf-stat-val">${s.total}</div><div class="pf-stat-lbl">Ставок</div></div>
               <div class="pf-stat"><div class="pf-stat-val">${s.winrate == null ? '—' : s.winrate.toFixed(1) + '%'}</div><div class="pf-stat-lbl">Винрейт</div></div>
               <div class="pf-stat"><div class="pf-stat-val ${s.roi > 0 ? 'pos' : s.roi < 0 ? 'neg' : ''}">${s.roi == null ? '—' : (s.roi >= 0 ? '+' : '') + s.roi.toFixed(1) + '%'}</div><div class="pf-stat-lbl">ROI</div></div>
-              <div class="pf-stat"><div class="pf-stat-val ${s.totalProfit > 0 ? 'pos' : s.totalProfit < 0 ? 'neg' : ''}">${fmtMoney(s.totalProfit)}</div><div class="pf-stat-lbl">Профит</div></div>
+              <div class="pf-stat"><div class="pf-stat-val ${s.totalProfit > 0 ? 'pos' : s.totalProfit < 0 ? 'neg' : ''}">${fm(s.totalProfit)}</div><div class="pf-stat-lbl">Профит</div></div>
             </div>
             <div class="pf-rating">
               <div class="pf-rating-head">
@@ -253,9 +258,9 @@
             { label: 'В игре', value: s.pending, cls: s.pending ? 'pos' : '', sub: s.pending ? 'ждут результата' : '', href: betsHref },
             { label: 'W / L / P', value: renderWLP(s.wins, s.losses, s.pushes), sub: '', href: betsHref, pop: () => renderWlpBars(s.wins, s.losses, s.pushes) },
             { label: 'Винрейт', value: s.winrate == null ? '—' : s.winrate.toFixed(1) + '%', sub: (s.wins + s.losses) ? `${s.wins + s.losses} решённых` : '', href: betsHref, pop: () => renderSparkline(computeCardTrend('winrate', allBets)) },
-            { label: 'Профит', value: fmtMoney(s.totalProfit), cls: s.totalProfit > 0 ? 'pos' : s.totalProfit < 0 ? 'neg' : '', sub: '', href: betsHref, pop: () => renderSparkline(computeCardTrend('profit', allBets)) },
+            { label: 'Профит', value: fm(s.totalProfit), cls: s.totalProfit > 0 ? 'pos' : s.totalProfit < 0 ? 'neg' : '', sub: '', href: betsHref, pop: () => renderSparkline(computeCardTrend('profit', allBets)) },
             { label: 'ROI', value: s.roi == null ? '—' : s.roi.toFixed(2) + '%', cls: s.roi > 0 ? 'pos' : s.roi < 0 ? 'neg' : '', sub: '', href: betsHref, pop: () => renderSparkline(computeCardTrend('roi', allBets)) },
-            { label: 'Средний кэф', value: s.avgOdds == null ? '—' : s.avgOdds.toFixed(2), sub: '', href: betsHref, pop: () => renderTopBetsPop(allBets, 3) },
+            { label: 'Средний кэф', value: s.avgOdds == null ? '—' : s.avgOdds.toFixed(2), sub: '', href: betsHref, pop: () => renderTopBetsPop(allBets, 3, dispCurrency, dispRate) },
             // Профит по флетам — см. подробный комментарий у
             // computeFlatStats/computeProfitInFlats в lib.js. Сырое
             // количество флетов, а не доходность в процентах (см. ту же
@@ -291,8 +296,8 @@
           // если владелец сам включил show_bank (по умолчанию скрыто).
           if (profile.show_bank) {
             cards.push(
-              { label: 'Банк', value: fmtMoney(s.currentBank), cls: s.currentBank > s.startingBankroll ? 'pos' : s.currentBank < s.startingBankroll ? 'neg' : '', sub: `старт ${fmtMoney(s.startingBankroll)}`, pop: () => renderSparkline(computeCardTrend('bank', allBets, allWithdrawals, startingBankroll)) },
-              { label: 'Прирост банка', value: s.bankGrowthPct == null ? '—' : s.bankGrowthPct.toFixed(1) + '%', cls: s.bankGrowthPct > 0 ? 'pos' : s.bankGrowthPct < 0 ? 'neg' : '', sub: fmtMoney(s.totalProfit) + ' по ставкам', pop: () => renderSparkline(computeCardTrend('growth', allBets, allWithdrawals, startingBankroll)) },
+              { label: 'Банк', value: fm(s.currentBank), cls: s.currentBank > s.startingBankroll ? 'pos' : s.currentBank < s.startingBankroll ? 'neg' : '', sub: `старт ${fm(s.startingBankroll)}`, pop: () => renderSparkline(computeCardTrend('bank', allBets, allWithdrawals, startingBankroll)) },
+              { label: 'Прирост банка', value: s.bankGrowthPct == null ? '—' : s.bankGrowthPct.toFixed(1) + '%', cls: s.bankGrowthPct > 0 ? 'pos' : s.bankGrowthPct < 0 ? 'neg' : '', sub: fm(s.totalProfit) + ' по ставкам', pop: () => renderSparkline(computeCardTrend('growth', allBets, allWithdrawals, startingBankroll)) },
             );
           }
           // Сетка — 3 колонки. Раньше здесь ещё дорисовывались пустые
@@ -358,15 +363,15 @@
         function renderBreakdownTab(labelHeader, groups, keyLabel2, hideBookmakerCol) {
           if (keyParam) {
             const group = groups.find(g => g.key === keyParam);
-            return renderBreakdownDetail(labelHeader, keyParam, group, pageFile, !!hideBookmakerCol);
+            return renderBreakdownDetail(labelHeader, keyParam, group, pageFile, !!hideBookmakerCol, dispCurrency, dispRate);
           }
-          return renderGroupCards(groups, labelHeader, pageFile);
+          return renderGroupCards(groups, labelHeader, pageFile, dispCurrency, dispRate);
         }
 
         let html = '';
         switch (activeTab) {
           case 'bets':
-            html = renderBetsFlatTable(allBets);
+            html = renderBetsFlatTable(allBets, { currency: dispCurrency, rate: dispRate });
             break;
           case 'disciplines':
             html = renderBreakdownTab('Дисциплина', groupBets(allBets, b => b.discipline));

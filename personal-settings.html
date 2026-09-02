@@ -120,6 +120,27 @@
       </form>
       <div class="nav-mode-note">Это меняет только то, что видно в меню — прямая ссылка на любой раздел (даже спрятанный) продолжает открываться как обычно. Эта страница («Личные настройки») в меню видна всегда, при любых галочках — иначе было бы легко случайно спрятать саму возможность их вернуть обратно.</div>
     </div>
+
+    <div class="bet-form" style="margin-top:22px;">
+      <h3>Валюта отображения</h3>
+      <div class="section-note" style="margin-bottom:14px;">В какой валюте показывать суммы на дашборде, в дневнике, банке, публичном профиле и ленте. Сами данные всегда хранятся в долларах — это только про то, как их тебе показать, конвертация происходит на лету по текущему курсу.</div>
+      <form id="currencyForm">
+        <div class="field" style="max-width:220px;">
+          <label for="m_currency">Показывать суммы в</label>
+          <select id="m_currency">
+            <option value="USD">$ Доллары (USD)</option>
+            <option value="RUB">₽ Рубли (RUB)</option>
+            <option value="EUR">€ Евро (EUR)</option>
+            <option value="KZT">₸ Тенге (KZT)</option>
+            <option value="UAH">₴ Гривны (UAH)</option>
+          </select>
+        </div>
+        <div class="form-actions" style="margin-top:14px;">
+          <button class="btn btn-primary" type="submit" id="currencySaveBtn" style="width:auto;">Сохранить</button>
+          <span class="form-status" id="currencyStatus"></span>
+        </div>
+      </form>
+    </div>
   </div>
 </section>
 
@@ -148,6 +169,10 @@
 
   let existingProfile = null;
 
+  const currencySelect = document.getElementById('m_currency');
+  const currencyStatus = document.getElementById('currencyStatus');
+  const currencySaveBtn = document.getElementById('currencySaveBtn');
+
   async function load() {
     const { data, error } = await supabase.from('profiles').select('*').eq('user_id', session.user.id).maybeSingle();
     if (error) {
@@ -161,6 +186,7 @@
     diaryInput.checked = !(existingProfile && existingProfile.nav_diary === false);
     channelInput.checked = !(existingProfile && existingProfile.nav_channel === false);
     readerInput.checked = !(existingProfile && existingProfile.nav_reader === false);
+    currencySelect.value = (existingProfile && existingProfile.display_currency) || 'USD';
   }
 
   document.getElementById('navModesForm').addEventListener('submit', async (e) => {
@@ -188,6 +214,24 @@
     setTimeout(() => { formStatus.textContent = ''; }, 3500);
     await load();
     applyNavModes(supabase, session.user.id);
+  });
+
+  document.getElementById('currencyForm').addEventListener('submit', async (e) => {
+    e.preventDefault();
+    currencySaveBtn.disabled = true;
+    currencyStatus.textContent = 'Сохраняю…';
+    const payload = { display_currency: currencySelect.value };
+    const { error } = existingProfile
+      ? await supabase.from('profiles').update(payload).eq('user_id', session.user.id)
+      : await supabase.from('profiles').insert({ user_id: session.user.id, ...payload });
+    currencySaveBtn.disabled = false;
+    if (error) {
+      currencyStatus.textContent = 'Ошибка: ' + error.message;
+      return;
+    }
+    currencyStatus.textContent = 'Сохранено ✓ — обновится на дашборде и других страницах при следующей загрузке.';
+    setTimeout(() => { currencyStatus.textContent = ''; }, 4500);
+    await load();
   });
 
   load();

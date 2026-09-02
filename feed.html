@@ -150,7 +150,7 @@
 
 <script type="module">
   import { supabase } from './supabase-client.js';
-  import { escapeHtml, fmtRelativeTime, fmtDateTime, initEmailPrivacyToggle, computeStats, computeRatingTier, fmtMoney } from './lib.js';
+  import { escapeHtml, fmtRelativeTime, fmtDateTime, initEmailPrivacyToggle, computeStats, computeRatingTier, fmtMoney, getDisplayCurrency } from './lib.js';
 
   const params = new URLSearchParams(location.search);
   const disciplineFilter = params.get('d') || '';
@@ -180,8 +180,16 @@
   // было неправильно. getSession() ничего никуда не редиректит сама по
   // себе — просто смотрит, есть ли уже живая сессия, и красит топбар под
   // неё, как на остальных страницах.
-  supabase.auth.getSession().then(({ data: { session } }) => {
-    if (!session) return;
+  //
+  // 02.09.2026: тот же session нужен ещё и для "Валюты отображения"
+  // (personal-settings.html, schema_milestone30.sql) — "Профит" в топе
+  // капперов ниже показывается в валюте ЗРИТЕЛЯ (не того, кто постил —
+  // хранение везде доллары, конвертация чисто отображение). Курс — сетевой
+  // запрос, поэтому не ждём его здесь блокирующе: кикаем промис сразу,
+  // await делаем только перед самим рендером лидерборда, параллельно с
+  // куда более долгим N+1-запросом всех публичных профилей/ставок ниже.
+  const { data: { session } } = await supabase.auth.getSession();
+  if (session) {
     const topbarUser = document.getElementById('topbarUser');
     topbarUser.innerHTML = `<span id="userEmail">…</span><button id="logoutBtn" type="button">Выйти</button>`;
     initEmailPrivacyToggle(session.user.email);
@@ -189,7 +197,8 @@
       await supabase.auth.signOut();
       window.location.reload();
     });
-  });
+  }
+  const displayCurrencyPromise = getDisplayCurrency(supabase, session?.user?.id || null);
 
   const feedRoot = document.getElementById('feedRoot');
   const feedFilters = document.getElementById('feedFilters');
@@ -322,6 +331,14 @@
     // в списке, не главным. Плюс под именем теперь всегда видно реальное
     // число ставок (winrateInfo) — откуда вообще взялась цифра ранжирования,
     // не приходится гадать.
+    //
+    // 02.09.2026: "Профит" в этом списке — единственное место в ленте, где
+    // сравниваются РАЗНЫЕ пользователи бок о бок (у поста в самой ленте
+    // валюта того, кто постил, тут — валюта ЗРИТЕЛЯ, иначе сравнение было
+    // бы нечестным при разных личных валютах у капперов, см. CHANGELOG).
+    // Промис кикнут ещё в начале скрипта, параллельно с более долгим
+    // N+1-запросом всех профилей/ставок выше — здесь просто ждём результат.
+    const { currency: dispCurrency, rate: dispRate } = await displayCurrencyPromise;
     function renderLeaderboard(sortKey) {
       if (!leaderboardEntries.length) {
         leaderboardRoot.innerHTML = `<div class="lb-empty">Пока нет капперов минимум с ${MIN_BETS_FOR_LEADERBOARD} ставками в истории.</div>`;
@@ -339,7 +356,7 @@
         let valueHtml;
         if (sortKey === 'profit') {
           const p = e.stats.totalProfit;
-          valueHtml = `<span class="lb-value ${p > 0 ? 'pos' : p < 0 ? 'neg' : ''}">${fmtMoney(p)}</span>`;
+          valueHtml = `<span class="lb-value ${p > 0 ? 'pos' : p < 0 ? 'neg' : ''}">${fmtMoney(p, dispCurrency, dispRate)}</span>`;
         } else if (sortKey === 'winrate') {
           const wr = e.stats.winrate;
           valueHtml = `<span class="lb-value">${wr == null ? '—' : wr.toFixed(1) + '%'}</span>`;

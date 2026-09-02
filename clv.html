@@ -71,7 +71,7 @@
 
 <script type="module">
   import { supabase, requireSession, isClvEnabled } from './supabase-client.js';
-  import { fmtMoney, computeClv, computeClvProfit, computeClvStats, computeHedgeProfit, escapeHtml, getChannelParams, preserveChannelInNav, initEmailPrivacyToggle, initNavDropdown, applyNavModes} from './lib.js';
+  import { fmtMoney, computeClv, computeClvProfit, computeClvStats, computeHedgeProfit, escapeHtml, getChannelParams, preserveChannelInNav, initEmailPrivacyToggle, initNavDropdown, applyNavModes, getDisplayCurrency } from './lib.js';
 
   const session = await requireSession();
   if (session) {
@@ -84,6 +84,10 @@
     await supabase.auth.signOut();
     window.location.href = 'index.html';
   });
+
+  // "Валюта отображения" (personal-settings.html, schema_milestone30.sql).
+  const { currency: dispCurrency, rate: dispRate } = await getDisplayCurrency(supabase, session.user.id);
+  const fm = (n) => fmtMoney(n, dispCurrency, dispRate);
 
   // CLV Tracker — личный трекер владельца, не привязан к каналу (нет колонки
   // channel у clv_entries, сознательно не входит в совместное редактирование).
@@ -255,7 +259,7 @@
         hedgePreviewValue.className = 'hedge-preview-value';
         return;
       }
-      hedgePreviewValue.textContent = fmtMoney(p);
+      hedgePreviewValue.textContent = fm(p);
       hedgePreviewValue.className = 'hedge-preview-value ' + (p > 0 ? 'pos' : p < 0 ? 'neg' : '');
     }
     function syncStatusFields(){
@@ -371,8 +375,8 @@
       const s = computeClvStats(entries);
       const cards = [
         { label: 'Ставок', value: s.total, sub: '' },
-        { label: 'В игре', value: fmtMoney(s.inPlay), sub: '' },
-        { label: 'Профит', value: fmtMoney(s.totalProfit), cls: s.totalProfit > 0 ? 'pos' : s.totalProfit < 0 ? 'neg' : '', sub: '' },
+        { label: 'В игре', value: fm(s.inPlay), sub: '' },
+        { label: 'Профит', value: fm(s.totalProfit), cls: s.totalProfit > 0 ? 'pos' : s.totalProfit < 0 ? 'neg' : '', sub: '' },
         { label: 'Ср. CLV%', value: s.avgClv == null ? '—' : (s.avgClv >= 0 ? '+' : '') + s.avgClv.toFixed(1) + '%', cls: s.avgClv > 0 ? 'pos' : s.avgClv < 0 ? 'neg' : '', sub: '' },
         { label: 'ROI', value: s.roi == null ? '—' : s.roi.toFixed(1) + '%', cls: s.roi > 0 ? 'pos' : s.roi < 0 ? 'neg' : '', sub: '' },
       ];
@@ -446,12 +450,12 @@
             const preview = computeHedgeProfit(entry.entry_odds, entry.hedge_odds, entry.stake);
             profitHtml = preview == null
               ? '<span class="clv-num pending">—</span>'
-              : `<span class="clv-num pending">~${fmtMoney(preview)}<span class="clv-num-sub">ожид.</span></span>`;
+              : `<span class="clv-num pending">~${fm(preview)}<span class="clv-num-sub">ожид.</span></span>`;
           } else {
             const profit = computeClvProfit(entry);
             profitHtml = profit == null
               ? '<span class="clv-num pending">—</span>'
-              : `<span class="clv-num ${profit > 0 ? 'pos' : profit < 0 ? 'neg' : ''}">${fmtMoney(profit)}</span>`;
+              : `<span class="clv-num ${profit > 0 ? 'pos' : profit < 0 ? 'neg' : ''}">${fm(profit)}</span>`;
           }
           const { closingHtml, clvHtml, hedgeHtml } = clvCellsHtml(entry);
           return `
@@ -469,7 +473,7 @@
               <td class="num">${closingHtml}</td>
               <td class="num">${clvHtml}</td>
               <td class="num">${hedgeHtml}</td>
-              <td class="num"><span class="clv-num">${fmtMoney(entry.stake)}</span></td>
+              <td class="num"><span class="clv-num">${fm(entry.stake)}</span></td>
               <td class="num">${profitHtml}</td>
               <td>
                 <div class="clv-actions">

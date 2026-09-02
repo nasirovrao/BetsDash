@@ -89,7 +89,7 @@
 
 <script type="module">
   import { supabase, requireSession, isClvEnabled } from './supabase-client.js';
-  import { groupBets, renderGroupCards, renderBreakdownDetail, getChannelParams, loadMyChannels, renderChannelSwitch, preserveChannelInNav, channelHref, initEmailPrivacyToggle, initNavDropdown, applyNavModes, escapeHtml } from './lib.js';
+  import { groupBets, renderGroupCards, renderBreakdownDetail, getChannelParams, loadMyChannels, renderChannelSwitch, preserveChannelInNav, channelHref, initEmailPrivacyToggle, initNavDropdown, applyNavModes, escapeHtml, getDisplayCurrency } from './lib.js';
 
   const session = await requireSession();
   if (session) {
@@ -108,6 +108,7 @@
   const ownerUserId = ownerParam || session.user.id;
   preserveChannelInNav(activeChannel, ownerUserId, session.user.id);
   const pageFile = channelHref('cappers.html', activeChannel, ownerUserId, session.user.id);
+  const { currency: dispCurrency, rate: dispRate } = await getDisplayCurrency(supabase, session.user.id);
 
   loadMyChannels(supabase, session.user.id).then(channels => {
     document.getElementById('channelSwitch').innerHTML =
@@ -134,7 +135,7 @@
     const groups = groupBets(data, pickSourceKey);
     if (keyParam) {
       const group = groups.find(g => g.key === keyParam);
-      root.innerHTML = renderBreakdownDetail('Источник пика', keyParam, group, pageFile, false);
+      root.innerHTML = renderBreakdownDetail('Источник пика', keyParam, group, pageFile, false, dispCurrency, dispRate);
       // Если метка совпадает (без учёта регистра) с юзернеймом реального
       // публичного капера на платформе — добавляем прямую ссылку на его
       // публичный профиль. Ставки помечаются свободным текстом, поэтому
@@ -151,7 +152,7 @@
         }
       }
     } else {
-      root.innerHTML = renderGroupCards(groups, 'Источник пика', pageFile);
+      root.innerHTML = renderGroupCards(groups, 'Источник пика', pageFile, dispCurrency, dispRate);
     }
   }
 </script>

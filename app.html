@@ -245,7 +245,11 @@
                 <button type="button" id="bookmakerConfirmBtn" class="btn btn-primary discipline-add-confirm">Добавить</button>
                 <button type="button" id="bookmakerCancelBtn" class="discipline-add-cancel" title="Отмена" aria-label="Отмена">✕</button>
               </div>
-              <input type="text" id="bookmakerNoteInput" class="bookmaker-note-input" placeholder="Необязательно: как выглядит интерфейс (цвета, иконки, вёрстка) — поможет распознавать его скриншоты" autocomplete="off">
+              <label class="bookmaker-ref-upload" id="bookmakerRefLabel">
+                <input type="file" id="bookmakerRefInput" accept="image/png,image/jpeg,image/webp" hidden>
+                <img class="bookmaker-ref-thumb" id="bookmakerRefThumb" alt="">
+                <span id="bookmakerRefText">Необязательно: приложи пример скриншота этого букмекера — поможет узнавать его в будущем</span>
+              </label>
             </div>
           </div>
           <div class="field">
@@ -280,7 +284,18 @@
           </div>
           <div class="field">
             <label for="f_stake">Сумма ($)</label>
-            <input id="f_stake" type="number" step="0.01" min="0.01" required>
+            <div class="stake-currency-row">
+              <input id="f_stake" type="number" step="0.01" min="0.01" required>
+              <select id="f_stakeCurrency" title="Ввести сумму в другой валюте — сконвертируется в доллары">
+                <option value="USD">$</option>
+                <option value="RUB">₽</option>
+                <option value="EUR">€</option>
+                <option value="KZT">₸</option>
+                <option value="UAH">₴</option>
+              </select>
+              <button type="button" id="stakeConvertBtn" class="btn btn-ghost stake-convert-btn" title="Сконвертировать сумму выше из выбранной валюты в доллары">→ $</button>
+            </div>
+            <div id="stakeConvertNote" class="stake-convert-note" style="display:none;"></div>
           </div>
           <div class="field">
             <label for="f_result">Результат</label>
@@ -362,7 +377,7 @@
 
 <script type="module">
   import { supabase, requireSession, isClvEnabled } from './supabase-client.js';
-  import { computeProfit, fmtMoney, getChannelParams, loadMyChannels, renderChannelSwitch, preserveChannelInNav, initEmailPrivacyToggle, initNavDropdown, applyNavModes, channelHref, fmtDateTime } from './lib.js';
+  import { computeProfit, fmtMoney, getChannelParams, loadMyChannels, renderChannelSwitch, preserveChannelInNav, initEmailPrivacyToggle, initNavDropdown, applyNavModes, channelHref, fmtDateTime, getDisplayCurrency } from './lib.js';
 
   const session = await requireSession();
   if (session) {
@@ -377,6 +392,12 @@
     await supabase.auth.signOut();
     window.location.href = 'index.html';
   });
+
+  // "Валюта отображения" (personal-settings.html, schema_milestone30.sql) —
+  // не то, как хранятся данные (bets.stake всегда доллары), только КАК
+  // показывать в списке ставок ниже формы. fm() — короткий алиас.
+  const { currency: dispCurrency, rate: dispRate } = await getDisplayCurrency(supabase, session.user.id);
+  const fm = (n) => fmtMoney(n, dispCurrency, dispRate);
 
   // Канал + владелец — из URL (?channel=&owner=). owner задан только когда
   // смотришь канал, которым сам не владеешь (доступ редактора выдал кто-то
@@ -413,6 +434,12 @@
     const flatVal = Number(flatInput.value);
     if (!flatVal || flatVal <= 0) return;
     stakeInput.value = (flatVal * defaultFlatSize).toFixed(2);
+    // defaultFlatSize (bank.html) сам всегда в долларах — что бы ни было
+    // выбрано в валюте до этого, число, которое мы только что сюда
+    // подставили, ТОЧНО доллары. Без этого сброса можно было бы случайно
+    // принять доллары за рубли и сконвертировать их ЕЩЁ раз кнопкой "→ $".
+    if (stakeCurrencySelect) stakeCurrencySelect.value = 'USD';
+    if (typeof setStakeConvertNote === 'function') setStakeConvertNote('');
   }
   // Обратное направление: правишь Сумму ($) руками — Флет (×) пересчитывается
   // сам, чтобы он всегда соответствовал реальной сумме ставки (а не оставался
@@ -426,6 +453,74 @@
     if (!stakeVal || stakeVal <= 0) return;
     flatInput.value = (stakeVal / defaultFlatSize).toFixed(2);
   }
+
+  // 02.09.2026: ручной ввод суммы в другой валюте — запрос "кто-то ставит
+  // на Фонбете рублями, кто-то на 1xBet баксами". Сумма в базе (bets.stake)
+  // всегда доллары (от этого считаются ROI/профит по всем каналам разом,
+  // менять на мультивалютное хранение — отдельная большая переделка, не
+  // делаем её здесь). Вместо этого — конвертация ПРЯМО В ПОЛЕ перед
+  // сохранением: выбрал валюту, вписал сумму как есть (например "5000" для
+  // 5000₽), жмёшь "→ $" — поле заменяется на доллары по текущему курсу,
+  // валюта в селекте сбрасывается обратно на $ (то, что теперь лежит в
+  // поле — уже доллары). Тот же публичный курс без ключа, что и в
+  // parse-bet-screenshot/telegram-webhook (open.er-api.com), только вызов
+  // отсюда идёт прямо из браузера, без похода на свой сервер.
+  const stakeCurrencySelect = document.getElementById('f_stakeCurrency');
+  // Для НОВОЙ ставки поле сразу предлагает твою личную валюту отображения
+  // (personal-settings.html) — не нужно каждый раз выбирать её руками.
+  // Автоподстановка из "Флет по умолчанию" (см. applyDefaultFlatToStake
+  // ниже) в любом случае откатит обратно на $ сама, как только сработает —
+  // она всегда пишет доллары.
+  if (['RUB', 'EUR', 'KZT', 'UAH'].includes(dispCurrency)) stakeCurrencySelect.value = dispCurrency;
+  const stakeConvertBtn = document.getElementById('stakeConvertBtn');
+  const stakeConvertNote = document.getElementById('stakeConvertNote');
+  function setStakeConvertNote(text, isErr) {
+    stakeConvertNote.textContent = text;
+    stakeConvertNote.style.display = text ? '' : 'none';
+    stakeConvertNote.classList.toggle('err', !!isErr);
+  }
+  // Вынесено в отдельную функцию (02.09.2026) — вызывается и по клику на
+  // "→ $", и автоматически при сохранении ставки (см. betForm submit ниже),
+  // чтобы не полагаться на то, что пользователь не забудет нажать кнопку
+  // руками перед сохранением. Возвращает true, если конвертация прошла
+  // (или валюта уже была $ — конвертировать нечего), false — если явно
+  // выбрана не-долларовая валюта, но курс получить не удалось (тогда
+  // сохранение блокируется чуть ниже — "самое главное, чтобы данные были
+  // чёткие", лучше не сохранить, чем сохранить неверную сумму).
+  async function convertStakeToUsdIfNeeded(){
+    const currency = stakeCurrencySelect.value;
+    if (currency === 'USD') return true;
+    const amount = Number(stakeInput.value);
+    if (!amount || amount <= 0) {
+      setStakeConvertNote('Сначала впиши сумму в выбранной валюте.', true);
+      return false;
+    }
+    stakeConvertBtn.disabled = true;
+    setStakeConvertNote('Получаю курс…');
+    try {
+      const res = await fetch(`https://open.er-api.com/v6/latest/${currency}`);
+      const data = await res.json();
+      const rate = data && data.rates && data.rates.USD;
+      if (!res.ok || typeof rate !== 'number') throw new Error('нет курса в ответе');
+      const usd = Math.round(amount * rate * 100) / 100;
+      stakeInput.value = usd.toFixed(2);
+      applyStakeToFlat();
+      stakeCurrencySelect.value = 'USD';
+      const symbol = { RUB: '₽', EUR: '€', KZT: '₸', UAH: '₴' }[currency] || currency;
+      setStakeConvertNote(`Сконвертировано из ${amount}${symbol} по курсу ~${rate.toFixed(5)} (курс на сейчас, может отличаться от курса на момент ставки).`);
+      return true;
+    } catch (e) {
+      setStakeConvertNote('Не удалось получить курс — впиши сумму в долларах вручную или попробуй ещё раз.', true);
+      return false;
+    } finally {
+      stakeConvertBtn.disabled = false;
+    }
+  }
+  stakeConvertBtn.addEventListener('click', convertStakeToUsdIfNeeded);
+  // Смена валюты обратно на $ или правка суммы руками — старая заметка о
+  // конвертации больше не актуальна, прячем её.
+  stakeCurrencySelect.addEventListener('change', () => setStakeConvertNote(''));
+  stakeInput.addEventListener('input', () => { if (stakeConvertNote.style.display !== 'none') setStakeConvertNote(''); });
   // Своих дисциплин (добавленных кнопкой "+" у поля "Дисциплина") тоже
   // нет смысла перегружать при каждом loadBets() — читаем один раз вместе
   // с флетом по умолчанию. settingsRowExists помнит, есть ли вообще
@@ -434,10 +529,15 @@
   // сохранения нужен именно insert(), а не update().
   let customDisciplines = [];
   let customBookmakers = [];
-  // {имя_букмекера: "как выглядит его интерфейс"} — необязательные заметки,
-  // добавленные вместе с кнопкой "+" у "Букмекер" (schema_milestone29.sql).
-  // Передаются в parse-bet-screenshot как подсказка модели для узнавания
-  // незнакомых интерфейсов на будущих скриншотах — см. confirmAddBookmaker.
+  // {имя_букмекера: {image: "base64…", mimeType: "image/png"}} —
+  // необязательные референс-скриншоты, добавленные вместе с кнопкой "+" у
+  // "Букмекер" (schema_milestone29.sql, колонка называется bookmaker_notes
+  // по историческим причинам — начиналось с текстовых заметок, 02.09.2026
+  // заменено на реальные картинки по прямому запросу пользователя: "может
+  // фоткой интерфейс показывать уж лучше?", few-shot изображением модель
+  // узнаёт стиль надёжнее словесного описания). Передаются в
+  // parse-bet-screenshot как референс для узнавания незнакомых интерфейсов
+  // на будущих скриншотах — см. confirmAddBookmaker.
   let bookmakerNotes = {};
   let settingsRowExists = false;
   supabase.from('settings').select('default_flat_size, custom_disciplines, custom_bookmakers, bookmaker_notes').eq('user_id', ownerUserId).eq('channel', activeChannel).maybeSingle()
@@ -512,7 +612,10 @@
   const disciplineCancelBtn = document.getElementById('disciplineCancelBtn');
   const bookmakerConfirmBtn = document.getElementById('bookmakerConfirmBtn');
   const bookmakerCancelBtn = document.getElementById('bookmakerCancelBtn');
-  const bookmakerNoteInput = document.getElementById('bookmakerNoteInput');
+  const bookmakerRefInput = document.getElementById('bookmakerRefInput');
+  const bookmakerRefLabel = document.getElementById('bookmakerRefLabel');
+  const bookmakerRefThumb = document.getElementById('bookmakerRefThumb');
+  const bookmakerRefText = document.getElementById('bookmakerRefText');
   const tournamentInput = document.getElementById('f_tournament');
   const tournamentToggleBtn = document.getElementById('tournamentToggleBtn');
   const tournamentComboList = document.getElementById('tournamentComboList');
@@ -809,9 +912,9 @@
       <div class="bet-card-stats">
         <div class="bet-stat"><span class="bet-stat-label">Кэф</span><span class="bet-stat-value">${Number(bet.odds).toFixed(2)}</span></div>
         <div class="bet-stat"><span class="bet-stat-label">Флет</span><span class="bet-stat-value">${Number(bet.flat_mult).toFixed(2)}×</span></div>
-        <div class="bet-stat"><span class="bet-stat-label">Сумма</span><span class="bet-stat-value">$${Number(bet.stake).toFixed(2)}</span></div>
+        <div class="bet-stat"><span class="bet-stat-label">Сумма</span><span class="bet-stat-value">${fm(Number(bet.stake))}</span></div>
         <div class="bet-stat pending-result-stat">${resultCellHtml(bet)}</div>
-        <div class="bet-stat"><span class="bet-stat-label">Профит</span><span class="bet-stat-value ${profitCls}">${profit == null ? '—' : fmtMoney(profit)}</span></div>
+        <div class="bet-stat"><span class="bet-stat-label">Профит</span><span class="bet-stat-value ${profitCls}">${profit == null ? '—' : fm(profit)}</span></div>
       </div>
       <div class="bet-card-actions">
         <button class="bet-card-edit" data-id="${bet.id}" title="Редактировать ставку">✎</button>
@@ -1125,11 +1228,40 @@
   }
   renderBookmakerOptions();
 
+  // Файл референс-скриншота, выбранный в текущем открытии блока добавления
+  // (не сохраняем нигде до нажатия "Добавить" — черновик).
+  let pendingBookmakerRefFile = null;
+  function resetBookmakerRefUpload(){
+    pendingBookmakerRefFile = null;
+    bookmakerRefInput.value = '';
+    bookmakerRefThumb.src = '';
+    bookmakerRefLabel.classList.remove('has-file');
+    bookmakerRefText.textContent = 'Необязательно: приложи пример скриншота этого букмекера — поможет узнавать его в будущем';
+  }
+  bookmakerRefInput.addEventListener('change', () => {
+    const file = bookmakerRefInput.files[0];
+    if (!file) return;
+    if (!/^image\//.test(file.type)) {
+      formStatus.textContent = 'Референс-скриншот должен быть картинкой (png/jpeg/webp).';
+      resetBookmakerRefUpload();
+      return;
+    }
+    if (file.size > 5 * 1024 * 1024) {
+      formStatus.textContent = 'Референс-скриншот больше 5MB — сожми или обрежь.';
+      resetBookmakerRefUpload();
+      return;
+    }
+    pendingBookmakerRefFile = file;
+    bookmakerRefThumb.src = URL.createObjectURL(file);
+    bookmakerRefLabel.classList.add('has-file');
+    bookmakerRefText.textContent = file.name;
+  });
+
   bookmakerAddBtn.addEventListener('click', () => {
     bookmakerAddRow.classList.add('is-open');
     bookmakerAddBtn.style.display = 'none';
     bookmakerNewInput.value = '';
-    bookmakerNoteInput.value = '';
+    resetBookmakerRefUpload();
     bookmakerNewInput.focus();
   });
   function closeBookmakerAddRow(){
@@ -1145,13 +1277,13 @@
   async function confirmAddBookmaker(){
     const name = bookmakerNewInput.value.trim();
     if (!name) return;
-    const note = bookmakerNoteInput.value.trim();
+    const refFile = pendingBookmakerRefFile;
     const exists = [...DEFAULT_BOOKMAKERS, ...customBookmakers].some(n => n.toLowerCase() === name.toLowerCase());
     const canonicalName = exists
       ? [...DEFAULT_BOOKMAKERS, ...customBookmakers].find(n => n.toLowerCase() === name.toLowerCase())
       : name;
-    if (exists && !note) {
-      // Уже есть в списке (свой или базовый) и заметку не дописали —
+    if (exists && !refFile) {
+      // Уже есть в списке (свой или базовый) и референс не приложили —
       // просто выбираем его, ничего заново сохранять не нужно.
       renderBookmakerOptions();
       bookmakerSelect.value = canonicalName;
@@ -1160,10 +1292,20 @@
     }
     bookmakerConfirmBtn.disabled = true;
     const updated = exists ? customBookmakers : [...customBookmakers, name];
-    // Заметку сохраняем даже для уже существующего букмекера (canonicalName)
-    // — так можно дописать/поправить описание стиля позже, не только в
-    // момент первого добавления.
-    const updatedNotes = note ? { ...bookmakerNotes, [canonicalName]: note } : bookmakerNotes;
+    // Референс сохраняем даже для уже существующего букмекера (canonicalName)
+    // — так можно приложить/заменить скриншот позже, не только в момент
+    // первого добавления.
+    let updatedNotes = bookmakerNotes;
+    if (refFile) {
+      try {
+        const base64 = await fileToBase64(refFile);
+        updatedNotes = { ...bookmakerNotes, [canonicalName]: { image: base64, mimeType: refFile.type } };
+      } catch (e) {
+        bookmakerConfirmBtn.disabled = false;
+        formStatus.textContent = 'Не удалось прочитать референс-скриншот: ' + (e && e.message ? e.message : e);
+        return;
+      }
+    }
     const payload = { custom_bookmakers: updated, bookmaker_notes: updatedNotes };
     const { error } = settingsRowExists
       ? await supabase.from('settings').update(payload).eq('user_id', ownerUserId).eq('channel', activeChannel)
@@ -1367,6 +1509,11 @@
 
     document.getElementById('f_flat').value = bet.flat_mult;
     document.getElementById('f_stake').value = bet.stake;
+    // Сохранённая ставка всегда в долларах (та же логика, что и в
+    // applyDefaultFlatToStake) — сбрасываем валюту, чтобы не унаследовать
+    // выбор с предыдущей открытой формы.
+    stakeCurrencySelect.value = 'USD';
+    setStakeConvertNote('');
     resultSelect.value = bet.result;
     document.getElementById('f_type').value = bet.bet_type || '';
     document.getElementById('f_conviction').value = bet.conviction ? String(bet.conviction) : '';
@@ -1398,6 +1545,11 @@
     editIdField.value = '';
     document.getElementById('f_flat').value = 1;
     document.getElementById('f_date').value = todayLocalStr();
+    // betForm.reset() возвращает f_stakeCurrency к HTML-дефолту ($) — если у
+    // пользователя личная валюта не доллар, возвращаем её обратно (та же
+    // логика, что при первом открытии страницы, см. выше); applyDefaultFlatToStake
+    // ниже в любом случае откатит на $ сама, если сработает.
+    if (['RUB', 'EUR', 'KZT', 'UAH'].includes(dispCurrency)) stakeCurrencySelect.value = dispCurrency;
     // betForm.reset() возвращает f_stake к HTML-дефолту (пусто) — если флет
     // по умолчанию задан, сразу подставляем сумму заново, как и при первом
     // открытии страницы (см. выше), а не оставляем поле пустым до первого
@@ -1441,6 +1593,13 @@
       pickVal = document.getElementById('f_pick').value.trim();
       oddsVal = Number(document.getElementById('f_odds').value);
     }
+
+    // Если валюта суммы выбрана не $ (например пользователь так и не нажал
+    // "→ $" сам) — конвертируем прямо сейчас, перед сохранением. Блокируем
+    // сохранение, если курс получить не удалось — лучше попросить попробовать
+    // ещё раз, чем молча записать сумму в неверной валюте как будто доллары.
+    const stakeOk = await convertStakeToUsdIfNeeded();
+    if (!stakeOk) return;
 
     addBtn.disabled = true;
     formStatus.textContent = 'Сохраняю…';

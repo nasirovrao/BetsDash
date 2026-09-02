@@ -139,7 +139,7 @@
 
 <script type="module">
   import { supabase, requireSession, isClvEnabled } from './supabase-client.js';
-  import { fmtMoney, computeStats, computeBankPoints, getChannelParams, loadMyChannels, renderChannelSwitch, preserveChannelInNav, initEmailPrivacyToggle, initNavDropdown, applyNavModes} from './lib.js';
+  import { fmtMoney, computeStats, computeBankPoints, getChannelParams, loadMyChannels, renderChannelSwitch, preserveChannelInNav, initEmailPrivacyToggle, initNavDropdown, applyNavModes, getDisplayCurrency } from './lib.js';
 
   const session = await requireSession();
   if (session) {
@@ -153,6 +153,14 @@
     await supabase.auth.signOut();
     window.location.href = 'index.html';
   });
+
+  // "Валюта отображения" (personal-settings.html, schema_milestone30.sql) —
+  // не то, как хранятся данные (withdrawals.amount/bets.stake всегда
+  // доллары), только КАК показывать конкретному зрителю. fm() — короткий
+  // алиас вместо fmtMoney(n, dispCurrency, dispRate) на каждом вызове ниже
+  // (их тут много — таблица выводов, тултип графика, карточки).
+  const { currency: dispCurrency, rate: dispRate } = await getDisplayCurrency(supabase, session.user.id);
+  const fm = (n) => fmtMoney(n, dispCurrency, dispRate);
 
   // Банк — как и решили, управляет только владелец канала: редактор видит
   // те же цифры (RLS даёт ему select на withdrawals/settings), но формы
@@ -197,9 +205,9 @@
 
   function renderBankStats(s) {
     const cards = [
-      { label: 'Стартовый банк', value: fmtMoney(s.startingBankroll), sub: '' },
-      { label: 'Выведено всего', value: fmtMoney(s.totalWithdrawn), sub: '' },
-      { label: 'Текущий банк', value: fmtMoney(s.currentBank), cls: s.currentBank > s.startingBankroll ? 'pos' : s.currentBank < s.startingBankroll ? 'neg' : '', sub: `профит по ставкам ${fmtMoney(s.totalProfit)}` },
+      { label: 'Стартовый банк', value: fm(s.startingBankroll), sub: '' },
+      { label: 'Выведено всего', value: fm(s.totalWithdrawn), sub: '' },
+      { label: 'Текущий банк', value: fm(s.currentBank), cls: s.currentBank > s.startingBankroll ? 'pos' : s.currentBank < s.startingBankroll ? 'neg' : '', sub: `профит по ставкам ${fm(s.totalProfit)}` },
     ];
     bankStatGrid.innerHTML = cards.map(c => `
       <div class="stat-card">
@@ -244,7 +252,7 @@
 
     const finalBank = points[points.length - 1].bank;
     const lineColor = finalBank >= start ? 'var(--teal)' : 'var(--rust)';
-    const fmtAxis = n => (n < 0 ? '−' : '') + '$' + Math.round(Math.abs(n));
+    const fmtAxis = n => fm(n);
     const fmtLabel = s => {
       if (s === 'Старт') return s;
       const parts = String(s).split('-');
@@ -314,7 +322,7 @@
       </defs>
       ${gridHtml}
       <line x1="${padL}" y1="${startY}" x2="${W - padR}" y2="${startY}" stroke="var(--ink-faint)" stroke-dasharray="1,5" stroke-width="1" stroke-linecap="round" opacity="0.7"/>
-      <text x="${W - padR}" y="${Number(startY) - 6}" text-anchor="end" fill="var(--ink-faint)" font-size="10">старт ${fmtMoney(start)}</text>
+      <text x="${W - padR}" y="${Number(startY) - 6}" text-anchor="end" fill="var(--ink-faint)" font-size="10">старт ${fm(start)}</text>
       <path d="${areaPath}" fill="url(#bankGrad)" stroke="none"/>
       <path class="bank-line-glow" d="${linePath}" fill="none" stroke="${lineColor}" stroke-width="3.5" stroke-linecap="round" stroke-linejoin="round" opacity="0.35" filter="url(#bankGlow)"/>
       <path id="bankLinePath" d="${linePath}" fill="none" stroke="${lineColor}" stroke-width="3" stroke-linecap="round" stroke-linejoin="round"/>
@@ -360,11 +368,11 @@
       } else {
         const cls = p.delta > 0 ? 'pos' : (p.delta < 0 ? 'neg' : 'zero');
         const sign = p.delta > 0 ? '+' : '';
-        deltaHtml = `<div class="tt-delta ${cls}">${sign}${fmtMoney(p.delta)} за день</div>`;
+        deltaHtml = `<div class="tt-delta ${cls}">${sign}${fm(p.delta)} за день</div>`;
       }
-      const withdrawnHtml = p.withdrawn ? `<div class="tt-delta zero" style="opacity:0.85">↓ вывод ${fmtMoney(p.withdrawn)}</div>` : '';
+      const withdrawnHtml = p.withdrawn ? `<div class="tt-delta zero" style="opacity:0.85">↓ вывод ${fm(p.withdrawn)}</div>` : '';
       if (tooltip) {
-        tooltip.innerHTML = `<div class="tt-date">${fmtLabel(p.label)}</div><div class="tt-bank">${fmtMoney(p.bank)}</div>${deltaHtml}${withdrawnHtml}`;
+        tooltip.innerHTML = `<div class="tt-date">${fmtLabel(p.label)}</div><div class="tt-bank">${fm(p.bank)}</div>${deltaHtml}${withdrawnHtml}`;
         const wrapEl = svg.closest('.chart-wrap');
         const wrapRect = wrapEl.getBoundingClientRect();
         const svgRect = svg.getBoundingClientRect();
@@ -408,7 +416,7 @@
     const tr = document.createElement('tr');
     tr.innerHTML = `
       <td class="num">${fmtDate(w.w_date)}</td>
-      <td class="num">${fmtMoney(Number(w.amount))}</td>
+      <td class="num">${fm(Number(w.amount))}</td>
       <td>${escapeHtml(w.note || '—')}</td>
       <td>${isEditorView ? '' : `<button class="row-del" data-id="${w.id}">Удалить</button>`}</td>
     `;
@@ -503,7 +511,7 @@
   // Подтверждение перед удалением — так же, как для ставок: случайный клик
   // не должен безвозвратно стирать запись о выводе средств.
   async function deleteWithdrawal(id, w) {
-    const label = w ? `${fmtMoney(Number(w.amount))} от ${fmtDate(w.w_date)}` : '';
+    const label = w ? `${fm(Number(w.amount))} от ${fmtDate(w.w_date)}` : '';
     const ok = window.confirm(label ? `Удалить вывод «${label}»? Это необратимо.` : 'Удалить этот вывод? Это необратимо.');
     if (!ok) return;
     const { error } = await supabase.from('withdrawals').delete().eq('id', id);
