@@ -13,8 +13,42 @@ export const supabase = createClient(SUPABASE_URL, SUPABASE_ANON_KEY);
 
 // Достаёт текущую сессию; если пользователь не залогинен — отправляет
 // на страницу входа. Используется в начале защищённых страниц (app.html).
+//
+// 02.09.2026: баг — при переходе С feed.html (публичная лента, где сессия
+// часто успевает состариться, её там подолгу читают, а страница не форсит
+// refresh) НА любую приватную страницу иногда на долю секунды мелькала форма
+// входа, после чего index.html сам тут же отправлял обратно на
+// dashboard.html. Причина — гонка при холодной загрузке страницы: первый же
+// getSession() иногда успевал отработать раньше, чем клиент Supabase
+// дочитал/обновил токен из localStorage, и ложно возвращал session:null,
+// хотя сессия на самом деле была жива (это подтверждал сам index.html долей
+// секунды спустя). Раньше на такой единичный null редирект срабатывал сразу,
+// без права на пересмотр.
+//
+// Фикс — не доверять первому null слепо: если getSession() ничего не нашёл,
+// даём клиенту короткий шанс (до 800мс) прислать актуальное состояние через
+// onAuthStateChange, и только если и оно молчит — редиректим по-настоящему.
+// Для реально разлогиненного пользователя это добавляет максимум ~0.8с
+// перед ожидаемым редиректом на index.html, поведение не меняется.
 export async function requireSession() {
-  const { data: { session } } = await supabase.auth.getSession();
+  let { data: { session } } = await supabase.auth.getSession();
+  if (!session) {
+    session = await new Promise((resolve) => {
+      let settled = false;
+      const { data: sub } = supabase.auth.onAuthStateChange((_event, s) => {
+        if (settled) return;
+        settled = true;
+        sub.subscription.unsubscribe();
+        resolve(s);
+      });
+      setTimeout(() => {
+        if (settled) return;
+        settled = true;
+        sub.subscription.unsubscribe();
+        resolve(null);
+      }, 800);
+    });
+  }
   if (!session) {
     window.location.href = 'index.html';
     return null;

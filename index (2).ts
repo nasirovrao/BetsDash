@@ -407,11 +407,13 @@ Deno.serve(async (req: Request) => {
   // подавляющее большинство нерелевантного шума канала (анонсы, общение,
   // реклама), которое иначе жгло бы вызовы модели впустую.
   const looksLikeBet = !!image || /\d/.test(textOrCaption);
+  console.log(`telegram-webhook: chat_id=${chatId} user_id=${userId} looksLikeBet=${looksLikeBet} hasImage=${!!image} text="${textOrCaption.slice(0, 200)}"`);
   if (!looksLikeBet) {
     // Чистим по message_id безусловно, не только при isEdit — см. комментарий
     // ниже у второго вызова clearPendingForMessage(): та же защита от дублей
     // при повторной доставке актуальна и здесь (на обычном новом посте это
     // просто no-op, удалять нечего).
+    console.log('telegram-webhook: отсеяно локальным фильтром looksLikeBet, модель не вызывалась');
     await clearPendingForMessage(userId, post.message_id, supabaseUrl, serviceKey);
     return jsonResponse({ ok: true });
   }
@@ -475,6 +477,13 @@ Deno.serve(async (req: Request) => {
   const data = await anthropicRes.json();
   const toolUse = (data.content || []).find((b: any) => b.type === 'tool_use' && b.name === 'record_bet_data');
   const detectedBets = toolUse?.input?.detected && Array.isArray(toolUse.input.bets) ? toolUse.input.bets : [];
+  // Временное диагностическое логирование (01.09.2026) — раньше при
+  // detected:false не логировалось вообще ничего, что делало "почему не
+  // распозналось" непроверяемым без гадания. Печатаем сырой вердикт модели
+  // целиком (не только bets.length), чтобы видеть даже случай, когда модель
+  // не вызвала tool_use вовсе (toolUse === undefined, например если ответ
+  // модели был усечён/сломан).
+  console.log(`telegram-webhook: verdict detected=${toolUse?.input?.detected} betsCount=${Array.isArray(toolUse?.input?.bets) ? toolUse.input.bets.length : 'n/a'} toolUsePresent=${!!toolUse} raw=${JSON.stringify(toolUse?.input ?? data).slice(0, 1500)}`);
 
   // Чистим то, что было по этому message_id раньше, БЕЗУСЛОВНО — не только
   // при isEdit. Две причины разом:
