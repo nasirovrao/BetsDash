@@ -508,11 +508,21 @@ table.bets-table tbody tr:hover td.num{ color: var(--gold); }
    styles-edge3.css, просто не был применён здесь. */
 .bet-stat-value.pos-text{ color: var(--teal); }
 .bet-stat-value.neg-text{ color: var(--rust); }
-.bet-card-actions{ display:flex; align-items:center; gap:2px; flex:none; }
+.bet-card-actions{ display:flex; align-items:center; gap:4px; flex:none; }
+/* 02.09.2026: тач-таргет был ~28×28px (14px иконка + 6/7px паддинг) —
+   меньше рекомендуемых 44×44 (WCAG 2.5.5 / Apple HIG). Сама иконка
+   визуально осталась тем же размером (font-size не трогали) — выросла
+   только кликабельная область вокруг неё, через min-width/height + flex-
+   центрирование, а не через padding (тот не даёт предсказуемого квадрата
+   при разной ширине контента иконки, min-width/height — даёт). gap выше
+   увеличен с 2px до 4px, чтобы у двух соседних 44px-кнопок было заметное
+   визуальное разделение, а не встык. */
 .bet-card-edit,
 .bet-card-del{
+  display:inline-flex; align-items:center; justify-content:center;
+  min-width:44px; min-height:44px;
   background:none; border:none; color: var(--ink-faint); cursor:pointer; font-size:14px; line-height:1;
-  padding:6px 7px; border-radius:6px; opacity:0.5; transition: all 0.15s ease;
+  border-radius:6px; opacity:0.5; transition: all 0.15s ease;
 }
 .bet-card-edit:hover{ opacity:1; color: var(--gold); background: rgba(124,108,255,0.12); }
 .bet-card-del{ font-size:16px; }
