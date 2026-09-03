@@ -1220,8 +1220,20 @@
   const DEFAULT_BOOKMAKERS = ['Pinnacle', '1xBet', 'Fonbet', 'Winline', 'Marathon', 'Betcity', 'Пари', 'Лига Ставок'];
   function renderBookmakerOptions(){
     const used = allBets.map(b => (b.bookmaker || '').trim()).filter(Boolean);
-    const all = new Set([...DEFAULT_BOOKMAKERS, ...customBookmakers, ...used]);
-    const extra = Array.from(all).filter(n => !DEFAULT_BOOKMAKERS.includes(n)).sort((a, b) => a.localeCompare(b, 'ru'));
+    // 02.09.2026: баг — "1Win" и "1win" в списке считались РАЗНЫМИ пунктами
+    // (Set сравнивает строки строго, без учёта регистра). Модель-
+    // распознавание не гарантирует одинаковый регистр между разными
+    // скриншотами одного и того же букмекера — дедуплицируем по нижнему
+    // регистру, а не по точной строке. Канонический вариант написания —
+    // первый встретившийся (базовый список → свои сохранённые → то, что
+    // просто попало в ставки), не "какой попало".
+    const byLower = new Map();
+    for (const n of [...DEFAULT_BOOKMAKERS, ...customBookmakers, ...used]) {
+      const key = n.toLowerCase();
+      if (!byLower.has(key)) byLower.set(key, n);
+    }
+    const defaultLower = new Set(DEFAULT_BOOKMAKERS.map(n => n.toLowerCase()));
+    const extra = Array.from(byLower.values()).filter(n => !defaultLower.has(n.toLowerCase())).sort((a, b) => a.localeCompare(b, 'ru'));
     const ordered = [...DEFAULT_BOOKMAKERS, ...extra];
     const prevValue = bookmakerSelect.value;
     bookmakerSelect.innerHTML = ordered.map(n => `<option value="${escapeHtml(n)}">${escapeHtml(n)}</option>`).join('');
@@ -1493,7 +1505,13 @@
     editIdField.value = bet.id;
     document.getElementById('f_date').value = bet.bet_date;
     document.getElementById('f_discipline').value = bet.discipline;
-    document.getElementById('f_bookmaker').value = bet.bookmaker || '';
+    // 02.09.2026: раньше прямое value= — если регистр в сохранённой ставке
+    // не совпадал буква-в-букву с текущим пунктом списка ("1win" в базе,
+    // "1Win" в select после дедупликации по регистру ниже), выбор молча не
+    // применялся, поле выглядело пустым. fillBookmakerFromParsed ищет без
+    // учёта регистра и, если совсем не нашла, сама подставит временный пункт.
+    document.getElementById('f_bookmaker').value = '';
+    if (bet.bookmaker) fillBookmakerFromParsed(bet.bookmaker);
     document.getElementById('f_tournament').value = bet.tournament || '';
     document.getElementById('f_match').value = bet.match || '';
     document.getElementById('f_pick').value = bet.pick || '';
