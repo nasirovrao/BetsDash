@@ -290,7 +290,12 @@ section{ padding: 40px 0; }
 .form-grid{ display:grid; grid-template-columns: repeat(4, 1fr); gap:14px; }
 .form-grid-3{ grid-template-columns: repeat(3, 1fr); }
 .form-grid-2{ grid-template-columns: repeat(2, 1fr); }
-.form-grid .field{ margin-bottom:0; }
+/* min-width:0 — известная ловушка CSS Grid: у grid-элемента дефолтный
+   min-width:auto, то есть колонка НЕ может сжаться меньше, чем требует её
+   самый широкий несжимаемый потомок (02.09.2026: блок добавления
+   букмекера — поле + кнопки "Добавить"/"✕" — раздувал колонку "Букмекер"
+   и наезжал на соседние поля формы, как только открывался). */
+.form-grid .field{ margin-bottom:0; min-width:0; }
 .form-grid select{
   font-family:'Inter', sans-serif; font-size:14px; padding:10px 11px; border:1px solid var(--line);
   border-radius: var(--radius); background: var(--bg-raised); color: var(--ink); width:100%;
