@@ -79,7 +79,20 @@
     computeCardTrend, renderSparkline, renderWlpBars, renderTopBetsPop, initStatCardPopovers,
     computeRatingTier, computeSpecialization, renderProfileBanner, wasEditedAfterSettle,
     initEmailPrivacyToggle, getDisplayCurrency,
+    monthKeyOf, monthLabelOf, weekKeyOf, weekLabelOf, dayKeyOf, dayLabelOf,
   } from './lib.js';
+
+  // 02.09.2026: фильтр по периоду на вкладке "Дашборд" публичного профиля —
+  // тот же PERIOD_CONFIGS/паттерн, что уже работает на приватном
+  // dashboard.html (см. renderStats/applyDashFilters там же). Шапка профиля
+  // выше (pf-stats/рейтинг) осознанно НЕ фильтруется — это "верифицируемый
+  // трек-рекорд", там всегда весь срок целиком, фильтр — только внутри
+  // самой вкладки "Дашборд".
+  const PF_PERIOD_CONFIGS = {
+    month: { keyOf: monthKeyOf, labelOf: monthLabelOf, allLabel: 'Все месяцы' },
+    week: { keyOf: weekKeyOf, labelOf: weekLabelOf, allLabel: 'Все недели' },
+    day: { keyOf: dayKeyOf, labelOf: dayLabelOf, allLabel: 'Все дни' },
+  };
 
   // 01.09.2026: та же правка, что и на feed.html — топбар раньше всегда
   // показывал "Войти в EDGE", даже если человек уже залогинен в этом же
@@ -196,7 +209,8 @@
         const betsHref = `public.html?u=${encodeURIComponent(username)}&tab=bets`;
 
         // Считаем один раз здесь — используется и в шапке профиля (статы,
-        // рейтинг), и во вкладке "Дашборд" ниже (renderDashboardTab).
+        // рейтинг), и во вкладке "Дашборд" ниже (renderPfCards/pfApplyFilter) —
+        // но там уже с пересчётом под фильтр периода, не тот же самый s.
         const s = computeStats(allBets, allWithdrawals, startingBankroll);
         const rating = computeRatingTier(allBets);
         const specialization = computeSpecialization(allBets, 3);
@@ -258,21 +272,21 @@
             </div>
           </div>`;
 
-        function renderDashboardTab() {
-          const flatStats = computeFlatStats(allBets);
+        function renderPfCards(bets, s2, isFiltered) {
+          const flatStats = computeFlatStats(bets);
           const cards = [
-            { label: 'Всего ставок', value: s.total, sub: '', href: betsHref, pop: () => renderSparkline(computeCardTrend('total', allBets)) },
-            { label: 'В игре', value: s.pending, cls: s.pending ? 'pos' : '', sub: s.pending ? 'ждут результата' : '', href: betsHref },
-            { label: 'W / L / P', value: renderWLP(s.wins, s.losses, s.pushes), sub: '', href: betsHref, pop: () => renderWlpBars(s.wins, s.losses, s.pushes) },
-            { label: 'Винрейт', value: s.winrate == null ? '—' : s.winrate.toFixed(1) + '%', sub: (s.wins + s.losses) ? `${s.wins + s.losses} решённых` : '', href: betsHref, pop: () => renderSparkline(computeCardTrend('winrate', allBets)) },
-            { label: 'Профит', value: fm(s.totalProfit), cls: s.totalProfit > 0 ? 'pos' : s.totalProfit < 0 ? 'neg' : '', sub: '', href: betsHref, pop: () => renderSparkline(computeCardTrend('profit', allBets)) },
-            { label: 'ROI', value: s.roi == null ? '—' : s.roi.toFixed(2) + '%', cls: s.roi > 0 ? 'pos' : s.roi < 0 ? 'neg' : '', sub: '', href: betsHref, pop: () => renderSparkline(computeCardTrend('roi', allBets)) },
-            { label: 'Средний кэф', value: s.avgOdds == null ? '—' : s.avgOdds.toFixed(2), sub: '', href: betsHref, pop: () => renderTopBetsPop(allBets, 3, dispCurrency, dispRate) },
+            { label: 'Всего ставок', value: s2.total, sub: '', href: betsHref, pop: () => renderSparkline(computeCardTrend('total', bets)) },
+            { label: 'В игре', value: s2.pending, cls: s2.pending ? 'pos' : '', sub: s2.pending ? 'ждут результата' : '', href: betsHref },
+            { label: 'W / L / P', value: renderWLP(s2.wins, s2.losses, s2.pushes), sub: '', href: betsHref, pop: () => renderWlpBars(s2.wins, s2.losses, s2.pushes) },
+            { label: 'Винрейт', value: s2.winrate == null ? '—' : s2.winrate.toFixed(1) + '%', sub: (s2.wins + s2.losses) ? `${s2.wins + s2.losses} решённых` : '', href: betsHref, pop: () => renderSparkline(computeCardTrend('winrate', bets)) },
+            { label: 'Профит', value: fm(s2.totalProfit), cls: s2.totalProfit > 0 ? 'pos' : s2.totalProfit < 0 ? 'neg' : '', sub: '', href: betsHref, pop: () => renderSparkline(computeCardTrend('profit', bets)) },
+            { label: 'ROI', value: s2.roi == null ? '—' : s2.roi.toFixed(2) + '%', cls: s2.roi > 0 ? 'pos' : s2.roi < 0 ? 'neg' : '', sub: '', href: betsHref, pop: () => renderSparkline(computeCardTrend('roi', bets)) },
+            { label: 'Средний кэф', value: s2.avgOdds == null ? '—' : s2.avgOdds.toFixed(2), sub: '', href: betsHref, pop: () => renderTopBetsPop(bets, 3, dispCurrency, dispRate) },
             // Профит по флетам — см. подробный комментарий у
             // computeFlatStats/computeProfitInFlats в lib.js. Сырое
             // количество флетов, а не доходность в процентах (см. ту же
             // правку в dashboard.html).
-            { label: 'Профит по флетам', value: flatStats.flatsStaked ? `${flatStats.flatsProfit >= 0 ? '+' : ''}${flatStats.flatsProfit.toFixed(2)}` : '—', cls: flatStats.flatsProfit > 0 ? 'pos' : flatStats.flatsProfit < 0 ? 'neg' : '', sub: flatStats.flatsStaked ? `из ${flatStats.flatsStaked.toFixed(2)} флета` : '', href: betsHref, pop: () => renderSparkline(computeCardTrend('flatsProfit', allBets)) },
+            { label: 'Профит по флетам', value: flatStats.flatsStaked ? `${flatStats.flatsProfit >= 0 ? '+' : ''}${flatStats.flatsProfit.toFixed(2)}` : '—', cls: flatStats.flatsProfit > 0 ? 'pos' : flatStats.flatsProfit < 0 ? 'neg' : '', sub: flatStats.flatsStaked ? `из ${flatStats.flatsStaked.toFixed(2)} флета` : '', href: betsHref, pop: () => renderSparkline(computeCardTrend('flatsProfit', bets)) },
           ];
           // "Средний кэф" вернули обратно (30.08.2026, по прямой просьбе —
           // на публичной сводке этой карточки не хватало, пустое место в
@@ -287,7 +301,7 @@
           // (computeStreak уже используется на этой странице для рейтинга
           // капперов, тут — тот же расчёт, другое представление).
           {
-            const streak = computeStreak(allBets, 10);
+            const streak = computeStreak(bets, 10);
             const streakLabel = streak.streakType == null ? 'Нет серии'
               : streak.streakType === 'W' ? `${streak.streakLen} ${ruCount(streak.streakLen, 'победа', 'победы', 'побед')}`
               : `${streak.streakLen} ${ruCount(streak.streakLen, 'поражение', 'поражения', 'поражений')}`;
@@ -301,10 +315,14 @@
           }
           // Milestone 13: банк/прирост банка на публичном профиле — только
           // если владелец сам включил show_bank (по умолчанию скрыто).
+          // s2 (не глобальный s) — та же логика, что и на dashboard.html:
+          // "Банк"/"Прирост банка" реагируют на период-фильтр через профит
+          // (startingBankroll + профит ФИЛЬТРА - все выводы целиком), это
+          // уже так себя ведёт на приватном дашборде, просто переносим 1:1.
           if (profile.show_bank) {
             cards.push(
-              { label: 'Банк', value: fm(s.currentBank), cls: s.currentBank > s.startingBankroll ? 'pos' : s.currentBank < s.startingBankroll ? 'neg' : '', sub: `старт ${fm(s.startingBankroll)}`, pop: () => renderSparkline(computeCardTrend('bank', allBets, allWithdrawals, startingBankroll)) },
-              { label: 'Прирост банка', value: s.bankGrowthPct == null ? '—' : s.bankGrowthPct.toFixed(1) + '%', cls: s.bankGrowthPct > 0 ? 'pos' : s.bankGrowthPct < 0 ? 'neg' : '', sub: fm(s.totalProfit) + ' по ставкам', pop: () => renderSparkline(computeCardTrend('growth', allBets, allWithdrawals, startingBankroll)) },
+              { label: 'Банк', value: fm(s2.currentBank), cls: s2.currentBank > s2.startingBankroll ? 'pos' : s2.currentBank < s2.startingBankroll ? 'neg' : '', sub: `старт ${fm(s2.startingBankroll)}`, pop: () => renderSparkline(computeCardTrend('bank', bets, allWithdrawals, startingBankroll)) },
+              { label: 'Прирост банка', value: s2.bankGrowthPct == null ? '—' : s2.bankGrowthPct.toFixed(1) + '%', cls: s2.bankGrowthPct > 0 ? 'pos' : s2.bankGrowthPct < 0 ? 'neg' : '', sub: fm(s2.totalProfit) + ' по ставкам', pop: () => renderSparkline(computeCardTrend('growth', bets, allWithdrawals, startingBankroll)) },
             );
           }
           // Сетка — 3 колонки. Раньше здесь ещё дорисовывались пустые
@@ -339,7 +357,7 @@
             </${tag}>`;
           }).join('')}</div>`;
 
-          const { recent, streakType, streakLen } = computeStreak(allBets, 10);
+          const { recent, streakType, streakLen } = computeStreak(bets, 10);
           let streakHtml = '';
           if (recent.length) {
             const cls = streakType === 'W' ? 'pos' : streakType === 'L' ? 'neg' : 'neu';
@@ -362,9 +380,36 @@
                 <div class="streak-dots">${dots}</div>
               </div>`;
           }
-          const emptyNote = s.total === 0
-            ? `<div class="empty-state">В этом канале пока нет ставок — они появятся здесь по мере публикации.</div>` : '';
+          const emptyNote = bets.length === 0
+            ? (isFiltered
+                ? `<div class="empty-state">Ставок за выбранный период не найдено.</div>`
+                : `<div class="empty-state">В этом канале пока нет ставок — они появятся здесь по мере публикации.</div>`)
+            : '';
           return statHtml + streakHtml + emptyNote;
+        }
+
+        // Фильтр по периоду (02.09.2026) — та же гранулярность День/Неделя/
+        // Месяц, что и на приватном dashboard.html, только без фильтра по
+        // турниру (тут не запрашивали, не плодим лишний контрол).
+        const pfPeriodConfig = () => PF_PERIOD_CONFIGS[document.getElementById('pfPeriodType')?.value] || PF_PERIOD_CONFIGS.month;
+        function pfPopulatePeriodOptions(keepValue) {
+          const sel = document.getElementById('pfPeriod');
+          if (!sel) return;
+          const cfg = pfPeriodConfig();
+          const keys = Array.from(new Set(allBets.map(b => cfg.keyOf(b.bet_date)).filter(Boolean))).sort().reverse();
+          sel.innerHTML = `<option value="">${cfg.allLabel}</option>` + keys.map(k => `<option value="${escapeHtml(k)}">${escapeHtml(cfg.labelOf(k))}</option>`).join('');
+          if (keepValue && keys.includes(keepValue)) sel.value = keepValue;
+        }
+        function pfApplyFilter() {
+          const grid = document.getElementById('pfStatGrid');
+          if (!grid) return;
+          const per = document.getElementById('pfPeriod').value;
+          const cfg = pfPeriodConfig();
+          const isFiltered = !!per;
+          const filtered = per ? allBets.filter(b => cfg.keyOf(b.bet_date) === per) : allBets;
+          const s2 = computeStats(filtered, allWithdrawals, startingBankroll);
+          grid.innerHTML = renderPfCards(filtered, s2, isFiltered);
+          initStatCardPopovers(document.getElementById('statGrid'));
         }
 
         function renderBreakdownTab(labelHeader, groups, keyLabel2, hideBookmakerCol) {
@@ -394,13 +439,25 @@
             break;
           case 'dashboard':
           default:
-            html = renderDashboardTab();
+            html = `
+              <div class="pf-period-filter">
+                <select id="pfPeriodType">
+                  <option value="month">Месяц</option>
+                  <option value="week">Неделя</option>
+                  <option value="day">День</option>
+                </select>
+                <select id="pfPeriod"></select>
+              </div>
+              <div id="pfStatGrid"></div>`;
             break;
         }
         tabRoot.innerHTML = html;
         footerCta.style.display = '';
         if (activeTab === 'dashboard') {
-          initStatCardPopovers(document.getElementById('statGrid'));
+          pfPopulatePeriodOptions(null);
+          pfApplyFilter();
+          document.getElementById('pfPeriod').addEventListener('change', pfApplyFilter);
+          document.getElementById('pfPeriodType').addEventListener('change', () => { pfPopulatePeriodOptions(null); pfApplyFilter(); });
         }
       }
     }

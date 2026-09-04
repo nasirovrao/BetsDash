@@ -100,6 +100,17 @@
   .pf-banner{ height:130px; }
 }
 
+/* ---------- Фильтр по периоду на вкладке "Дашборд" публичного профиля
+   (02.09.2026) — та же гранулярность День/Неделя/Месяц, что и на приватном
+   dashboard.html. Шапка профиля (.pf-stats/.pf-rating выше) им не
+   затрагивается — это верифицируемый трек-рекорд целиком. ---------- */
+.pf-period-filter{ display:flex; gap:8px; margin:22px 0 16px; }
+.pf-period-filter select{
+  font-family:'Inter', sans-serif; font-size:13px; padding:8px 11px; border:1px solid var(--line);
+  border-radius: var(--radius); background: var(--bg-raised); color: var(--ink); cursor:pointer;
+}
+.pf-period-filter select:hover{ border-color: var(--gold); }
+
 /* ---------- Выпадающий мультивыбор (сейчас — только "Метки профиля" в
    profile-settings.html; было двумя всегда-видимыми чекбоксами, свёрнуто
    в выпадающий список по просьбе — сами чекбоксы внутри не меняются,
