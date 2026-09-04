@@ -142,6 +142,25 @@
         </div>
       </form>
     </div>
+
+    <div class="bet-form" style="margin-top:22px;">
+      <h3>Смена пароля</h3>
+      <div class="section-note" style="margin-bottom:14px;">Почта для входа не меняется здесь — обратись в поддержку, если нужно её сменить.</div>
+      <form id="passwordForm">
+        <div class="field" style="max-width:320px;">
+          <label for="m_new_password">Новый пароль</label>
+          <input id="m_new_password" type="password" autocomplete="new-password" minlength="6" required>
+        </div>
+        <div class="field" style="max-width:320px;">
+          <label for="m_new_password2">Повторите новый пароль</label>
+          <input id="m_new_password2" type="password" autocomplete="new-password" minlength="6" required>
+        </div>
+        <div class="form-actions" style="margin-top:14px;">
+          <button class="btn btn-primary" type="submit" id="passwordSaveBtn" style="width:auto;">Сменить пароль</button>
+          <span class="form-status" id="passwordStatus"></span>
+        </div>
+      </form>
+    </div>
   </div>
 </section>
 
@@ -233,6 +252,39 @@
     currencyStatus.textContent = 'Сохранено ✓ — обновится на дашборде и других страницах при следующей загрузке.';
     setTimeout(() => { currencyStatus.textContent = ''; }, 4500);
     await load();
+  });
+
+  // 04.09.2026: смена пароля — supabase.auth.updateUser({password}) требует
+  // только живую сессию (уже есть, раз дошёл до этой страницы через
+  // requireSession()), НЕ требует ввода старого пароля — таково поведение
+  // самого Supabase Auth (обновление текущей сессии, а не восстановление
+  // забытого через reset-password.html, у него другой поток через письмо).
+  const newPasswordInput = document.getElementById('m_new_password');
+  const newPassword2Input = document.getElementById('m_new_password2');
+  const passwordStatus = document.getElementById('passwordStatus');
+  const passwordSaveBtn = document.getElementById('passwordSaveBtn');
+  document.getElementById('passwordForm').addEventListener('submit', async (e) => {
+    e.preventDefault();
+    if (newPasswordInput.value !== newPassword2Input.value) {
+      passwordStatus.textContent = 'Пароли не совпадают.';
+      return;
+    }
+    if (newPasswordInput.value.length < 6) {
+      passwordStatus.textContent = 'Пароль должен быть не короче 6 символов.';
+      return;
+    }
+    passwordSaveBtn.disabled = true;
+    passwordStatus.textContent = 'Сохраняю…';
+    const { error } = await supabase.auth.updateUser({ password: newPasswordInput.value });
+    passwordSaveBtn.disabled = false;
+    if (error) {
+      passwordStatus.textContent = 'Ошибка: ' + error.message;
+      return;
+    }
+    newPasswordInput.value = '';
+    newPassword2Input.value = '';
+    passwordStatus.textContent = 'Пароль изменён ✓';
+    setTimeout(() => { passwordStatus.textContent = ''; }, 3500);
   });
 
   load();

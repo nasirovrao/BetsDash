@@ -145,6 +145,22 @@
 .period-stat-lbl{ font-size:10.5px; color:var(--ink-faint); }
 @media (max-width:640px){ .period-stats-block{ grid-template-columns:1fr; } }
 
+/* ---------- "Лучший турнир"/"Лучшая ставка" на публичном профиле
+   (04.09.2026) — до 3 карточек (турнир + ставка-по-профиту + ставка-по-
+   кэфу), каждая может отсутствовать (нет турниров/нет побед) или быть
+   выключена владельцем на profile-settings.html — .best-stats-block сам не
+   рендерится, если обе группы пустые (см. bestStatsHtml в public.html), grid
+   просто подстраивается под фактическое число карточек через auto-fit. */
+.best-stats-block{ display:grid; grid-template-columns:repeat(auto-fit, minmax(180px, 1fr)); gap:14px; margin:14px 0 0; }
+.best-card{ background:var(--bg-card); border:1px solid var(--line); border-radius:var(--radius); padding:16px 18px; min-width:0; }
+.best-card-label{ font-family:'JetBrains Mono', monospace; font-size:10.5px; letter-spacing:.03em; color:var(--ink-faint); text-transform:uppercase; margin-bottom:8px; }
+.best-card-title{ font-size:13.5px; color:var(--ink); font-weight:600; overflow:hidden; text-overflow:ellipsis; white-space:nowrap; }
+.best-card-value{ margin-top:6px; font-family:'JetBrains Mono', monospace; font-size:18px; color:var(--ink); font-variant-numeric:tabular-nums; }
+.best-card-value.pos{ color:var(--teal); }
+.best-card-value.neg{ color:var(--rust); }
+.best-card-sub{ margin-top:3px; font-size:10.5px; color:var(--ink-faint); min-height:1.4em; }
+@media (max-width:640px){ .best-stats-block{ grid-template-columns:1fr; } }
+
 /* ---------- Выпадающий мультивыбор (сейчас — только "Метки профиля" в
    profile-settings.html; было двумя всегда-видимыми чекбоксами, свёрнуто
    в выпадающий список по просьбе — сами чекбоксы внутри не меняются,

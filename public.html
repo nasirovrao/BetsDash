@@ -80,6 +80,7 @@
     computeRatingTier, computeSpecialization, renderProfileBanner, wasEditedAfterSettle,
     initEmailPrivacyToggle, getDisplayCurrency,
     monthKeyOf, monthLabelOf, weekKeyOf, weekLabelOf, dayKeyOf, dayLabelOf, monthYearGenitiveOf,
+    computeTopBets, computeProfit,
   } from './lib.js';
 
   // 02.09.2026: фильтр по периоду на вкладке "Дашборд" публичного профиля —
@@ -228,11 +229,16 @@
           ? `<span class="pf-badge channel-type diary">Личный дневник</span>`
           : `<span class="pf-badge channel-type">Публичный канал</span>`;
 
-        // 04.09.2026: карточки "Эта неделя"/"Этот месяц" (Вариант А, как на
-        // приватном app.html над формой) — считаются здесь, ДО сборки
-        // шапки, чтобы вставить их строкой внутри одного общего innerHTML
-        // (по пожеланию пользователя — прямо между общей статистикой и
-        // блоком дисциплин, а не отдельным элементом после всей шапки).
+        // 04.09.2026: карточки за неделю/месяц (Вариант А, как на приватном
+        // app.html над формой) — считаются здесь, ДО сборки шапки, чтобы
+        // вставить их строкой внутри одного общего innerHTML (по пожеланию
+        // пользователя — прямо между общей статистикой и блоком дисциплин,
+        // а не отдельным элементом после всей шапки).
+        // Заголовки карточек: изначально были буквально "Эта неделя"/"Этот
+        // месяц" — по отзыву "звучит не лаконично" заменены на сам месяц
+        // ("Сентябрь", monthLabelOf() без года — год и так виден в дате
+        // регистрации выше) и диапазон недели (weekLabelOf(), "1–7 сент",
+        // тот же хелпер, что уже используется на dashboard.html).
         const periodStatsHtml = (function () {
           const now = new Date();
           const todayStr = `${now.getFullYear()}-${String(now.getMonth() + 1).padStart(2, '0')}-${String(now.getDate()).padStart(2, '0')}`;
@@ -257,8 +263,63 @@
                 </div>
               </div>`;
           }
-          return `<div class="period-stats-block">${periodCardHtml('Эта неделя', weekBets)}${periodCardHtml('Этот месяц', monthBets)}</div>`;
+          const weekTitle = weekLabelOf(curWeek);
+          const monthTitle = (monthLabelOf(curMonth) || '').split(' ')[0];
+          return `<div class="period-stats-block">${periodCardHtml(weekTitle, weekBets)}${periodCardHtml(monthTitle, monthBets)}</div>`;
         })();
+
+        // 04.09.2026: "Лучший турнир" (самый прибыльный по сумме профита) +
+        // "Лучшая ставка" (отдельно по профиту в $ и отдельно по кэфу — по
+        // просьбе пользователя один блок разделён на два, чтобы не смешивать
+        // разные метрики "лучшего" в одной карточке). Управляются двумя
+        // независимыми переключателями на profile-settings.html
+        // (schema_milestone32.sql, profiles.show_best_tournament/
+        // show_best_bet, по умолчанию оба включены — это не банк, ничего
+        // приватного не показывают).
+        const bestTournamentHtml = (function () {
+          if (profile.show_best_tournament === false) return '';
+          const groups = groupBets(allBets, b => (b.tournament || '').trim());
+          if (!groups.length) return '';
+          const best = groups.reduce((a, b) => (b.totalProfit > a.totalProfit ? b : a));
+          return `
+            <div class="best-card">
+              <div class="best-card-label">Лучший турнир</div>
+              <div class="best-card-title">${escapeHtml(best.key)}</div>
+              <div class="best-card-value ${best.totalProfit > 0 ? 'pos' : best.totalProfit < 0 ? 'neg' : ''}">${fm(best.totalProfit)}</div>
+              <div class="best-card-sub">${best.total} ${ruCount(best.total, 'ставка', 'ставки', 'ставок')}</div>
+            </div>`;
+        })();
+        const bestBetHtml = (function () {
+          if (profile.show_best_bet === false) return '';
+          const [topByProfit] = computeTopBets(allBets, 1);
+          const topByOdds = allBets
+            .filter(b => b.result === 'Win' && b.odds != null)
+            .sort((a, b) => Number(b.odds) - Number(a.odds))[0];
+          let html = '';
+          if (topByProfit) {
+            html += `
+            <div class="best-card">
+              <div class="best-card-label">Лучшая ставка · профит</div>
+              <div class="best-card-title">${escapeHtml(topByProfit.b.match || topByProfit.b.pick || '—')}</div>
+              <div class="best-card-value ${topByProfit.profit > 0 ? 'pos' : topByProfit.profit < 0 ? 'neg' : ''}">${fm(topByProfit.profit)}</div>
+              <div class="best-card-sub">${topByProfit.b.odds != null ? 'кэф ' + Number(topByProfit.b.odds).toFixed(2) : ''}</div>
+            </div>`;
+          }
+          if (topByOdds) {
+            const oddsProfit = computeProfit(topByOdds);
+            html += `
+            <div class="best-card">
+              <div class="best-card-label">Лучшая ставка · кэф</div>
+              <div class="best-card-title">${escapeHtml(topByOdds.match || topByOdds.pick || '—')}</div>
+              <div class="best-card-value">${Number(topByOdds.odds).toFixed(2)}</div>
+              <div class="best-card-sub">${oddsProfit != null ? fm(oddsProfit) : ''}</div>
+            </div>`;
+          }
+          return html;
+        })();
+        const bestStatsHtml = (bestTournamentHtml || bestBetHtml)
+          ? `<div class="best-stats-block">${bestTournamentHtml}${bestBetHtml}</div>`
+          : '';
 
         profileHero.innerHTML = `
           <div class="pf-banner">${renderProfileBanner(computeCardTrend('profit', allBets))}</div>
@@ -284,6 +345,7 @@
               <div class="pf-stat"><div class="pf-stat-val ${s.totalProfit > 0 ? 'pos' : s.totalProfit < 0 ? 'neg' : ''}">${fm(s.totalProfit)}</div><div class="pf-stat-lbl">Профит</div></div>
             </div>
             ${periodStatsHtml}
+            ${bestStatsHtml}
             ${specialization.length ? `<div class="pf-spec">${specialization.map(sp => `<span class="pf-spec-chip"><span class="pf-spec-bar"><i style="width:${sp.pct}%"></i></span>${escapeHtml(sp.discipline)} <b>${sp.pct}%</b></span>`).join('')}</div>` : ''}
             <div class="pf-rating is-collapsed" id="pfRatingBox">
               <div class="pf-rating-head" id="pfRatingToggle" role="button" tabindex="0" aria-expanded="false" aria-controls="pfRatingBody">

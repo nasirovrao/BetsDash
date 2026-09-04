@@ -143,6 +143,18 @@
             <span>Показывать банк и прирост банка на публичном профиле (по умолчанию скрыто — включай точечно, например на время челленджа)</span>
           </label>
         </div>
+        <div class="field" style="margin-top:10px;">
+          <label class="check-row" for="p_show_best_tournament">
+            <input id="p_show_best_tournament" type="checkbox">
+            <span>Показывать блок «Лучший турнир» на публичном профиле</span>
+          </label>
+        </div>
+        <div class="field" style="margin-top:10px;">
+          <label class="check-row" for="p_show_best_bet">
+            <input id="p_show_best_bet" type="checkbox">
+            <span>Показывать блок «Лучшая ставка» на публичном профиле</span>
+          </label>
+        </div>
         <div class="form-actions">
           <button class="btn btn-primary" type="submit" id="saveBtn" style="width:auto;">Сохранить</button>
           <span class="form-status" id="formStatus"></span>
@@ -185,6 +197,8 @@
   const channelInput = document.getElementById('p_channel');
   const isPublicInput = document.getElementById('p_is_public');
   const showBankInput = document.getElementById('p_show_bank');
+  const showBestTournamentInput = document.getElementById('p_show_best_tournament');
+  const showBestBetInput = document.getElementById('p_show_best_bet');
   const roleCapperInput = document.getElementById('p_role_capper');
   const roleStreamerInput = document.getElementById('p_role_streamer');
   const roleDropdown = document.getElementById('roleDropdown');
@@ -341,6 +355,14 @@
     channelInput.value = existingProfile && existingProfile.channel ? existingProfile.channel : 'cybervalue';
     isPublicInput.checked = !!(existingProfile && existingProfile.is_public);
     showBankInput.checked = !!(existingProfile && existingProfile.show_bank);
+    // show_best_tournament/show_best_bet — по умолчанию ВКЛЮЧЕНО (в отличие
+    // от show_bank выше, который по умолчанию выключен из-за приватности
+    // банка): новые блоки не показывают ничего чувствительного, поэтому
+    // видны сразу, а не только по явному включению. !== false — чтобы
+    // старые строки profiles, где колонка ещё null (до первого сохранения
+    // формы) или отсутствовала на момент миграции, тоже считались "включено".
+    showBestTournamentInput.checked = !existingProfile || existingProfile.show_best_tournament !== false;
+    showBestBetInput.checked = !existingProfile || existingProfile.show_best_bet !== false;
     const roles = (existingProfile && existingProfile.roles) || [];
     roleCapperInput.checked = roles.includes('capper');
     roleStreamerInput.checked = roles.includes('streamer');
@@ -374,6 +396,8 @@
       channel: channelInput.value,
       is_public: isPublicInput.checked,
       show_bank: showBankInput.checked,
+      show_best_tournament: showBestTournamentInput.checked,
+      show_best_bet: showBestBetInput.checked,
       logo_url: currentLogoUrl,
       roles,
     };
