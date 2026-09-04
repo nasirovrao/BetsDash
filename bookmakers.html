@@ -59,6 +59,7 @@
         <a class="nav-dropdown-item" id="navProfileSettingsItem" href="profile-settings.html">Публичный профиль</a>
         <a class="nav-dropdown-item" id="navChannelTeamItem" href="channel-team.html">Доступ к каналу</a>
         <a class="nav-dropdown-item" id="navTelegramImportItem" href="telegram-import.html">Telegram-импорт</a>
+        <a class="nav-dropdown-item" id="navImportItem" href="import.html">Импорт из Excel/CSV</a>
         <a class="nav-dropdown-item" href="personal-settings.html">Личные настройки</a>
       </div>
     </div>
@@ -138,8 +139,21 @@
     hiddenBookmakers = updated;
   }
 
+  // 04.09.2026: баг — на детальной странице конкретного букмекера (?key=...)
+  // панель "Скрыть от публики" раньше вообще не рендерилась (условие
+  // `keyParam` целиком гасило её), хотя именно сюда естественно попадает
+  // человек, кликнувший на карточку букмекера, чтобы его скрыть — и не
+  // находит кнопку, потому что она есть только на общем списке. Теперь на
+  // детальной странице показываем ту же панель, но только с ОДНИМ
+  // релевантным чекбоксом (для просматриваемого сейчас букмекера), а не
+  // всем списком — там ему всё равно не место, список уже не виден.
   function renderHidePanel(bookmakerNames){
-    if (isEditorView || keyParam || !bookmakerNames.length) {
+    if (isEditorView || !bookmakerNames.length) {
+      hidePanel.innerHTML = '';
+      return;
+    }
+    const names = keyParam ? (bookmakerNames.includes(keyParam) ? [keyParam] : []) : bookmakerNames;
+    if (!names.length) {
       hidePanel.innerHTML = '';
       return;
     }
@@ -148,7 +162,7 @@
         <h3>Скрыть от публики</h3>
         <div class="section-note" style="margin-bottom:12px;">Отмеченные букмекеры не показываются посторонним (лента ставок, публичный профиль) — тебе самому в приватной статистике всегда видны реальные названия. Ставки на скрытого букмекера в публичных местах помечаются просто «Скрыто», а не пропадают из счёта.</div>
         <div class="hide-bookmaker-list">
-          ${bookmakerNames.map(n => `
+          ${names.map(n => `
             <label class="hide-bookmaker-row">
               <input type="checkbox" data-bk="${escapeHtml(n)}" ${hiddenBookmakers.includes(n) ? 'checked' : ''}>
               <span>${escapeHtml(n)}</span>

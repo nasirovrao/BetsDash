@@ -279,7 +279,7 @@
         const followActionsHtml = isOwnProfile
           ? followCountLabel
           : !viewerSession
-            ? `${followCountLabel}<a class="btn btn-ghost" href="index.html" style="width:auto;">Войти, чтобы подписаться</a>`
+            ? `${followCountLabel}<a class="btn btn-ghost" href="index.html" style="width:auto; white-space:nowrap;" title="Войти, чтобы подписаться">Войти</a>`
             : `${followCountLabel}<button class="btn ${isFollowing ? 'btn-ghost' : 'btn-primary'}" type="button" id="followBtn" style="width:auto;" data-following="${isFollowing}">${isFollowing ? 'Вы подписаны' : 'Подписаться'}</button>`;
 
         // 04.09.2026: карточки за неделю/месяц (Вариант А, как на приватном
