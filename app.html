@@ -81,6 +81,25 @@
   .field.parse-uncertain select{ border-color:var(--rust) !important; }
   .field.parse-uncertain label::after{ content:" ⚠"; color:var(--rust); }
 
+  /* Карточки "Эта неделя"/"Этот месяц" (02.09.2026, по запросу — "актуальная
+     информация по стате за месяц/неделю" прямо на странице Ставки, а не
+     только на Дашборде). Фиксированные периоды, без выбора — полноценный
+     фильтр с гранулярностью уже есть на dashboard.html, здесь нужен просто
+     быстрый взгляд, не вторая аналитическая страница. */
+  .period-stats-block{ display:grid; grid-template-columns:repeat(2, 1fr); gap:14px; margin-bottom:24px; }
+  .period-stat-card{ background:var(--bg-card); border:1px solid var(--line); border-radius:var(--radius); padding:16px 18px; }
+  .period-stat-title{
+    font-family:'JetBrains Mono', monospace; font-size:11px; letter-spacing:.04em; text-transform:uppercase;
+    color:var(--ink-faint); margin-bottom:12px;
+  }
+  .period-stat-row{ display:flex; gap:22px; flex-wrap:wrap; }
+  .period-stat-item{ display:flex; flex-direction:column; gap:3px; min-width:56px; }
+  .period-stat-val{ font-family:'JetBrains Mono', monospace; font-size:18px; color:var(--ink); font-variant-numeric:tabular-nums; }
+  .period-stat-val.pos{ color:var(--teal); }
+  .period-stat-val.neg{ color:var(--rust); }
+  .period-stat-lbl{ font-size:10.5px; color:var(--ink-faint); }
+  @media (max-width:640px){ .period-stats-block{ grid-template-columns:1fr; } }
+
   /* Вводный блок "3 способа занести ставку" (01.09.2026, по мотивам Juice
      Reel — см. CHANGELOG.md). Тот же набор классов, что и на dashboard.html
      (page-scoped стили там же, продублировано и там, и здесь — общий слой
@@ -174,6 +193,8 @@
     </div>
 
     <div id="channelSwitch"></div>
+
+    <div class="period-stats-block" id="periodStatsBlock"></div>
 
     <div class="feature-intro">
       <span class="fi-eyebrow">3 способа внести ставку</span>
@@ -378,7 +399,7 @@
 
 <script type="module">
   import { supabase, requireSession, isClvEnabled } from './supabase-client.js';
-  import { computeProfit, fmtMoney, getChannelParams, loadMyChannels, renderChannelSwitch, preserveChannelInNav, initEmailPrivacyToggle, initNavDropdown, applyNavModes, channelHref, fmtDateTime, getDisplayCurrency } from './lib.js';
+  import { computeProfit, fmtMoney, computeStats, computeFlatStats, weekKeyOf, monthKeyOf, getChannelParams, loadMyChannels, renderChannelSwitch, preserveChannelInNav, initEmailPrivacyToggle, initNavDropdown, applyNavModes, channelHref, fmtDateTime, getDisplayCurrency } from './lib.js';
 
   const session = await requireSession();
   if (session) {
@@ -1164,6 +1185,37 @@
     applyFilters();
   }
 
+  // Карточки "Эта неделя"/"Этот месяц" — фиксированные периоды (не выбор
+  // пользователя), считаются от сегодняшней даты через те же
+  // weekKeyOf/monthKeyOf, что и на dashboard.html (единая логика границ
+  // недели/месяца по всему приложению — ISO-неделя с понедельника).
+  const periodStatsBlock = document.getElementById('periodStatsBlock');
+  function periodCardHtml(title, bets){
+    const s = computeStats(bets, [], 0);
+    const flat = computeFlatStats(bets);
+    const roiCls = s.roi > 0 ? 'pos' : s.roi < 0 ? 'neg' : '';
+    const profitCls = s.totalProfit > 0 ? 'pos' : s.totalProfit < 0 ? 'neg' : '';
+    const flatCls = flat.flatsProfit > 0 ? 'pos' : flat.flatsProfit < 0 ? 'neg' : '';
+    return `
+      <div class="period-stat-card">
+        <div class="period-stat-title">${title}</div>
+        <div class="period-stat-row">
+          <div class="period-stat-item"><span class="period-stat-val">${s.total}</span><span class="period-stat-lbl">ставок</span></div>
+          <div class="period-stat-item"><span class="period-stat-val ${roiCls}">${s.roi == null ? '—' : (s.roi >= 0 ? '+' : '') + s.roi.toFixed(1) + '%'}</span><span class="period-stat-lbl">ROI</span></div>
+          <div class="period-stat-item"><span class="period-stat-val ${profitCls}">${fm(s.totalProfit)}</span><span class="period-stat-lbl">профит</span></div>
+          <div class="period-stat-item"><span class="period-stat-val ${flatCls}">${flat.flatsStaked ? (flat.flatsProfit >= 0 ? '+' : '') + flat.flatsProfit.toFixed(2) : '—'}</span><span class="period-stat-lbl">по флетам</span></div>
+        </div>
+      </div>`;
+  }
+  function renderPeriodStats(){
+    const today = todayLocalStr();
+    const curWeek = weekKeyOf(today);
+    const curMonth = monthKeyOf(today);
+    const weekBets = allBets.filter(b => weekKeyOf(b.bet_date) === curWeek);
+    const monthBets = allBets.filter(b => monthKeyOf(b.bet_date) === curMonth);
+    periodStatsBlock.innerHTML = periodCardHtml('Эта неделя', weekBets) + periodCardHtml('Этот месяц', monthBets);
+  }
+
   filterSearch.addEventListener('input', applyFilters);
   [filterDiscipline, filterBookmaker, filterTournament, filterResult].forEach(el => el.addEventListener('change', applyFilters));
   filterResetBtn.addEventListener('click', resetFilters);
@@ -1193,6 +1245,7 @@
     updatePickSourceList(allBets);
     renderDisciplineOptions();
     updateTournamentList(allBets);
+    renderPeriodStats();
     // Реестр edges может ещё не существовать (пока не выполнена
     // schema_milestone6.sql) — тогда просто используем только теги из ставок,
     // как и раньше.
