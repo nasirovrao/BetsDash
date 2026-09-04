@@ -80,8 +80,14 @@
 /* 04.09.2026: .pf-rating-head сворачивает/разворачивает .pf-rating-body
    (трек+тики+пояснение) — свёрнуто по умолчанию, см. комментарий у
    initRatingToggle в public.html. role="button" на готовой разметке, а не
-   <button>, поэтому курсор/фокус-стили держим здесь явно. */
-.pf-rating-head{ display:flex; align-items:baseline; justify-content:space-between; gap:10px; flex-wrap:wrap; cursor:pointer; user-select:none; border-radius: calc(var(--radius) - 4px); }
+   <button>, поэтому курсор/фокус-стили держим здесь явно.
+   .is-collapsed — по отзыву "поле рейтинг огромное" (свёрнутая карточка
+   визуально выглядела слишком высокой для одной строки текста): в
+   свёрнутом виде убираем лишний вертикальный паддинг и явно фиксируем
+   line-height у заголовка/счёта (без этого высота строки тянется от
+   унаследованного body line-height, а не от фактического размера текста). */
+.pf-rating.is-collapsed{ padding:12px 18px; }
+.pf-rating-head{ display:flex; align-items:center; justify-content:space-between; gap:10px; flex-wrap:wrap; cursor:pointer; user-select:none; border-radius: calc(var(--radius) - 4px); line-height:1.2; }
 .pf-rating-head:hover .pf-rating-tier{ color: var(--gold); opacity:0.85; }
 .pf-rating-head:focus-visible{ outline: 2px solid var(--gold); outline-offset:3px; }
 .pf-rating-tier{ font-family:'Unbounded', sans-serif; font-weight:700; font-size:14px; color: var(--gold); }

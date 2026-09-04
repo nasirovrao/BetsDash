@@ -32,11 +32,11 @@
 <link rel="preconnect" href="https://fonts.googleapis.com">
 <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
 <link href="https://fonts.googleapis.com/css2?family=Unbounded:wght@600;700;800&family=Golos+Text:wght@400;500;600;700&family=JetBrains+Mono:wght@400;500;600&display=swap" rel="stylesheet">
-<link rel="stylesheet" href="styles.css?v=29">
+<link rel="stylesheet" href="styles.css?v=30">
 <!-- EDGE 2.0 — новая дизайн-система (палитра/типографика/фон), см. styles-edge2.css -->
 <link rel="stylesheet" href="styles-edge2.css?v=1">
 <link rel="stylesheet" href="styles-edge3.css?v=1">
-<link rel="stylesheet" href="styles-edge4.css?v=1">
+<link rel="stylesheet" href="styles-edge4.css?v=2">
 <link rel="stylesheet" href="styles-edge5.css?v=1">
 <script src="theme-toggle.js" defer></script>
 </head>
@@ -252,7 +252,7 @@
               <div class="pf-stat"><div class="pf-stat-val ${s.roi > 0 ? 'pos' : s.roi < 0 ? 'neg' : ''}">${s.roi == null ? '—' : (s.roi >= 0 ? '+' : '') + s.roi.toFixed(1) + '%'}</div><div class="pf-stat-lbl">ROI</div></div>
               <div class="pf-stat"><div class="pf-stat-val ${s.totalProfit > 0 ? 'pos' : s.totalProfit < 0 ? 'neg' : ''}">${fm(s.totalProfit)}</div><div class="pf-stat-lbl">Профит</div></div>
             </div>
-            <div class="pf-rating">
+            <div class="pf-rating is-collapsed" id="pfRatingBox">
               <div class="pf-rating-head" id="pfRatingToggle" role="button" tabindex="0" aria-expanded="false" aria-controls="pfRatingBody">
                 <div class="pf-rating-tier">${rating.tierName}</div>
                 <div class="pf-rating-score">${rating.score} / 100<svg class="pf-rating-chevron" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" aria-hidden="true"><path d="M6 9l6 6 6-6" stroke-linecap="round" stroke-linejoin="round"/></svg></div>
@@ -284,10 +284,12 @@
         (function initRatingToggle() {
           const toggle = document.getElementById('pfRatingToggle');
           const body = document.getElementById('pfRatingBody');
+          const box = document.getElementById('pfRatingBox');
           if (!toggle || !body) return;
           function setExpanded(expanded) {
             body.hidden = !expanded;
             toggle.setAttribute('aria-expanded', String(expanded));
+            if (box) box.classList.toggle('is-collapsed', !expanded);
           }
           toggle.addEventListener('click', () => setExpanded(body.hidden));
           toggle.addEventListener('keydown', (e) => {
