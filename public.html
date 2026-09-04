@@ -181,11 +181,24 @@
       // капперов, если публичных профилей станет больше одного.
       const uid = profile.user_id;
       const channel = profile.channel || 'cybervalue';
-      const [{ data: bets, error: betsErr }, { data: withdrawals }, { data: settings }] = await Promise.all([
+      // 04.09.2026: подписки (schema_milestone33.sql) — счётчик подписчиков
+      // нужен всегда (виден анонимусам тоже), собственная строка "я
+      // подписан?" — только если зритель залогинен и смотрит НЕ свой же
+      // профиль (иначе follows_no_self_follow constraint и сама кнопка не
+      // нужны). count:'exact', head:true — просим у PostgREST только число
+      // в заголовке ответа, без самих строк, дешевле полного select.
+      const isOwnProfile = viewerSession && viewerSession.user.id === uid;
+      const [{ data: bets, error: betsErr }, { data: withdrawals }, { data: settings }, followerCountRes, viewerFollowRes] = await Promise.all([
         supabase.from('bets').select('*').eq('user_id', uid).eq('channel', channel),
         supabase.from('withdrawals').select('*').eq('user_id', uid).eq('channel', channel),
         supabase.from('settings').select('*').eq('user_id', uid).eq('channel', channel).maybeSingle(),
+        supabase.from('follows').select('*', { count: 'exact', head: true }).eq('followed_user_id', uid).eq('followed_channel', channel),
+        (viewerSession && !isOwnProfile)
+          ? supabase.from('follows').select('*').eq('follower_user_id', viewerSession.user.id).eq('followed_user_id', uid).eq('followed_channel', channel).maybeSingle()
+          : Promise.resolve({ data: null }),
       ]);
+      const followerCount = followerCountRes.count || 0;
+      let isFollowing = !!viewerFollowRes.data;
 
       if (betsErr) {
         tabRoot.innerHTML = `<div class="empty-state">Ошибка загрузки: ${escapeHtml(betsErr.message)}</div>`;
@@ -228,6 +241,24 @@
         const channelBadgeHtml = isDiary
           ? `<span class="pf-badge channel-type diary">Личный дневник</span>`
           : `<span class="pf-badge channel-type">Публичный канал</span>`;
+
+        // 04.09.2026: подписки — кнопка "Подписаться"/"Отписаться" +
+        // счётчик, в .pf-top рядом с аватаром (см. .pf-actions в
+        // styles-edge4.css — слот был предусмотрен изначально, просто
+        // раньше ничего в него не рендерилось). Три состояния:
+        // 1) свой профиль — только счётчик, без кнопки (нельзя подписаться
+        //    на себя, follows_no_self_follow на уровне БД тоже это ловит);
+        // 2) зритель не залогинен — кнопка ведёт на index.html (войти),
+        //    сам список ставок при этом всё равно виден без входа;
+        // 3) обычный случай — рабочая кнопка подписки с optimistic-апдейтом
+        //    счётчика (не ждём перезагрузку страницы, чтобы увидеть новое
+        //    число — см. обработчик клика ниже, после profileHero.innerHTML).
+        const followCountLabel = `<span class="pf-follow-count" id="pfFollowCount">${followerCount} ${ruCount(followerCount, 'подписчик', 'подписчика', 'подписчиков')}</span>`;
+        const followActionsHtml = isOwnProfile
+          ? followCountLabel
+          : !viewerSession
+            ? `${followCountLabel}<a class="btn btn-ghost" href="index.html" style="width:auto;">Войти, чтобы подписаться</a>`
+            : `${followCountLabel}<button class="btn ${isFollowing ? 'btn-ghost' : 'btn-primary'}" type="button" id="followBtn" style="width:auto;" data-following="${isFollowing}">${isFollowing ? 'Вы подписаны' : 'Подписаться'}</button>`;
 
         // 04.09.2026: карточки за неделю/месяц (Вариант А, как на приватном
         // app.html над формой) — считаются здесь, ДО сборки шапки, чтобы
@@ -326,6 +357,7 @@
           <div class="pf-identity">
             <div class="pf-top">
               <div class="pf-avatar">${profile.logo_url ? `<img src="${escapeHtml(profile.logo_url)}" alt="">` : escapeHtml(initialsOf(profile.display_name || profile.username))}</div>
+              <div class="pf-actions">${followActionsHtml}</div>
             </div>
             <div class="pf-name-row">
               <div class="pf-name">${escapeHtml(profile.display_name || profile.username)}</div>
@@ -388,6 +420,39 @@
           toggle.addEventListener('click', () => setExpanded(body.hidden));
           toggle.addEventListener('keydown', (e) => {
             if (e.key === 'Enter' || e.key === ' ') { e.preventDefault(); setExpanded(body.hidden); }
+          });
+        })();
+
+        // 04.09.2026: клик по "Подписаться"/"Вы подписаны" — optimistic-
+        // апдейт (кнопка и счётчик меняются сразу, до ответа сервера;
+        // откатываем оба, если insert/delete всё же вернул ошибку — так
+        // отзывчивее, чем ждать round-trip на каждый клик, а расхождение
+        // с реальным состоянием БД живёт не дольше одного неудачного клика).
+        (function initFollowButton() {
+          const btn = document.getElementById('followBtn');
+          const countEl = document.getElementById('pfFollowCount');
+          if (!btn) return;
+          btn.addEventListener('click', async () => {
+            const wasFollowing = btn.dataset.following === 'true';
+            const nowFollowing = !wasFollowing;
+            btn.disabled = true;
+            btn.textContent = nowFollowing ? 'Вы подписаны' : 'Подписаться';
+            btn.className = 'btn ' + (nowFollowing ? 'btn-ghost' : 'btn-primary');
+            btn.dataset.following = String(nowFollowing);
+            const curCount = parseInt(countEl.textContent, 10) || 0;
+            countEl.textContent = `${curCount + (nowFollowing ? 1 : -1)} ${ruCount(curCount + (nowFollowing ? 1 : -1), 'подписчик', 'подписчика', 'подписчиков')}`;
+            const { error } = nowFollowing
+              ? await supabase.from('follows').insert({ follower_user_id: viewerSession.user.id, followed_user_id: uid, followed_channel: channel })
+              : await supabase.from('follows').delete().eq('follower_user_id', viewerSession.user.id).eq('followed_user_id', uid).eq('followed_channel', channel);
+            btn.disabled = false;
+            if (error) {
+              // откат
+              btn.textContent = wasFollowing ? 'Вы подписаны' : 'Подписаться';
+              btn.className = 'btn ' + (wasFollowing ? 'btn-ghost' : 'btn-primary');
+              btn.dataset.following = String(wasFollowing);
+              countEl.textContent = `${curCount} ${ruCount(curCount, 'подписчик', 'подписчика', 'подписчиков')}`;
+              alert('Не получилось: ' + error.message);
+            }
           });
         })();
 

@@ -94,6 +94,20 @@
   .feed-post-filter:hover, .feed-post-filter:focus-visible{ color:var(--gold); border-color:var(--gold); }
   .feed-post-filter svg{ width:12px; height:12px; }
   .feed-bk{ font-family:'JetBrains Mono', monospace; }
+
+  /* 04.09.2026: быстрая подписка — тот же визуальный язык, что у
+     .feed-post-filter/.lb-filter-btn (мелкая иконка-кнопка), просто
+     подсвечивается зелёным в состоянии .is-following ("уже подписан"). */
+  .feed-post-follow{
+    flex:none; width:26px; height:26px; border-radius:7px; border:1px solid var(--line);
+    background:var(--bg-raised); color:var(--ink-faint); display:flex; align-items:center;
+    justify-content:center; cursor:pointer; transition:color .15s ease, border-color .15s ease, background .15s ease;
+  }
+  .feed-post-follow:hover, .feed-post-follow:focus-visible{ color:var(--gold); border-color:var(--gold); }
+  .feed-post-follow.is-following{ color:var(--teal); border-color:var(--teal); }
+  .feed-post-follow svg{ width:13px; height:13px; }
+  .lb-follow-btn{ width:24px; height:24px; border-radius:6px; }
+  .lb-follow-btn svg{ width:12px; height:12px; }
 </style>
 </head>
 <body>
@@ -115,6 +129,10 @@
     </div>
     <div class="feed-layout">
       <aside class="feed-sidebar">
+        <div class="feed-side-block" id="followScopeBlock" style="display:none;">
+          <div class="feed-side-title">Показывать</div>
+          <div class="feed-filter-row" id="followScopeFilters"></div>
+        </div>
         <div class="feed-side-block">
           <div class="feed-side-title">Дисциплина</div>
           <div class="feed-filter-row" id="feedFilters" style="display:none;"></div>
@@ -157,20 +175,35 @@
   const resultFilter = params.get('r') || '';
   const bkFilter = params.get('b') || '';
   const authorFilter = params.get('u') || '';
+  // 04.09.2026: "Мои подписки" — тот же паттерн, что и остальные фильтры
+  // ленты (URL-параметр + ссылка), а не отдельная сохраняемая настройка:
+  // по умолчанию '' (показывает всё), переключается кликом по ссылке в
+  // сайдбаре, состояние переживает переход между другими фильтрами ленты
+  // (см. feedHref ниже — f не нужно передавать явно в старых вызовах).
+  const followScope = params.get('f') || '';
 
   // Строит ссылку на саму ленту сразу со всеми фильтрами — переключение
   // одного не должно сбрасывать остальные уже выбранные. Порядок аргументов
   // фиксированный (d, r, b, u), вызовы ниже всегда передают все четыре.
-  function feedHref(d, r, b, u) {
+  // 5-й необязательный аргумент f — если не передан явно, берётся текущий
+  // followScope из замыкания (поэтому существующие вызовы без пятого
+  // аргумента не сбрасывают "Мои подписки" при переключении дисциплины/
+  // результата/букмекера/каппера — сбросить его может только сама ссылка
+  // в блоке "Показывать" ниже, которая передаёт f явно).
+  function feedHref(d, r, b, u, f) {
     const p = new URLSearchParams();
     if (d) p.set('d', d);
     if (r) p.set('r', r);
     if (b) p.set('b', b);
     if (u) p.set('u', u);
+    const fVal = f !== undefined ? f : followScope;
+    if (fVal) p.set('f', fVal);
     const qs = p.toString();
     return 'feed.html' + (qs ? '?' + qs : '');
   }
   const FILTER_ICON = '<svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><polygon points="4 4 20 4 14 12.5 14 19 10 21 10 12.5 4 4"/></svg>';
+  const FOLLOW_ICON = '<svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><path d="M12 5v14M5 12h14"/></svg>';
+  const FOLLOWING_ICON = '<svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><path d="M20 6L9 17l-5-5"/></svg>';
 
   // 01.09.2026: страница публичная (работает и вообще без входа), но раньше
   // топбар ВСЕГДА показывал "Войти в EDGE", даже если человек уже залогинен
@@ -200,7 +233,21 @@
   }
   const displayCurrencyPromise = getDisplayCurrency(supabase, session?.user?.id || null);
 
+  // 04.09.2026: подписки (schema_milestone33.sql) — свой список подписок
+  // нужен для (1) фильтра "Мои подписки" и (2) быстрой кнопки +/✓ прямо на
+  // карточке в ленте. followSet — строки "user_id|channel" для O(1)
+  // проверки при рендере каждой карточки, а не N обращений к массиву.
+  // Для анонимного зрителя — пустой набор, кнопки подписки просто не
+  // рендерятся (см. ниже), но сама лента продолжает работать как раньше.
+  let followSet = new Set();
+  if (session) {
+    const { data: myFollows } = await supabase.from('follows').select('followed_user_id, followed_channel').eq('follower_user_id', session.user.id);
+    followSet = new Set((myFollows || []).map(f => `${f.followed_user_id}|${f.followed_channel}`));
+  }
+
   const feedRoot = document.getElementById('feedRoot');
+  const followScopeBlock = document.getElementById('followScopeBlock');
+  const followScopeFilters = document.getElementById('followScopeFilters');
   const feedFilters = document.getElementById('feedFilters');
   const resultFilters = document.getElementById('resultFilters');
   const bkFilterBlock = document.getElementById('bkFilterBlock');
@@ -253,6 +300,18 @@
     }));
     let items = results.flat();
 
+    // 04.09.2026: фильтр "Показывать: Все / Мои подписки" — только для
+    // залогиненных (анонимному зрителю подписываться не на что), сам блок
+    // в разметке скрыт по умолчанию (display:none), см. followScopeBlock.
+    if (session) {
+      followScopeBlock.style.display = '';
+      const allActive = followScope !== '1' ? ' class="active"' : '';
+      const onlyActive = followScope === '1' ? ' class="active"' : '';
+      followScopeFilters.innerHTML =
+        `<a href="${feedHref(disciplineFilter, resultFilter, bkFilter, authorFilter, '')}"${allActive}>Все</a>` +
+        `<a href="${feedHref(disciplineFilter, resultFilter, bkFilter, authorFilter, '1')}"${onlyActive}>Мои подписки</a>`;
+    }
+
     // Дисциплины для фильтра — по факту встречающиеся в ленте, а не
     // фиксированный список (заранее не знаем, что публикуют каппера).
     const disciplines = Array.from(new Set(items.map(it => it.bet.discipline).filter(Boolean))).sort();
@@ -299,6 +358,9 @@
     }
     if (authorFilter) {
       items = items.filter(it => it.profile.username === authorFilter);
+    }
+    if (followScope === '1') {
+      items = items.filter(it => followSet.has(`${it.profile.user_id}|${it.profile.channel || 'cybervalue'}`));
     }
 
     // Фильтр по капперу задаётся не списком в сайдбаре (капперов может быть
@@ -362,6 +424,12 @@
       leaderboardRoot.innerHTML = sorted.map((e, i) => {
         const name = escapeHtml(e.profile.display_name || e.profile.username);
         const betsSub = `${e.stats.total} ${ruCount(e.stats.total, 'ставка', 'ставки', 'ставок')}`;
+        const lbChannel = e.profile.channel || 'cybervalue';
+        const lbIsOwn = session && session.user.id === e.profile.user_id;
+        const lbIsFollowing = followSet.has(`${e.profile.user_id}|${lbChannel}`);
+        const lbFollowBtnHtml = (session && !lbIsOwn)
+          ? `<button type="button" class="feed-post-follow lb-follow-btn${lbIsFollowing ? ' is-following' : ''}" data-uid="${e.profile.user_id}" data-channel="${escapeHtml(lbChannel)}" data-following="${lbIsFollowing}" title="${lbIsFollowing ? 'Отписаться от ' + name : 'Подписаться на ' + name}" aria-label="${lbIsFollowing ? 'Отписаться от ' + name : 'Подписаться на ' + name}">${lbIsFollowing ? FOLLOWING_ICON : FOLLOW_ICON}</button>`
+          : '';
         let valueHtml;
         if (sortKey === 'profit') {
           const p = e.stats.totalProfit;
@@ -385,6 +453,7 @@
             </span>
             ${valueHtml}
           </a>
+          ${lbFollowBtnHtml}
           <a class="lb-filter-btn" href="${feedHref(disciplineFilter, resultFilter, bkFilter, e.profile.username)}" title="Показать только его ставки в этой ленте" aria-label="Показать в ленте только ${name}">${FILTER_ICON}</a>
         </div>`;
       }).join('');
@@ -409,7 +478,9 @@
     items = items.slice(0, FEED_LIMIT);
 
     if (!items.length) {
-      feedRoot.innerHTML = '<div class="empty-state">В этой ленте пока нет ставок.</div>';
+      feedRoot.innerHTML = followScope === '1'
+        ? `<div class="empty-state">${followSet.size ? 'Никто из тех, на кого ты подписан, пока не публиковал ставки.' : 'Ты пока ни на кого не подписан — найди каппера в ленте или в топе слева и нажми «Подписаться».'}</div>`
+        : '<div class="empty-state">В этой ленте пока нет ставок.</div>';
     } else {
       feedRoot.innerHTML = items.map(({ bet, profile }) => {
         const name = escapeHtml(profile.display_name || profile.username);
@@ -420,6 +491,15 @@
         const addedTitle = bet.created_at ? `Добавлено в систему: ${fmtDateTime(bet.created_at)}` : '';
         const profileHref = `public.html?u=${encodeURIComponent(profile.username)}`;
         const filterHref = feedHref(disciplineFilter, resultFilter, bkFilter, profile.username);
+        // 04.09.2026: быстрая подписка прямо из карточки — только если
+        // залогинен и это не свой же пост (свои посты и так видны себе без
+        // подписки, плюс follows_no_self_follow всё равно бы отклонил).
+        const authorChannel = profile.channel || 'cybervalue';
+        const isOwnPost = session && session.user.id === profile.user_id;
+        const isFollowingAuthor = followSet.has(`${profile.user_id}|${authorChannel}`);
+        const followBtnHtml = (session && !isOwnPost)
+          ? `<button type="button" class="feed-post-follow${isFollowingAuthor ? ' is-following' : ''}" data-uid="${profile.user_id}" data-channel="${escapeHtml(authorChannel)}" data-following="${isFollowingAuthor}" title="${isFollowingAuthor ? 'Отписаться от ' + name : 'Подписаться на ' + name}" aria-label="${isFollowingAuthor ? 'Отписаться от ' + name : 'Подписаться на ' + name}">${isFollowingAuthor ? FOLLOWING_ICON : FOLLOW_ICON}</button>`
+          : '';
         return `
         <div class="feed-post">
           <div class="feed-post-head">
@@ -431,6 +511,7 @@
               </div>
             </a>
             <div class="feed-time">${fmtRelativeTime(bet.created_at || bet.bet_date)}</div>
+            ${followBtnHtml}
             <a class="feed-post-filter" href="${filterHref}" title="Показать только его ставки в этой ленте" aria-label="Показать в ленте только ${name}">${FILTER_ICON}</a>
           </div>
           <a class="feed-post-body" href="${profileHref}" title="${escapeHtml(addedTitle)}">
@@ -449,6 +530,45 @@
         </div>`;
       }).join('');
     }
+
+    // 04.09.2026: делегированный обработчик на сам feedRoot (не на каждую
+    // карточку отдельно) — carточки внутри перерисовываются только полной
+    // сменой feedRoot.innerHTML при загрузке страницы, сам feedRoot как
+    // узел не пересоздаётся, поэтому один слушатель на всё время жизни
+    // страницы. Optimistic UI — та же логика, что и на public.html
+    // (initFollowButton): меняем иконку/состояние сразу, откатываем при
+    // ошибке insert/delete.
+    async function handleFollowClick(btn) {
+      const followedUserId = btn.dataset.uid;
+      const followedChannel = btn.dataset.channel;
+      const wasFollowing = btn.dataset.following === 'true';
+      const nowFollowing = !wasFollowing;
+      btn.disabled = true;
+      btn.classList.toggle('is-following', nowFollowing);
+      btn.dataset.following = String(nowFollowing);
+      btn.innerHTML = nowFollowing ? FOLLOWING_ICON : FOLLOW_ICON;
+      const { error } = nowFollowing
+        ? await supabase.from('follows').insert({ follower_user_id: session.user.id, followed_user_id: followedUserId, followed_channel: followedChannel })
+        : await supabase.from('follows').delete().eq('follower_user_id', session.user.id).eq('followed_user_id', followedUserId).eq('followed_channel', followedChannel);
+      btn.disabled = false;
+      if (error) {
+        btn.classList.toggle('is-following', wasFollowing);
+        btn.dataset.following = String(wasFollowing);
+        btn.innerHTML = wasFollowing ? FOLLOWING_ICON : FOLLOW_ICON;
+        alert('Не получилось: ' + error.message);
+        return;
+      }
+      const key = `${followedUserId}|${followedChannel}`;
+      if (nowFollowing) followSet.add(key); else followSet.delete(key);
+    }
+    feedRoot.addEventListener('click', (e) => {
+      const btn = e.target.closest('.feed-post-follow');
+      if (btn) handleFollowClick(btn);
+    });
+    leaderboardRoot.addEventListener('click', (e) => {
+      const btn = e.target.closest('.feed-post-follow');
+      if (btn) handleFollowClick(btn);
+    });
   }
 </script>
 
