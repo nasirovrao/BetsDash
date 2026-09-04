@@ -242,10 +242,12 @@
           ? `<span class="pf-badge channel-type diary">Личный дневник</span>`
           : `<span class="pf-badge channel-type">Публичный канал</span>`;
 
-        // 04.09.2026: подписки — кнопка "Подписаться"/"Отписаться" +
-        // счётчик, в .pf-top рядом с аватаром (см. .pf-actions в
-        // styles-edge4.css — слот был предусмотрен изначально, просто
-        // раньше ничего в него не рендерилось). Три состояния:
+        // 04.09.2026: подписки — кнопка "Подписаться"/"Отписаться" + счётчик.
+        // Раньше стояли в .pf-top рядом с аватаром — там строка растянута
+        // через justify-content:space-between на всю ширину баннера, кнопка
+        // визуально повисала далеко от аватара и имени. Перенёс в
+        // .pf-name-row, сразу за галочкой верификации — рядом с тем, к чему
+        // относится, без растяжения. Три состояния:
         // 1) свой профиль — только счётчик, без кнопки (нельзя подписаться
         //    на себя, follows_no_self_follow на уровне БД тоже это ловит);
         // 2) зритель не залогинен — кнопка ведёт на index.html (войти),
@@ -357,11 +359,11 @@
           <div class="pf-identity">
             <div class="pf-top">
               <div class="pf-avatar">${profile.logo_url ? `<img src="${escapeHtml(profile.logo_url)}" alt="">` : escapeHtml(initialsOf(profile.display_name || profile.username))}</div>
-              <div class="pf-actions">${followActionsHtml}</div>
             </div>
             <div class="pf-name-row">
               <div class="pf-name">${escapeHtml(profile.display_name || profile.username)}</div>
               <span class="pf-verify${profile.is_verified ? '' : ' unverified'}" title="${profile.is_verified ? 'Верифицированный профиль' : 'Профиль не верифицирован'}">${profile.is_verified ? VERIFY_ICON_ON : VERIFY_ICON_OFF}</span>
+              <div class="pf-actions">${followActionsHtml}</div>
             </div>
             <div class="pf-handle">@${escapeHtml(profile.username)}</div>
             <div class="pf-badges">${roleBadgesHtml}${channelBadgeHtml}</div>
