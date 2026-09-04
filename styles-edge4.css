@@ -64,6 +64,14 @@
 .pf-badge.role-streamer .dot{ background: var(--rust); }
 .pf-badge.channel-type{ background: var(--gold-soft); border-color:transparent; color: var(--gold); font-weight:600; }
 .pf-badge.channel-type.diary{ background: var(--line-soft); color: var(--ink-dim); }
+/* 04.09.2026: "История правок открыта" — явный бейдж доверия (см.
+   trustBadgeHtml в public.html). .trust-verified — зелёный, ни одной правки
+   задним числом; .trust-open — тот же смысл ("открыто"), но нейтральный
+   золотой тон, раз правки всё же были: не тревожный красный, суть бейджа —
+   что видно ВСЕГДА, а не что правок ноль. */
+.pf-badge svg{ width:12px; height:12px; flex:none; }
+.pf-badge.trust-verified{ background: rgba(52,195,152,0.12); border-color:transparent; color: var(--teal); font-weight:600; }
+.pf-badge.trust-open{ background: var(--gold-soft); border-color:transparent; color: var(--gold); font-weight:600; }
 
 .pf-bio{ margin-top:13px; font-size:14px; line-height:1.6; color: var(--ink); max-width:60ch; }
 
