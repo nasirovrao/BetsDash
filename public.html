@@ -79,7 +79,7 @@
     computeCardTrend, renderSparkline, renderWlpBars, renderTopBetsPop, initStatCardPopovers,
     computeRatingTier, computeSpecialization, renderProfileBanner, wasEditedAfterSettle,
     initEmailPrivacyToggle, getDisplayCurrency,
-    monthKeyOf, monthLabelOf, weekKeyOf, weekLabelOf, dayKeyOf, dayLabelOf,
+    monthKeyOf, monthLabelOf, weekKeyOf, weekLabelOf, dayKeyOf, dayLabelOf, monthYearGenitiveOf,
   } from './lib.js';
 
   // 02.09.2026: фильтр по периоду на вкладке "Дашборд" публичного профиля —
@@ -216,7 +216,7 @@
         const specialization = computeSpecialization(allBets, 3);
         const isDiary = channel === 'default';
         const joinedLabel = profile.created_at
-          ? new Date(profile.created_at).toLocaleDateString('ru-RU', { month: 'long', year: 'numeric' })
+          ? monthYearGenitiveOf(profile.created_at)
           : null;
 
         const roleBadgesHtml = (profile.roles || []).map(r => {

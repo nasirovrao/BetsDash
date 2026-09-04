@@ -276,6 +276,18 @@ export function dayLabelOf(dayKey) {
   return `${Number(d)} ${MONTH_NAMES_RU_GEN[Number(m) - 1] || m} ${y}`;
 }
 
+// "На EDGE с август 2026" — баг с окончанием (04.09.2026, замечено на
+// public.html): toLocaleDateString('ru-RU', {month:'long', year:'numeric'})
+// без day в опциях отдаёт месяц в именительном падеже ("август"), хотя после
+// предлога "с" нужен родительный ("с августа"). Родительный падеж появляется
+// у Intl только вместе с днём — а день здесь как раз не нужен. Тот же
+// MONTH_NAMES_RU_GEN, что и в dayLabelOf выше, без числа дня.
+export function monthYearGenitiveOf(dateStr) {
+  const d = new Date(dateStr);
+  if (Number.isNaN(d.getTime())) return '—';
+  return `${MONTH_NAMES_RU_GEN[d.getMonth()]} ${d.getFullYear()}`;
+}
+
 // Понедельник ISO-недели (год, номер недели) — стандартный алгоритм через
 // четверг этой недели (ISO 8601: неделя 1 — та, что содержит первый четверг
 // года / 4 января).
