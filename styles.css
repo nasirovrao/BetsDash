@@ -383,6 +383,13 @@ table.bets-table tbody tr:hover td.num{ color: var(--gold); }
 .row-del{
   background:none; border:1px solid var(--line); color: var(--ink-faint); border-radius: var(--radius);
   padding:5px 9px; font-size:11px; cursor:pointer; font-family:'JetBrains Mono', monospace;
+  /* 04.09.2026: баг на мобиле — table.bets-table td{white-space:normal;
+     word-break:break-word} (стиль для ЯЧЕЙКИ, задуман для длинных названий
+     матчей) наследовался и на эту кнопку внутри неё, на узкой колонке текст
+     "Удалить" разбивало по буквам в вертикальный столбик. Таблица и так уже
+     в .table-scroll (горизонтальный скролл), поэтому nowrap здесь просто
+     не даёт кнопке ломаться — если не влезает, весь блок скроллится вбок. */
+  white-space:nowrap;
 }
 .row-del:hover{ border-color: var(--rust); color: var(--rust); }
 .empty-state{ padding: 40px 24px; text-align:center; color: var(--ink-faint); font-size:14px; }
