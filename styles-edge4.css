@@ -77,9 +77,17 @@
 
 /* ---------- Рейтинг ---------- */
 .pf-rating{ margin:18px 0 0; background: var(--bg-card); border:1px solid var(--line); border-radius: var(--radius); padding:16px 18px; }
-.pf-rating-head{ display:flex; align-items:baseline; justify-content:space-between; gap:10px; flex-wrap:wrap; }
+/* 04.09.2026: .pf-rating-head сворачивает/разворачивает .pf-rating-body
+   (трек+тики+пояснение) — свёрнуто по умолчанию, см. комментарий у
+   initRatingToggle в public.html. role="button" на готовой разметке, а не
+   <button>, поэтому курсор/фокус-стили держим здесь явно. */
+.pf-rating-head{ display:flex; align-items:baseline; justify-content:space-between; gap:10px; flex-wrap:wrap; cursor:pointer; user-select:none; border-radius: calc(var(--radius) - 4px); }
+.pf-rating-head:hover .pf-rating-tier{ color: var(--gold); opacity:0.85; }
+.pf-rating-head:focus-visible{ outline: 2px solid var(--gold); outline-offset:3px; }
 .pf-rating-tier{ font-family:'Unbounded', sans-serif; font-weight:700; font-size:14px; color: var(--gold); }
-.pf-rating-score{ font-family:'JetBrains Mono', monospace; font-size:11.5px; color: var(--ink-faint); }
+.pf-rating-score{ display:flex; align-items:center; gap:5px; font-family:'JetBrains Mono', monospace; font-size:11.5px; color: var(--ink-faint); }
+.pf-rating-chevron{ width:13px; height:13px; flex:none; transition: transform .15s ease; }
+.pf-rating-head[aria-expanded="true"] .pf-rating-chevron{ transform: rotate(180deg); }
 .pf-rating-track{ margin-top:11px; height:7px; border-radius:999px; background: var(--line-soft); overflow:hidden; }
 .pf-rating-fill{ height:100%; border-radius:999px; background: linear-gradient(90deg, var(--gold), var(--teal)); }
 .pf-rating-ticks{ display:flex; justify-content:space-between; margin-top:6px; font-family:'JetBrains Mono', monospace; font-size:9px; color: var(--ink-faint); }
@@ -110,6 +118,26 @@
   border-radius: var(--radius); background: var(--bg-raised); color: var(--ink); cursor:pointer;
 }
 .pf-period-filter select:hover{ border-color: var(--gold); }
+
+/* ---------- Карточки "Эта неделя"/"Этот месяц" на публичном профиле
+   (04.09.2026) — те же классы .period-stat-*, что и на приватном app.html
+   над формой добавления ставки (Вариант А), только там они заданы page-scoped
+   инлайн-стилем (app.html не грузит этот файл), а здесь — общим слоем, раз
+   public.html его уже подключает. Ставим между шапкой (.pf-stats выше — не
+   фильтруется) и вкладками, включая ".pf-period-filter" на вкладке
+   "Дашборд" — это два разных, намеренно сосуществующих сценария: тут
+   фиксированные неделя/месяц всегда на виду, там — гибкий выбор произвольного
+   периода внутри отдельной вкладки. ---------- */
+.period-stats-block{ display:grid; grid-template-columns:repeat(2, 1fr); gap:14px; margin:22px 0 0; }
+.period-stat-card{ background:var(--bg-card); border:1px solid var(--line); border-radius:var(--radius); padding:16px 18px; }
+.period-stat-title{ font-family:'JetBrains Mono', monospace; font-size:11px; letter-spacing:.03em; color:var(--ink-faint); text-transform:uppercase; margin-bottom:10px; }
+.period-stat-row{ display:flex; gap:22px; flex-wrap:wrap; }
+.period-stat-item{ display:flex; flex-direction:column; gap:3px; min-width:56px; }
+.period-stat-val{ font-family:'JetBrains Mono', monospace; font-size:18px; color:var(--ink); font-variant-numeric:tabular-nums; }
+.period-stat-val.pos{ color:var(--teal); }
+.period-stat-val.neg{ color:var(--rust); }
+.period-stat-lbl{ font-size:10.5px; color:var(--ink-faint); }
+@media (max-width:640px){ .period-stats-block{ grid-template-columns:1fr; } }
 
 /* ---------- Выпадающий мультивыбор (сейчас — только "Метки профиля" в
    profile-settings.html; было двумя всегда-видимыми чекбоксами, свёрнуто

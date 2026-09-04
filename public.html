@@ -58,6 +58,7 @@
 <section>
   <div class="wrap">
     <div id="profileHero"><div class="empty-state">Загружаю…</div></div>
+    <div class="period-stats-block" id="periodStatsBlock"></div>
     <nav class="app-nav public-tabs" id="publicTabs" style="display:none;"></nav>
     <div id="tabRoot"></div>
   </div>
@@ -252,13 +253,15 @@
               <div class="pf-stat"><div class="pf-stat-val ${s.totalProfit > 0 ? 'pos' : s.totalProfit < 0 ? 'neg' : ''}">${fm(s.totalProfit)}</div><div class="pf-stat-lbl">Профит</div></div>
             </div>
             <div class="pf-rating">
-              <div class="pf-rating-head">
+              <div class="pf-rating-head" id="pfRatingToggle" role="button" tabindex="0" aria-expanded="false" aria-controls="pfRatingBody">
                 <div class="pf-rating-tier">${rating.tierName}</div>
-                <div class="pf-rating-score">${rating.score} / 100</div>
+                <div class="pf-rating-score">${rating.score} / 100<svg class="pf-rating-chevron" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" aria-hidden="true"><path d="M6 9l6 6 6-6" stroke-linecap="round" stroke-linejoin="round"/></svg></div>
               </div>
-              <div class="pf-rating-track"><div class="pf-rating-fill" style="width:${rating.score}%"></div></div>
-              <div class="pf-rating-ticks">${rating.tiers.map(t => `<span>${t}</span>`).join('')}</div>
-              <div class="pf-rating-note">Сейчас грейд считается по количеству закрытых ставок — <b>${rating.closedCount}</b>, чем больше отслеженная история, тем выше рейтинг. В планах — добавить и другие факторы: стабильность серии, точность CLV, активность в канале и реакцию подписчиков.</div>
+              <div class="pf-rating-body" id="pfRatingBody" hidden>
+                <div class="pf-rating-track"><div class="pf-rating-fill" style="width:${rating.score}%"></div></div>
+                <div class="pf-rating-ticks">${rating.tiers.map(t => `<span>${t}</span>`).join('')}</div>
+                <div class="pf-rating-note">Сейчас грейд считается по количеству закрытых ставок — <b>${rating.closedCount}</b>, чем больше отслеженная история, тем выше рейтинг. В планах — добавить и другие факторы: стабильность серии, точность CLV, активность в канале и реакцию подписчиков.</div>
+              </div>
             </div>
             ${specialization.length ? `<div class="pf-spec">${specialization.map(sp => `<span class="pf-spec-chip"><span class="pf-spec-bar"><i style="width:${sp.pct}%"></i></span>${escapeHtml(sp.discipline)} <b>${sp.pct}%</b></span>`).join('')}</div>` : ''}
             <div class="trust-note" style="margin-top:16px;">
@@ -271,6 +274,64 @@
               })()}</span>
             </div>
           </div>`;
+
+        // 04.09.2026: блок рейтинга ("Новичок 15/100" + трек + описание) по
+        // отзыву пользователя "портит вид" на первом экране — сворачиваем по
+        // умолчанию, остаётся видна только шапка (тир + счёт), трек/тики/
+        // текст-пояснение раскрываются по клику на неё же (или Enter/Space
+        // — role="button" вместо <button>, чтобы не тащить сюда стили кнопки
+        // поверх готовой разметки .pf-rating-head).
+        (function initRatingToggle() {
+          const toggle = document.getElementById('pfRatingToggle');
+          const body = document.getElementById('pfRatingBody');
+          if (!toggle || !body) return;
+          function setExpanded(expanded) {
+            body.hidden = !expanded;
+            toggle.setAttribute('aria-expanded', String(expanded));
+          }
+          toggle.addEventListener('click', () => setExpanded(body.hidden));
+          toggle.addEventListener('keydown', (e) => {
+            if (e.key === 'Enter' || e.key === ' ') { e.preventDefault(); setExpanded(body.hidden); }
+          });
+        })();
+
+        // 04.09.2026: те же карточки "Эта неделя"/"Этот месяц" (Вариант А),
+        // что уже стоят на приватном app.html над формой добавления ставки
+        // — теперь и на публичном профиле, между шапкой (всегда всё время
+        // целиком, "верифицируемый трек-рекорд") и вкладками. Это НЕ то же
+        // самое, что фильтр периода на вкладке "Дашборд" ниже: тут — два
+        // фиксированных периода всегда на виду сразу при заходе на профиль,
+        // там — гибкий выбор произвольного периода внутри отдельной вкладки.
+        // Обе вещи специально оставлены вместе (см. обсуждение с
+        // пользователем) — разные сценарии, друг другу не мешают.
+        (function renderPeriodStats() {
+          const block = document.getElementById('periodStatsBlock');
+          if (!block) return;
+          const now = new Date();
+          const todayStr = `${now.getFullYear()}-${String(now.getMonth() + 1).padStart(2, '0')}-${String(now.getDate()).padStart(2, '0')}`;
+          const curWeek = weekKeyOf(todayStr);
+          const curMonth = monthKeyOf(todayStr);
+          const weekBets = allBets.filter(b => weekKeyOf(b.bet_date) === curWeek);
+          const monthBets = allBets.filter(b => monthKeyOf(b.bet_date) === curMonth);
+          function periodCardHtml(title, periodBets) {
+            const ps = computeStats(periodBets, [], 0);
+            const flat = computeFlatStats(periodBets);
+            const roiCls = ps.roi > 0 ? 'pos' : ps.roi < 0 ? 'neg' : '';
+            const profitCls = ps.totalProfit > 0 ? 'pos' : ps.totalProfit < 0 ? 'neg' : '';
+            const flatCls = flat.flatsProfit > 0 ? 'pos' : flat.flatsProfit < 0 ? 'neg' : '';
+            return `
+              <div class="period-stat-card">
+                <div class="period-stat-title">${title}</div>
+                <div class="period-stat-row">
+                  <div class="period-stat-item"><span class="period-stat-val">${ps.total}</span><span class="period-stat-lbl">ставок</span></div>
+                  <div class="period-stat-item"><span class="period-stat-val ${roiCls}">${ps.roi == null ? '—' : (ps.roi >= 0 ? '+' : '') + ps.roi.toFixed(1) + '%'}</span><span class="period-stat-lbl">ROI</span></div>
+                  <div class="period-stat-item"><span class="period-stat-val ${profitCls}">${fm(ps.totalProfit)}</span><span class="period-stat-lbl">профит</span></div>
+                  <div class="period-stat-item"><span class="period-stat-val ${flatCls}">${flat.flatsStaked ? (flat.flatsProfit >= 0 ? '+' : '') + flat.flatsProfit.toFixed(2) : '—'}</span><span class="period-stat-lbl">по флетам</span></div>
+                </div>
+              </div>`;
+          }
+          block.innerHTML = periodCardHtml('Эта неделя', weekBets) + periodCardHtml('Этот месяц', monthBets);
+        })();
 
         function renderPfCards(bets, s2, isFiltered) {
           const flatStats = computeFlatStats(bets);
