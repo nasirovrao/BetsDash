@@ -1843,14 +1843,21 @@
 
     if (extraLegs && extraLegs.length) {
       setSplitMode(true);
+      // 09.09.2026: БАГ — populateStakeLegs ниже уже пересчитывает "Флет"
+      // через applyStakeToFlat() (сумма ПО ТЕКУЩЕЙ сумме всех частей —
+      // именно то число, которое должно быть верным), но сразу следом стоял
+      // код, затиравший его "историческим" flat_mult, СЛОЖЕННЫМ ИЗ УЖЕ
+      // СОХРАНЁННЫХ (потенциально неверных — той самой старой ошибкой)
+      // значений — из-за чего пересохранение ставки БЕЗ ИЗМЕНЕНИЙ просто
+      // возвращало тот же неверный флет заново, каждый раз. Свежий пересчёт
+      // от реальной суммы теперь НЕ перезаписывается — используем
+      // "исторический" только как fallback, когда пересчитать не от чего
+      // (не задан "Флет по умолчанию" для канала).
       populateStakeLegs(extraLegs, bet.pick);
-      // populateStakeLegs выше уже пересчитала "Флет" через applyStakeToFlat
-      // (если задан "Флет по умолчанию" для канала) — но точнее просто
-      // сложить исторические flat_mult всех "ног" как они были сохранены:
-      // работает даже без "Флета по умолчанию", и не зависит от того, не
-      // менялась ли эта настройка с момента, когда ставка создавалась.
-      const historicalTotal = Number(bet.flat_mult || 0) + extraLegs.reduce((s, l) => s + Number(l.flat_mult || 0), 0);
-      if (historicalTotal > 0) document.getElementById('f_flat').value = historicalTotal.toFixed(4).replace(/0+$/, '').replace(/\.$/, '');
+      if (!defaultFlatSize) {
+        const historicalTotal = Number(bet.flat_mult || 0) + extraLegs.reduce((s, l) => s + Number(l.flat_mult || 0), 0);
+        if (historicalTotal > 0) document.getElementById('f_flat').value = historicalTotal.toFixed(4).replace(/0+$/, '').replace(/\.$/, '');
+      }
     } else {
       setSplitMode(false);
       clearStakeLegs();
