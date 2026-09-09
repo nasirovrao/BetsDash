@@ -90,21 +90,19 @@ h1,h2{ font-family:'Unbounded', -apple-system, sans-serif; font-weight:700; lett
 /* Навигация — подчёркивание вместо заливки: сдержаннее, ближе к
    Linear/Vercel, чем плашка-таблетка на золотом фоне на каждой вкладке.
 
-   Шрифт пунктов меню — AST №19 (Анастасия Прогацкая, распространяется
-   автором свободно, см. vendor/fonts/ast19-normal.woff2), брусковая
-   антиква вместо JetBrains Mono. Файл вендорится локально (как и xlsx —
-   см. import.html), а не грузится с Яндекс.Диска: у автора это личная
-   раздача, а не CDN, и не предназначена для прямых hotlink-запросов с
-   чужого сайта. В шрифте только одно начертание (Regular) — жирность
-   нигде не переопределяем, иначе браузер даст "жирнее" синтетическим
-   растолщением, а для брусковой антиквы это выглядит грязно. */
+   Шрифт пунктов меню — пробовали AST №19 (брусковая антиква, файл всё ещё
+   вендорится в vendor/fonts/ast19-normal.woff2 на случай, если решим
+   вернуться), но по прямому отзыву 09.09.2026 ("не нравится, верни как
+   было") откатили обратно на JetBrains Mono — @font-face ниже оставлен
+   объявленным, но сейчас никем не используется (font-family на .nav-pill
+   её больше не упоминает, значит браузер её и не запросит). */
 @font-face{
   font-family:'AST19'; font-weight:400; font-style:normal; font-display:swap;
   src:url('vendor/fonts/ast19-normal.woff2') format('woff2');
 }
 .nav-pill{
   border-radius:0; padding:7px 2px; margin-right:5px; border:none; border-bottom:2px solid transparent;
-  font-family:'AST19', 'JetBrains Mono', monospace; font-weight:400;
+  font-family:'JetBrains Mono', monospace; font-weight:400;
 }
 .nav-pill:hover{ color: var(--ink); border-color: var(--line); background:none; }
 .nav-pill.active{ color: var(--ink); background:none; border-bottom-color: var(--gold); }

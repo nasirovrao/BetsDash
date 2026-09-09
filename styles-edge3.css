@@ -178,7 +178,7 @@ h1{ font-weight: 600; }
 .nav-dropdown-panel[hidden]{ display:none; }
 .nav-dropdown-item{
   display:block; padding:8px 10px; border-radius:6px; white-space:nowrap; text-decoration:none;
-  font-family:'AST19','JetBrains Mono',monospace; font-weight:400; font-size:11px;
+  font-family:'JetBrains Mono',monospace; font-weight:400; font-size:11px;
   text-transform:uppercase; letter-spacing:0.02em; color: var(--ink-faint);
   transition: background .12s ease, color .12s ease;
 }

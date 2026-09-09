@@ -57,11 +57,18 @@ $$;
 --    (viewer больше не может добавлять/менять ставки) — select НЕ трогаем,
 --    он остаётся на has_channel_access (владелец + любая approved-роль),
 --    viewer по-прежнему видит все ставки канала, просто не может их менять.
+-- Дропаем ОБА возможных имени — старое (до этой миграции) и новое (если
+-- скрипт уже один раз успешно отработал и запускается повторно) — иначе
+-- при повторном запуске "create policy" падает с "policy already exists"
+-- (сама политика 1-в-1 та же самая, но пересоздать её надо в любом случае,
+-- т.к. может измениться has_channel_edit_access ниже по файлу).
 drop policy if exists "insert own or member bets" on public.bets;
+drop policy if exists "insert own or editor bets" on public.bets;
 create policy "insert own or editor bets" on public.bets
   for insert with check (auth.uid() = user_id or public.has_channel_edit_access(user_id, channel));
 
 drop policy if exists "update own or member bets" on public.bets;
+drop policy if exists "update own or editor bets" on public.bets;
 create policy "update own or editor bets" on public.bets
   for update using (auth.uid() = user_id or public.has_channel_edit_access(user_id, channel));
 
