@@ -118,6 +118,40 @@ h1,h2{ font-family: 'Space Grotesk', -apple-system, sans-serif; font-weight: 600
 .leg-remove-btn:disabled{ opacity:0.35; cursor:not-allowed; }
 .leg-remove-btn:disabled:hover{ border-color: var(--line); color: var(--ink-faint); }
 @media (max-width: 560px){ .leg-odds-input{ flex:0 0 84px; } }
+
+/* ---- 09.09.2026: разбить ставку по нескольким букмекерам (лимиты) ----
+   Строка "ноги" переиспользует .express-leg-row/.leg-input (тот же
+   отступ/бордер/фон), только сайзинг трёх полей свой — букмекер шире
+   (текст названия), кэф и сумма уже (числа). */
+.stake-split-toggle-btn{
+  background:none; border:none; color: var(--gold); font-size:12.5px; cursor:pointer;
+  padding:6px 0 0; text-align:left;
+}
+.stake-split-toggle-btn:hover{ text-decoration:underline; }
+.stake-leg-bookmaker{ flex:1 1 auto; }
+.stake-leg-odds{ flex:0 0 90px; }
+.stake-leg-stake{ flex:0 0 120px; }
+@media (max-width: 560px){
+  .stake-leg-row{ flex-wrap:wrap; }
+  .stake-leg-bookmaker{ flex:1 1 100%; }
+  .stake-leg-odds, .stake-leg-stake{ flex:1 1 0; }
+}
+
+/* Карточка ставки, разбитой по нескольким букмекерам — список частей под
+   заголовком/пиком, каждая своей строкой (букмекер · кэф · сумма). Слегка
+   приглушённее основного текста карточки — это детализация, не главная
+   информация (главное — общая сумма/профит в .bet-card-stats, как обычно). */
+.bet-card-legs{
+  display:flex; flex-direction:column; gap:4px; margin:6px 0 2px;
+  padding:8px 10px; border:1px solid var(--line-soft); border-radius:8px; background: var(--bg-raised);
+}
+.bet-card-leg{
+  display:flex; align-items:center; gap:10px; font-size:12.5px; color: var(--ink-dim);
+  font-family:'JetBrains Mono', monospace;
+}
+.bet-card-leg-bk{ flex:1 1 auto; color: var(--ink); }
+.bet-card-leg-odds{ flex:none; }
+.bet-card-leg-stake{ flex:none; min-width:60px; text-align:right; }
 .hedge-preview-value{
   font-family:'JetBrains Mono', monospace; font-size:14.5px; font-weight:600; padding:11px 13px;
   border:1px dashed var(--line); border-radius: var(--radius); background: var(--bg-raised); color: var(--ink-dim);

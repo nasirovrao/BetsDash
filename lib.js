@@ -142,13 +142,54 @@ export function computeBankPoints(bets, withdrawals, startingBankroll) {
   return points;
 }
 
+// 09.09.2026: "разбить ставку по нескольким букмекерам" (group_id,
+// schema_milestone36.sql) — одна СТАВКА (одно решение по одному пику) может
+// физически лежать в bets несколькими строками (по одной на каждого
+// букмекера — свои кэф/сумма/букмекер, но общий результат/матч/пик). Для
+// денег (totalStaked/totalProfit/avgOdds) это не имеет значения — сумма по
+// строкам и так корректна независимо от группировки. А вот "сколько СТАВОК"
+// (total/wins/losses/pushes/pending) должно считать группу как ОДНУ ставку,
+// иначе один и тот же реальный пик задвоился бы в счётчиках везде, где
+// считается число ставок (дашборд, "По капперам/дисциплинам/турнирам" и
+// т.д.) — см. CHANGELOG. dedupeKey группирует по group_id, а негруппированные
+// строки (group_id == null) считаются каждая сама за себя через свой id.
+function dedupeKey(b){ return b.group_id != null ? ('g:' + b.group_id) : ('r:' + b.id); }
+function dedupeBets(list){
+  const seen = new Map();
+  list.forEach(b => { const k = dedupeKey(b); if (!seen.has(k)) seen.set(k, b); });
+  return Array.from(seen.values());
+}
+
+// Та же группировка "разбитой по букмекерам" ставки (group_id), но для
+// рендера карточек списком (app.html/feed.html) — а не для одних только
+// сумм: нужен весь массив "ног" на группу, а не одна произвольная строка.
+// Порядок сохраняется по первому появлению группы во входном массиве (bets
+// приходит уже отсортированным вызывающей стороной — group.legs[0] решает,
+// где в списке встанет вся карточка). Каждый элемент — либо одиночная
+// ставка ({isGroup:false, legs:[bet]}), либо разбитая ({isGroup:true, legs}).
+export function groupBetLegs(bets){
+  const order = [];
+  const byKey = new Map();
+  bets.forEach(b => {
+    const k = dedupeKey(b);
+    if (!byKey.has(k)) { byKey.set(k, []); order.push(k); }
+    byKey.get(k).push(b);
+  });
+  return order.map(k => {
+    const legs = byKey.get(k);
+    return { isGroup: legs.length > 1, legs };
+  });
+}
+
 // Сводная статистика по массиву ставок + выводов + стартовому банку.
 export function computeStats(bets, withdrawals, startingBankroll) {
   const settled = bets.filter(b => b.result !== 'Pending');
-  const wins = settled.filter(b => b.result === 'Win').length;
-  const losses = settled.filter(b => b.result === 'Loss').length;
-  const pushes = settled.filter(b => b.result === 'Push').length;
-  const pending = bets.length - settled.length;
+  const settledUnique = dedupeBets(settled);
+  const wins = settledUnique.filter(b => b.result === 'Win').length;
+  const losses = settledUnique.filter(b => b.result === 'Loss').length;
+  const pushes = settledUnique.filter(b => b.result === 'Push').length;
+  const totalUnique = dedupeBets(bets).length;
+  const pending = totalUnique - settledUnique.length;
 
   const totalStaked = settled
     .filter(b => b.result !== 'Push')
@@ -170,7 +211,7 @@ export function computeStats(bets, withdrawals, startingBankroll) {
   const bankGrowthPct = startingBankroll ? (totalProfit / startingBankroll * 100) : null;
 
   return {
-    total: bets.length, wins, losses, pushes, pending,
+    total: totalUnique, wins, losses, pushes, pending,
     totalProfit, roi, winrate, avgOdds,
     totalWithdrawn, currentBank, bankGrowthPct,
     startingBankroll: Number(startingBankroll || 0),

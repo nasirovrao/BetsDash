@@ -8,7 +8,7 @@
 <link rel="preconnect" href="https://fonts.googleapis.com">
 <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
 <link href="https://fonts.googleapis.com/css2?family=Unbounded:wght@600;700;800&family=Golos+Text:wght@400;500;600;700&family=JetBrains+Mono:wght@400;500;600&display=swap" rel="stylesheet">
-<link rel="stylesheet" href="styles.css?v=30">
+<link rel="stylesheet" href="styles.css?v=31">
 <!-- EDGE 2.0 — новая дизайн-система (палитра/типографика/фон), см. styles-edge2.css -->
 <link rel="stylesheet" href="styles-edge2.css?v=3">
 <link rel="stylesheet" href="styles-edge3.css?v=3">
@@ -234,6 +234,7 @@
       <div class="parse-review-banner" id="parseReviewBanner" style="display:none;"></div>
       <form id="betForm">
         <input type="hidden" id="f_editId" value="">
+        <input type="hidden" id="f_editGroupId" value="">
         <div class="express-toggle-row">
           <label class="express-toggle">
             <input type="checkbox" id="f_isExpress">
@@ -319,6 +320,14 @@
               <button type="button" id="stakeConvertBtn" class="btn btn-ghost stake-convert-btn" title="Сконвертировать сумму выше из выбранной валюты в доллары">→ $</button>
             </div>
             <div id="stakeConvertNote" class="stake-convert-note" style="display:none;"></div>
+            <button type="button" class="stake-split-toggle-btn" id="stakeSplitToggleBtn">+ разбить по другому букмекеру (лимиты)</button>
+          </div>
+          <div class="field" id="stakeLegsBlock" style="grid-column: 1 / -1; display:none;">
+            <label>Остальные части этой же ставки — свои букмекер/кэф/сумма, но тот же матч, пик и результат</label>
+            <div id="stakeLegsList" class="express-legs-list"></div>
+            <button type="button" class="btn btn-ghost" id="addStakeLegBtn" style="width:auto; margin-top:10px;">+ Ещё букмекер</button>
+            <div class="section-note" id="stakeLegsTotalNote" style="margin:8px 0 0;"></div>
+            <datalist id="stakeLegBookmakerList"></datalist>
           </div>
           <div class="field">
             <label for="f_result">Результат</label>
@@ -400,7 +409,7 @@
 
 <script type="module">
   import { supabase, requireSession, isClvEnabled } from './supabase-client.js';
-  import { computeProfit, fmtMoney, computeStats, computeFlatStats, weekKeyOf, monthKeyOf, getChannelParams, loadMyChannels, renderChannelSwitch, preserveChannelInNav, initEmailPrivacyToggle, initNavDropdown, applyNavModes, channelHref, fmtDateTime, getDisplayCurrency } from './lib.js';
+  import { computeProfit, fmtMoney, computeStats, computeFlatStats, weekKeyOf, monthKeyOf, getChannelParams, loadMyChannels, renderChannelSwitch, preserveChannelInNav, initEmailPrivacyToggle, initNavDropdown, applyNavModes, channelHref, fmtDateTime, getDisplayCurrency, groupBetLegs } from './lib.js';
 
   const session = await requireSession();
   if (session) {
@@ -669,6 +678,13 @@
   const expressLegsBlock = document.getElementById('expressLegsBlock');
   const expressLegsList = document.getElementById('expressLegsList');
   const addLegBtn = document.getElementById('addLegBtn');
+  const editGroupIdField = document.getElementById('f_editGroupId');
+  const stakeSplitToggleBtn = document.getElementById('stakeSplitToggleBtn');
+  const stakeLegsBlock = document.getElementById('stakeLegsBlock');
+  const stakeLegsList = document.getElementById('stakeLegsList');
+  const addStakeLegBtn = document.getElementById('addStakeLegBtn');
+  const stakeLegsTotalNote = document.getElementById('stakeLegsTotalNote');
+  const stakeLegBookmakerList = document.getElementById('stakeLegBookmakerList');
 
   function escapeHtml(s){
     return String(s ?? '').replace(/[&<>"']/g, c => ({'&':'&amp;','<':'&lt;','>':'&gt;','"':'&quot;',"'":'&#39;'}[c]));
@@ -810,6 +826,96 @@
     }
   });
 
+  // ---------------------------------------------------------------------
+  // 09.09.2026: одна ставка, разбитая между НЕСКОЛЬКИМИ букмекерами (лимиты
+  // не дают поставить всю сумму на одном) — "ставлю Elite Series VIP на
+  // Cloudbet на $10, добираю ту же ставку на Олимпе на 2000₽, хочу чтобы
+  // это была одна ставка". В отличие от экспресса (там несколько СОБЫТИЙ
+  // сливаются в одну строку через текст в "Пик") — здесь наоборот: одна и
+  // та же ставка физически лежит НЕСКОЛЬКИМИ строками bets с общим
+  // group_id (schema_milestone36.sql), у каждой строки свои
+  // букмекер/кэф/сумма/флет, а остальные поля (матч/пик/дисциплина/
+  // результат/дата/источник пика/заметка) — общие, дублируются в каждую
+  // строку. Поля "Букмекер"/"Кэф"/"Сумма" выше — это ВСЕГДА первая часть,
+  // они никак не скрываются и не меняют поведение, если пользователь
+  // вообще не нажимал "+ ещё букмекер" — обычная нераздельная ставка
+  // сохраняется ровно как раньше, group_id остаётся null.
+  // ---------------------------------------------------------------------
+  function makeStakeLegRow(bookmaker, odds, stake, existingId){
+    const row = document.createElement('div');
+    row.className = 'express-leg-row stake-leg-row';
+    row.dataset.legId = existingId || '';
+    row.innerHTML = `
+      <input type="text" class="leg-input stake-leg-bookmaker" placeholder="Букмекер" list="stakeLegBookmakerList" required>
+      <input type="number" class="leg-input stake-leg-odds" step="0.001" min="1.01" placeholder="Кэф" required>
+      <input type="number" class="leg-input stake-leg-stake" step="0.01" min="0.01" placeholder="Сумма ($)" required>
+      <button type="button" class="leg-remove-btn" title="Убрать часть">✕</button>
+    `;
+    row.querySelector('.stake-leg-bookmaker').value = bookmaker || '';
+    row.querySelector('.stake-leg-odds').value = odds != null ? odds : '';
+    row.querySelector('.stake-leg-stake').value = stake != null ? stake : '';
+    row.querySelector('.stake-leg-stake').addEventListener('input', updateStakeLegsTotalNote);
+    row.querySelector('.leg-remove-btn').addEventListener('click', () => {
+      row.remove();
+      if (!stakeLegsList.children.length) setSplitMode(false);
+      updateStakeLegsTotalNote();
+    });
+    return row;
+  }
+
+  function addStakeLegRow(bookmaker, odds, stake, existingId){
+    stakeLegsList.appendChild(makeStakeLegRow(bookmaker, odds, stake, existingId));
+    updateStakeLegsTotalNote();
+  }
+
+  function clearStakeLegs(){
+    stakeLegsList.innerHTML = '';
+    stakeLegsTotalNote.textContent = '';
+  }
+
+  function populateStakeLegs(legs){
+    clearStakeLegs();
+    (legs || []).forEach(l => addStakeLegRow(l.bookmaker, l.odds, l.stake, l.id));
+  }
+
+  // Просто справочная подсказка "Итого по всем частям: $X" — ничего не
+  // валидирует и не блокирует, помогает на глаз сверить с тем, что реально
+  // было поставлено суммарно у обоих букмекеров.
+  function updateStakeLegsTotalNote(){
+    if (!stakeLegsList.children.length) { stakeLegsTotalNote.textContent = ''; return; }
+    const own = Number(stakeInput.value) || 0;
+    const extra = Array.from(stakeLegsList.querySelectorAll('.stake-leg-stake')).reduce((s, i) => s + (Number(i.value) || 0), 0);
+    stakeLegsTotalNote.textContent = `Итого по всем частям (в $, без учёта валюты выше): ${(own + extra).toFixed(2)}`;
+  }
+
+  function setSplitMode(on){
+    stakeLegsBlock.style.display = on ? '' : 'none';
+    stakeSplitToggleBtn.textContent = on ? '− убрать разбивку по букмекерам' : '+ разбить по другому букмекеру (лимиты)';
+  }
+
+  stakeSplitToggleBtn.addEventListener('click', () => {
+    const willTurnOn = stakeLegsBlock.style.display === 'none';
+    if (willTurnOn) {
+      setSplitMode(true);
+      if (!stakeLegsList.children.length) addStakeLegRow();
+    } else {
+      setSplitMode(false);
+      clearStakeLegs();
+    }
+  });
+  addStakeLegBtn.addEventListener('click', () => addStakeLegRow());
+  stakeInput.addEventListener('input', updateStakeLegsTotalNote);
+
+  // Собирает валидные доп. части (букмекер + кэф>1 + сумма>0) прямо из DOM.
+  function collectStakeLegs(){
+    return Array.from(stakeLegsList.querySelectorAll('.stake-leg-row')).map(row => ({
+      id: row.dataset.legId || null,
+      bookmaker: row.querySelector('.stake-leg-bookmaker').value.trim(),
+      odds: Number(row.querySelector('.stake-leg-odds').value),
+      stake: Number(row.querySelector('.stake-leg-stake').value),
+    })).filter(l => l.bookmaker && l.odds > 1 && l.stake > 0);
+  }
+
   // Разбирает одну ногу вида "текст @1.85" обратно на {text, odds} — нужно,
   // чтобы при редактировании уже сохранённого экспресса заново заполнить
   // конструктор. Если "@кэф" в тексте не найдено (старая запись, где ноги
@@ -861,26 +967,26 @@
     `;
   }
 
-  function wirePendingControl(cardEl, bet){
+  function wirePendingControl(cardEl, bet, legs){
     const select = cardEl.querySelector('.pending-select');
     if (!select) return;
     select.addEventListener('change', async () => {
       const val = select.value;
       if (!val) return;
       if (val === 'Sold') {
-        showSoldMiniForm(cardEl, bet.id);
+        showSoldMiniForm(cardEl, bet, legs);
         return;
       }
       select.disabled = true;
-      const ok = await updateBetResult(bet.id, val, null);
+      const ok = await updateBetResult(bet, legs, val, null);
       if (ok) loadBets(); else select.disabled = false;
     });
   }
 
-  function showSoldMiniForm(cardEl, id){
+  function showSoldMiniForm(cardEl, bet, legs){
     const cell = cardEl.querySelector('.pending-result-stat');
     cell.innerHTML = `
-      <span class="bet-stat-label">Профит от продажи</span>
+      <span class="bet-stat-label">Профит от продажи${legs && legs.length > 1 ? ' (суммарно по всем частям)' : ''}</span>
       <div class="mini-sold-row">
         <input type="number" step="0.01" class="mini-profit-input" placeholder="$">
         <button type="button" class="mini-confirm-btn" title="Сохранить">✓</button>
@@ -890,7 +996,7 @@
     input.focus();
     cell.querySelector('.mini-confirm-btn').addEventListener('click', async () => {
       if (input.value === '') { input.focus(); return; }
-      const ok = await updateBetResult(id, 'Sold', Number(input.value));
+      const ok = await updateBetResult(bet, legs, 'Sold', Number(input.value));
       if (ok) loadBets();
     });
     input.addEventListener('keydown', (e) => {
@@ -898,31 +1004,80 @@
     });
   }
 
-  async function updateBetResult(id, result, manualProfit){
-    const payload = { result };
-    if (result === 'Sold') payload.manual_profit = manualProfit;
-    const { error } = await supabase.from('bets').update(payload).eq('id', id);
-    if (error) {
-      formStatus.textContent = 'Не удалось обновить результат: ' + error.message;
+  // legs — вся группа (включая bet) для разбитой по букмекерам ставки,
+  // иначе [bet]/undefined. Результат общий на группу — применяется ко всем
+  // строкам сразу. manual_profit при "Продана" — намеренно только на bet.id
+  // (первой ноге), остальным явно проставляется 0 — иначе суммарный профит
+  // карточки (renderCard считает его сложением по всем ногам) задвоился бы
+  // на введённое число за каждую лишнюю ногу (см. комментарий у payloads в
+  // обработчике submit — та же логика, только здесь для быстрого
+  // инлайн-простановки результата без открытия формы редактирования).
+  async function updateBetResult(bet, legs, result, manualProfit){
+    const isGroup = legs && legs.length > 1;
+    const { error: resErr } = await supabase.from('bets').update({ result })
+      .eq(...legsUpdateFilter(bet, legs));
+    if (resErr) {
+      formStatus.textContent = 'Не удалось обновить результат: ' + resErr.message;
       return false;
+    }
+    if (result === 'Sold') {
+      const { error: profErr } = await supabase.from('bets').update({ manual_profit: manualProfit }).eq('id', bet.id);
+      if (profErr) {
+        formStatus.textContent = 'Не удалось сохранить профит от продажи: ' + profErr.message;
+        return false;
+      }
+      if (isGroup) {
+        const otherIds = legs.filter(l => l.id !== bet.id).map(l => l.id);
+        if (otherIds.length) await supabase.from('bets').update({ manual_profit: 0 }).in('id', otherIds);
+      }
     }
     formStatus.textContent = '';
     return true;
   }
 
-  function renderCard(bet){
+  // legs — ВСЕ строки этой карточки (включая саму bet), больше 1 только для
+  // ставки, разбитой по нескольким букмекерам (group_id) — по умолчанию
+  // [bet], обычная нераздельная ставка рендерится ровно как раньше.
+  // 09.09.2026, "разбить ставку по нескольким букмекерам": bet.bookmaker/
+  // odds/stake/flat_mult в этом случае — только у ПЕРВОЙ ноги, реальные
+  // числа карточки (сумма, флет, профит) считаются по ВСЕМ legs, а
+  // "Кэф"/"Букмекер" показываются не одним числом (у каждой ноги свой), а
+  // отдельным списком частей под шапкой карточки.
+  function renderCard(bet, legs){
+    legs = legs && legs.length ? legs : [bet];
+    const isGroup = legs.length > 1;
     const div = document.createElement('div');
-    div.className = 'bet-card';
-    const profit = computeProfit(bet);
+    div.className = 'bet-card' + (isGroup ? ' bet-card-split' : '');
+    const totalStake = legs.reduce((s, l) => s + Number(l.stake || 0), 0);
+    const totalFlat = legs.reduce((s, l) => s + Number(l.flat_mult || 0), 0);
+    // Результат общий на всю группу (та же реальная ставка) — если он вдруг
+    // разошёлся между "ногами" (не должно случаться через обычный UI, но
+    // на всякий случай не считаем это Pending молча), профит группы просто
+    // не выводим, честнее показать "—", чем правдоподобно неверное число.
+    const resultsMatch = legs.every(l => l.result === bet.result);
+    const groupProfit = (bet.result !== 'Pending' && resultsMatch)
+      ? legs.reduce((s, l) => s + (computeProfit(l) || 0), 0)
+      : (isGroup ? null : computeProfit(bet));
+    const profit = isGroup ? groupProfit : computeProfit(bet);
     const profitCls = profit == null ? '' : profit > 0 ? 'pos-text' : profit < 0 ? 'neg-text' : '';
     const { title, bodyHtml, hasMatch } = cardTitleAndBody(bet);
+    const legsHtml = isGroup ? `
+      <div class="bet-card-legs">
+        ${legs.map(l => `
+          <div class="bet-card-leg">
+            <span class="bet-card-leg-bk">${escapeHtml(l.bookmaker)}</span>
+            <span class="bet-card-leg-odds">@${Number(l.odds).toFixed(2)}</span>
+            <span class="bet-card-leg-stake">${fm(Number(l.stake))}</span>
+          </div>`).join('')}
+      </div>` : '';
     div.innerHTML = `
       <div class="bet-card-main">
         <div class="bet-card-title-wrap">${hasMatch ? `<div class="bet-card-title">${title}</div>` : `<button type="button" class="match-add-btn">+ добавить матч</button>`}</div>
         ${bodyHtml}
+        ${legsHtml}
         <div class="bet-card-meta">
           <span class="meta-chip">${escapeHtml(bet.discipline)}</span>
-          <span class="meta-chip">${escapeHtml(bet.bookmaker)}</span>
+          ${isGroup ? `<span class="meta-chip">${legs.length} букмекера</span>` : `<span class="meta-chip">${escapeHtml(bet.bookmaker)}</span>`}
           ${bet.tournament ? `<span class="meta-chip">${escapeHtml(bet.tournament)}</span>` : ''}
           ${bet.edge_tag ? `<span class="tag-chip">${escapeHtml(bet.edge_tag)}</span>` : ''}
           ${bet.pick_source ? `<span class="tag-chip source-chip">👤 ${escapeHtml(bet.pick_source)}</span>` : ''}
@@ -933,34 +1088,43 @@
         <div class="bet-card-note-wrap" style="display:none;"></div>
       </div>
       <div class="bet-card-stats">
-        <div class="bet-stat"><span class="bet-stat-label">Кэф</span><span class="bet-stat-value">${Number(bet.odds).toFixed(2)}</span></div>
-        <div class="bet-stat"><span class="bet-stat-label">Флет</span><span class="bet-stat-value">${Number(bet.flat_mult).toFixed(2)}×</span></div>
-        <div class="bet-stat"><span class="bet-stat-label">Сумма</span><span class="bet-stat-value">${fm(Number(bet.stake))}</span></div>
+        <div class="bet-stat"><span class="bet-stat-label">Кэф</span><span class="bet-stat-value">${isGroup ? '—' : Number(bet.odds).toFixed(2)}</span></div>
+        <div class="bet-stat"><span class="bet-stat-label">Флет</span><span class="bet-stat-value">${totalFlat.toFixed(2)}×</span></div>
+        <div class="bet-stat"><span class="bet-stat-label">Сумма</span><span class="bet-stat-value">${fm(totalStake)}</span></div>
         <div class="bet-stat pending-result-stat">${resultCellHtml(bet)}</div>
         <div class="bet-stat"><span class="bet-stat-label">Профит</span><span class="bet-stat-value ${profitCls}">${profit == null ? '—' : fm(profit)}</span></div>
       </div>
       <div class="bet-card-actions">
         <button class="bet-card-edit" data-id="${bet.id}" title="Редактировать ставку">✎</button>
-        ${isEditorView ? '' : `<button class="bet-card-del" data-id="${bet.id}" title="Удалить ставку">✕</button>`}
+        ${isEditorView ? '' : `<button class="bet-card-del" data-id="${bet.id}" title="Удалить ставку${isGroup ? ' целиком (все части)' : ''}">✕</button>`}
       </div>
     `;
-    div.querySelector('.bet-card-edit').addEventListener('click', () => enterEditMode(bet));
+    div.querySelector('.bet-card-edit').addEventListener('click', () => enterEditMode(bet, legs.slice(1)));
     // Редакторам канала удаление недоступно (см. Milestone 12 — RLS и так
     // это заблокирует, но кнопку прячем, чтобы не давать нажать на то,
     // что молча упадёт с ошибкой доступа).
     const delBtn = div.querySelector('.bet-card-del');
-    if (delBtn) delBtn.addEventListener('click', () => deleteBet(bet.id, bet.match || bet.pick));
-    if (bet.result === 'Pending') wirePendingControl(div, bet);
-    wireNoteControl(div, bet);
-    if (!hasMatch) wireMatchControl(div, bet);
+    if (delBtn) delBtn.addEventListener('click', () => deleteBet(bet, bet.match || bet.pick, legs));
+    if (bet.result === 'Pending') wirePendingControl(div, bet, legs);
+    wireNoteControl(div, bet, legs);
+    if (!hasMatch) wireMatchControl(div, bet, legs);
     return div;
+  }
+
+  // Общий фильтр для правок, которые относятся ко ВСЕЙ ставке, а не к
+  // конкретной "ноге" (результат/заметка/матч) — для разбитой по
+  // букмекерам ставки применяется ко всем строкам группы разом (иначе
+  // результат/заметка разъехались бы между частями одной и той же ставки).
+  function legsUpdateFilter(bet, legs){
+    return (legs && legs.length > 1) ? ['group_id', bet.group_id] : ['id', bet.id];
   }
 
   // Для ставок без "Матч" в данных — клик по "+ добавить матч" открывает
   // текстовое поле прямо в карточке; сохраняем в bets.match без перезагрузки.
-  function wireMatchControl(cardEl, bet){
+  function wireMatchControl(cardEl, bet, legs){
     const wrap = cardEl.querySelector('.bet-card-title-wrap');
     if (!wrap) return;
+    const isGroup = legs && legs.length > 1;
 
     function showButton(){
       wrap.innerHTML = `<button type="button" class="match-add-btn">+ добавить матч</button>`;
@@ -985,7 +1149,7 @@
       async function save(){
         const val = input.value.trim();
         if (!val) { input.focus(); return; }
-        const { error } = await supabase.from('bets').update({ match: val }).eq('id', bet.id);
+        const { error } = await supabase.from('bets').update({ match: val }).eq(...legsUpdateFilter(bet, legs));
         if (error) { formStatus.textContent = 'Не удалось сохранить матч: ' + error.message; return; }
         bet.match = val;
         showTitle(val);
@@ -1006,10 +1170,11 @@
   // Заметка скрыта по умолчанию (карточки не растягиваются длинным текстом),
   // разворачивается по клику на чип и редактируется прямо там же —
   // без отдельной страницы и без пересоздания ставки.
-  function wireNoteControl(cardEl, bet){
+  function wireNoteControl(cardEl, bet, legs){
     const toggleBtn = cardEl.querySelector('.note-toggle');
     const wrap = cardEl.querySelector('.bet-card-note-wrap');
     if (!toggleBtn || !wrap) return;
+    const isGroup = legs && legs.length > 1;
 
     function setToggleLabel(){
       toggleBtn.classList.toggle('add', !bet.notes);
@@ -1042,7 +1207,7 @@
       textarea.focus();
       wrap.querySelector('.note-save-btn').addEventListener('click', async () => {
         const val = textarea.value.trim();
-        const { error } = await supabase.from('bets').update({ notes: val || null }).eq('id', bet.id);
+        const { error } = await supabase.from('bets').update({ notes: val || null }).eq(...legsUpdateFilter(bet, legs));
         if (error) { formStatus.textContent = 'Не удалось сохранить заметку: ' + error.message; return; }
         bet.notes = val || null;
         setToggleLabel();
@@ -1076,16 +1241,23 @@
 
   function renderFeed(data){
     betFeed.innerHTML = '';
+    // 09.09.2026: ставка, разбитая по нескольким букмекерам (group_id,
+    // schema_milestone36.sql) — несколько строк bets с одним и тем же
+    // group_id должны рендериться ОДНОЙ карточкой, а не по одной на каждую
+    // "ногу". groupBetLegs (lib.js) схлопывает их в "единицы отображения" —
+    // ноги одной группы всегда делят одну bet_date, так что разбивка по
+    // месяцам ниже работает как раньше, просто по unit'ам, а не по строкам.
+    const units = groupBetLegs(data);
     const groups = [];
     let currentMonth = null, currentList = null;
-    data.forEach(bet => {
-      const label = monthLabel(bet.bet_date);
+    units.forEach(unit => {
+      const label = monthLabel(unit.legs[0].bet_date);
       if (label !== currentMonth) {
         currentMonth = label;
         currentList = [];
         groups.push({ label, list: currentList });
       }
-      currentList.push(bet);
+      currentList.push(unit);
     });
 
     groups.forEach((g, i) => {
@@ -1101,7 +1273,7 @@
         <div class="month-cards" style="${expanded ? '' : 'display:none;'}"></div>
       `;
       const cardsWrap = group.querySelector('.month-cards');
-      g.list.forEach(bet => cardsWrap.appendChild(renderCard(bet)));
+      g.list.forEach(unit => cardsWrap.appendChild(renderCard(unit.legs[0], unit.legs)));
       const headerBtn = group.querySelector('.month-header');
       headerBtn.addEventListener('click', () => {
         const nowExpanded = cardsWrap.style.display === 'none';
@@ -1292,6 +1464,12 @@
     const prevValue = bookmakerSelect.value;
     bookmakerSelect.innerHTML = ordered.map(n => `<option value="${escapeHtml(n)}">${escapeHtml(n)}</option>`).join('');
     if (prevValue && ordered.includes(prevValue)) bookmakerSelect.value = prevValue;
+    // Тот же список — подсказками для "остальных частей" разбитой по
+    // букмекерам ставки (обычный текстовый input с datalist, без полноценной
+    // формы "добавить нового букмекера", как у основного поля выше — там
+    // объективно редко нужен ещё один совсем новый букмекер именно во
+    // второй/третьей части одной и той же ставки).
+    stakeLegBookmakerList.innerHTML = ordered.map(n => `<option value="${escapeHtml(n)}"></option>`).join('');
   }
   renderBookmakerOptions();
 
@@ -1538,15 +1716,24 @@
 
   // Подтверждение перед удалением — без него случайный тап по ✕ безвозвратно
   // уничтожает ставку, а восстановить её нечем.
-  async function deleteBet(id, label){
-    const ok = window.confirm(label ? `Удалить ставку «${label}»? Это необратимо.` : 'Удалить эту ставку? Это необратимо.');
+  // bet — карточка (или её первая "нога"), legs — вся группа при разбитой
+  // по букмекерам ставке (см. renderCard) — удаление тогда сносит ВСЕ её
+  // части одним запросом по group_id, не только ту строку, что была
+  // передана как bet.
+  async function deleteBet(bet, label, legs){
+    const isGroup = legs && legs.length > 1;
+    const ok = window.confirm(
+      label
+        ? `Удалить ставку «${label}»${isGroup ? ' целиком, вместе со всеми частями' : ''}? Это необратимо.`
+        : 'Удалить эту ставку? Это необратимо.'
+    );
     if (!ok) return;
-    const { error } = await supabase.from('bets').delete().eq('id', id);
+    const { error } = await supabase.from('bets').delete().eq(...legsUpdateFilter(bet, legs));
     if (error) {
       formStatus.textContent = 'Не удалось удалить: ' + error.message;
       return;
     }
-    if (editIdField.value === String(id)) exitEditMode();
+    if (editIdField.value === String(bet.id) || (isGroup && editGroupIdField.value === bet.group_id)) exitEditMode();
     loadBets();
   }
 
@@ -1555,8 +1742,13 @@
   // на карточке). Это позволяет поправить любое поле ставки без удаления
   // и пересоздания — важно, когда доступ уже дан нескольким людям и опечатки
   // при вводе неизбежны.
-  function enterEditMode(bet){
+  // extraLegs — остальные "ноги" этой же ставки, если она разбита по
+  // нескольким букмекерам (group_id), не считая саму bet (та идёт первой
+  // частью, как обычно) — undefined/[] для обычной нераздельной ставки,
+  // ничего в остальном коде функции менять не пришлось.
+  function enterEditMode(bet, extraLegs){
     editIdField.value = bet.id;
+    editGroupIdField.value = bet.group_id || '';
     document.getElementById('f_date').value = bet.bet_date;
     document.getElementById('f_discipline').value = bet.discipline;
     // 02.09.2026: раньше прямое value= — если регистр в сохранённой ставке
@@ -1599,6 +1791,14 @@
     manualProfitInput.required = isSold;
     manualProfitInput.value = bet.manual_profit != null ? bet.manual_profit : '';
 
+    if (extraLegs && extraLegs.length) {
+      setSplitMode(true);
+      populateStakeLegs(extraLegs);
+    } else {
+      setSplitMode(false);
+      clearStakeLegs();
+    }
+
     betFormHeading.textContent = 'Редактировать ставку';
     addBtn.textContent = 'Сохранить изменения';
     cancelEditBtn.style.display = '';
@@ -1616,6 +1816,9 @@
     betForm.reset();
     if (lastDiscipline) document.getElementById('f_discipline').value = lastDiscipline;
     editIdField.value = '';
+    editGroupIdField.value = '';
+    setSplitMode(false);
+    clearStakeLegs();
     document.getElementById('f_flat').value = 1;
     document.getElementById('f_date').value = todayLocalStr();
     // betForm.reset() возвращает f_stakeCurrency к HTML-дефолту ($) — если у
@@ -1646,6 +1849,8 @@
   betForm.addEventListener('submit', async (e) => {
     e.preventDefault();
     const editId = editIdField.value;
+    const editGroupId = editGroupIdField.value;
+    const wasEdit = !!(editId || editGroupId);
 
     let matchVal, pickVal, oddsVal;
     if (isExpressCheckbox.checked) {
@@ -1677,41 +1882,110 @@
     addBtn.disabled = true;
     formStatus.textContent = 'Сохраняю…';
 
-    const payload = {
+    const manualProfitVal = document.getElementById('f_result').value === 'Sold' && document.getElementById('f_manualProfit').value
+      ? Number(document.getElementById('f_manualProfit').value) : null;
+
+    const sharedPayload = {
       user_id: ownerUserId,
       channel: activeChannel,
       bet_date: document.getElementById('f_date').value,
       discipline: document.getElementById('f_discipline').value,
-      bookmaker: document.getElementById('f_bookmaker').value.trim(),
       tournament: document.getElementById('f_tournament').value.trim() || null,
       match: matchVal,
       pick: pickVal,
-      odds: oddsVal,
-      flat_mult: Number(document.getElementById('f_flat').value),
-      stake: Number(document.getElementById('f_stake').value),
       result: document.getElementById('f_result').value,
       bet_type: document.getElementById('f_type').value || null,
       conviction: document.getElementById('f_conviction').value ? Number(document.getElementById('f_conviction').value) : null,
       edge_tag: document.getElementById('f_edge').value.trim() || null,
       pick_source: document.getElementById('f_pickSource').value.trim() || null,
       notes: document.getElementById('f_notes').value.trim() || null,
-      manual_profit: document.getElementById('f_result').value === 'Sold' && document.getElementById('f_manualProfit').value
-        ? Number(document.getElementById('f_manualProfit').value) : null,
     };
 
-    const { error } = editId
-      ? await supabase.from('bets').update(payload).eq('id', editId)
-      : await supabase.from('bets').insert(payload);
+    // 09.09.2026: "разбить ставку по нескольким букмекерам" — если доп.
+    // части не заполнены (обычный случай), ведём себя РОВНО как раньше:
+    // одна строка, group_id остаётся null. extraLegs.length>0 — значит
+    // пользователь нажал "+ ещё букмекер" и заполнил хотя бы одну валидную
+    // доп. часть; тогда "Букмекер/Кэф/Сумма" выше — это первая часть.
+    const extraLegs = collectStakeLegs();
+    let error;
+    if (!extraLegs.length) {
+      const payload = {
+        ...sharedPayload,
+        bookmaker: document.getElementById('f_bookmaker').value.trim(),
+        odds: oddsVal,
+        flat_mult: Number(document.getElementById('f_flat').value),
+        stake: Number(document.getElementById('f_stake').value),
+        manual_profit: manualProfitVal,
+        group_id: null,
+      };
+      if (editGroupId) {
+        // Была разбита на несколько букмекеров, пользователь убрал все
+        // доп. части — старые "ноги" удаляем и сохраняем заново уже одной
+        // обычной строкой (id не переиспользуем, это упрощает логику и
+        // нигде на id конкретной ставки ничего не завязано).
+        const { error: delErr } = await supabase.from('bets').delete().eq('group_id', editGroupId);
+        if (delErr) { error = delErr; } else { ({ error } = await supabase.from('bets').insert(payload)); }
+      } else {
+        ({ error } = editId
+          ? await supabase.from('bets').update(payload).eq('id', editId)
+          : await supabase.from('bets').insert(payload));
+      }
+    } else {
+      const leg1 = {
+        bookmaker: document.getElementById('f_bookmaker').value.trim(),
+        odds: oddsVal,
+        stake: Number(document.getElementById('f_stake').value),
+      };
+      const allLegs = [leg1, ...extraLegs];
+      const totalStake = allLegs.reduce((s, l) => s + l.stake, 0);
+      const totalFlat = Number(document.getElementById('f_flat').value);
+      // Флет каждой "ноги" — пропорционально её доле от общей суммы: так
+      // "профит в флетах" (см. computeProfitInFlats) остаётся осмысленным
+      // и после разбивки — сумма флетов всех частей равна тому, что было
+      // бы указано во флет-поле для одной нераздельной ставки.
+      const groupId = editGroupId || (window.crypto && crypto.randomUUID ? crypto.randomUUID() : `${Date.now()}-${Math.random().toString(16).slice(2)}`);
+      // manual_profit (только при "Продана") — намеренно только на ПЕРВОЙ
+      // части, не на каждой: это суммарный профит от продажи всей ставки
+      // целиком (одно число, вводится один раз в форме), а не по каждому
+      // букмекеру отдельно. Если продублировать его в manual_profit каждой
+      // ноги — сумма профита группы (renderCard, computeProfit по каждой
+      // ноге) задвоилась бы в N раз вместо реальной суммы.
+      const payloads = allLegs.map((l, i) => ({
+        ...sharedPayload,
+        bookmaker: l.bookmaker,
+        odds: l.odds,
+        stake: l.stake,
+        // toFixed(4) — без округления доля от деления могла давать длинные
+        // "0.06309148264984227", некрасиво в поле "Флет" при повторном
+        // редактировании; 4 знака более чем достаточно для флет-множителя.
+        flat_mult: totalStake ? Number((totalFlat * (l.stake / totalStake)).toFixed(4)) : totalFlat,
+        manual_profit: i === 0 ? manualProfitVal : null,
+        group_id: groupId,
+      }));
+      // Как и при редактировании обычной ставки — удаляем то, что было
+      // раньше (либо старые "ноги" группы, либо единственную прежнюю
+      // строку, если ставку только что превратили в разбитую), и вставляем
+      // заново уже актуальным набором частей. Проще и надёжнее, чем
+      // построчно сверять, какая нога добавилась/убралась/переставилась.
+      if (editGroupId) {
+        const { error: delErr } = await supabase.from('bets').delete().eq('group_id', editGroupId);
+        if (delErr) error = delErr;
+      } else if (editId) {
+        const { error: delErr } = await supabase.from('bets').delete().eq('id', editId);
+        if (delErr) error = delErr;
+      }
+      if (!error) ({ error } = await supabase.from('bets').insert(payloads));
+    }
     addBtn.disabled = false;
 
     if (error) {
       formStatus.textContent = 'Ошибка: ' + error.message;
       return;
     }
-    formStatus.textContent = editId ? 'Изменения сохранены.' : 'Добавлено.';
+    formStatus.textContent = wasEdit ? 'Изменения сохранены.' : 'Добавлено.';
     exitEditMode();
     loadBets();
-    if (!editId) refreshChannelSwitch();
+    if (!wasEdit) refreshChannelSwitch();
     // Если ставка была подставлена из очереди распознанных со скриншота —
     // после реального сохранения переходим к следующей в очереди. Только
     // для новых ставок (не при редактировании существующей).
@@ -1722,12 +1996,12 @@
     // delete не удался, ставка уже в дневнике, а строка очереди осталась;
     // не идеально, но не хуже статус-кво "скриншотов" (там тоже нет
     // компенсирующей транзакции), и не приводит к потере данных.
-    if (!editId && telegramPendingId != null) {
+    if (!wasEdit && telegramPendingId != null) {
       supabase.from('telegram_pending_bets').delete().eq('id', telegramPendingId)
         .then(({ error: delErr }) => { if (delErr) console.error('Не удалось убрать ставку из очереди Telegram:', delErr.message); });
       telegramPendingId = null;
     }
-    if (!editId && parseQueueIndex + 1 < parseQueue.length) {
+    if (!wasEdit && parseQueueIndex + 1 < parseQueue.length) {
       loadParseQueueItem(parseQueueIndex + 1);
     } else {
       parseQueue = [];
