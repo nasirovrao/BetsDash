@@ -147,7 +147,17 @@
         window.location.href = 'dashboard.html';
       }
     } else if (mode === 'signup') {
-      const { error } = await supabase.auth.signUp({ email, password });
+      // 09.09.2026: баг — без явного emailRedirectTo ссылка в письме
+      // подтверждения ведёт на дефолтный "Site URL" из Supabase Dashboard
+      // (Authentication → URL Configuration), а не туда, откуда реально
+      // открыта форма регистрации — у пользователя это оказался голый
+      // корень nasirovrao.github.io (404, GitHub Pages отдаёт сайт по
+      // пути /BetsDash/, не с домена без пути). resetPasswordForEmail ниже
+      // уже делает это правильно (redirectTo на reset-password.html) — тот
+      // же приём здесь, на index.html (человек после подтверждения снова
+      // на странице входа — оттуда обычный вход, как и раньше).
+      const emailRedirectTo = new URL('index.html', window.location.href).toString();
+      const { error } = await supabase.auth.signUp({ email, password, options: { emailRedirectTo } });
       if (error) {
         showMsg(error.message, 'error');
         submitBtn.disabled = false;
