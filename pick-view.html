@@ -1,0 +1,103 @@
+<!doctype html>
+<html lang="ru">
+<head>
+<meta charset="utf-8">
+<script>(function(){try{if(localStorage.getItem('edge-theme')==='light')document.documentElement.setAttribute('data-theme','light');}catch(e){}})();</script>
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>Ставки каппера — EDGE</title>
+<link rel="preconnect" href="https://fonts.googleapis.com">
+<link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
+<link href="https://fonts.googleapis.com/css2?family=Unbounded:wght@600;700;800&family=Golos+Text:wght@400;500;600;700&family=JetBrains+Mono:wght@400;500;600&display=swap" rel="stylesheet">
+<link rel="stylesheet" href="styles.css?v=30">
+<!-- EDGE 2.0 — новая дизайн-система (палитра/типографика/фон), см. styles-edge2.css -->
+<link rel="stylesheet" href="styles-edge2.css?v=2">
+<link rel="stylesheet" href="styles-edge3.css?v=2">
+<script src="theme-toggle.js" defer></script>
+</head>
+<body>
+
+<!-- 09.09.2026: намеренно НЕ полный app-nav (Лента/Дашборд/Ставки/Банк/…) —
+     по прямому запросу "отдельная простая страница только со ставками этого
+     каппера". Тот, кому открыт доступ, не должен видеть/пытаться открыть
+     остальные приватные страницы владельца (доступ к ним и так не даст RLS,
+     но нав-панель с явно недоступными пунктами — плохой UX сама по себе). -->
+<div class="topbar">
+  <div class="wrap">
+    <a class="brand" href="channel-team.html"><svg class="brand-mark" viewBox="0 0 32 32" width="20" height="20" aria-hidden="true"><circle cx="16" cy="16" r="12" fill="none" stroke="var(--gold)" stroke-width="1.6" opacity="0.28"/><path d="M16 4 A12 12 0 0 1 26.9 12.3" fill="none" stroke="var(--gold)" stroke-width="3" stroke-linecap="round"/><line x1="12" y1="12" x2="12" y2="20" stroke="var(--gold)" stroke-width="2.6" stroke-linecap="round"/><line x1="12" y1="12" x2="19" y2="12" stroke="var(--gold)" stroke-width="2.6" stroke-linecap="round"/><line x1="12" y1="16" x2="17.5" y2="16" stroke="var(--gold)" stroke-width="2.6" stroke-linecap="round"/><line x1="12" y1="20" x2="19" y2="20" stroke="var(--gold)" stroke-width="2.6" stroke-linecap="round"/></svg>EDGE<span>.</span></a>
+    <div class="topbar-user">
+      <span id="userEmail">…</span>
+      <button id="logoutBtn" type="button">Выйти</button>
+    </div>
+  </div>
+</div>
+
+<section>
+  <div class="wrap">
+    <div class="section-head">
+      <h2>Ставки: <span id="pickTitle">…</span></h2>
+      <div class="section-note">Тебе открыт доступ на просмотр ставок только этого источника пика — без банка и выводов владельца журнала.</div>
+    </div>
+    <div id="pickRoot"><div class="empty-state">Загружаю…</div></div>
+  </div>
+</section>
+
+<script type="module">
+  import { supabase, requireSession } from './supabase-client.js';
+  import { escapeHtml, initEmailPrivacyToggle, groupBets, renderWLP, fmtMoney, renderBetsFlatTable, getDisplayCurrency } from './lib.js';
+
+  const session = await requireSession();
+  if (session) initEmailPrivacyToggle(session.user.email);
+  document.getElementById('logoutBtn').addEventListener('click', async () => {
+    await supabase.auth.signOut();
+    window.location.href = 'index.html';
+  });
+
+  const params = new URLSearchParams(location.search);
+  const owner = params.get('owner');
+  const channel = params.get('channel') || 'default';
+  const pick = params.get('pick') || '';
+  document.getElementById('pickTitle').textContent = pick || '—';
+
+  const root = document.getElementById('pickRoot');
+  if (!owner || !pick) {
+    root.innerHTML = '<div class="empty-state">Не хватает параметров ссылки — попроси владельца журнала прислать ссылку заново из «Настройки → Доступ к каналу».</div>';
+  } else {
+    const { currency: dispCurrency, rate: dispRate } = await getDisplayCurrency(supabase, session.user.id);
+    // RLS (schema_milestone35.sql, has_pick_access) сам решает, видно ли
+    // что-то вообще — владельцу всегда, приглашённому только если ему
+    // явно открыт доступ ИМЕННО к этому (owner, channel, pick_source).
+    // Пустой результат здесь — либо доступа нет, либо ставок ещё правда
+    // нет, RLS не различает эти два случая на уровне ответа, поэтому и
+    // сообщение ниже намеренно не утверждает наверняка, какой это случай.
+    const { data, error } = await supabase.from('bets').select('*').eq('user_id', owner).eq('channel', channel).eq('pick_source', pick);
+    if (error) {
+      root.innerHTML = `<div class="empty-state">Ошибка загрузки: ${escapeHtml(error.message)}</div>`;
+    } else if (!data || !data.length) {
+      root.innerHTML = '<div class="empty-state">Ставок не видно — либо доступ к этому пику ещё не открыт (или уже отозван), либо владелец пока не добавил ни одной такой ставки.</div>';
+    } else {
+      const groups = groupBets(data, () => pick);
+      const group = groups[0];
+      const cards = [
+        { label: 'Ставок', value: group.total, sub: group.pending ? `${group.pending} в ожидании` : '' },
+        { label: 'W / L / P', value: renderWLP(group.wins, group.losses, group.pushes), sub: '' },
+        { label: 'Винрейт', value: group.winrate == null ? '—' : group.winrate.toFixed(1) + '%', sub: (group.wins + group.losses) ? `${group.wins + group.losses} решённых` : '' },
+        { label: 'Профит', value: fmtMoney(group.totalProfit, dispCurrency, dispRate), cls: group.totalProfit > 0 ? 'pos' : group.totalProfit < 0 ? 'neg' : '', sub: '' },
+        { label: 'ROI', value: group.roi == null ? '—' : group.roi.toFixed(2) + '%', cls: group.roi > 0 ? 'pos' : group.roi < 0 ? 'neg' : '', sub: '' },
+        { label: 'Средний кэф', value: group.avgOdds == null ? '—' : group.avgOdds.toFixed(2), sub: '' },
+      ];
+      const statHtml = cards.map(c => `
+        <div class="stat-card">
+          <div class="stat-label">${c.label}</div>
+          <div class="stat-value ${c.cls || ''}">${c.value}</div>
+          ${c.sub ? `<div class="stat-sub">${c.sub}</div>` : ''}
+        </div>`).join('');
+      root.innerHTML = `
+        <div class="stat-grid stat-grid-3">${statHtml}</div>
+        ${renderBetsFlatTable(group.list, { hideBookmaker: false, currency: dispCurrency, rate: dispRate })}
+      `;
+    }
+  }
+</script>
+
+</body>
+</html>

@@ -90,13 +90,22 @@ const DEFAULT_MODEL = 'claude-sonnet-5';
 const ANTHROPIC_VERSION = '2023-06-01';
 const MAX_IMAGE_BYTES = 5 * 1024 * 1024; // тот же практический лимит, что и у parse-bet-screenshot
 
-// 01.09.2026: снижено с 1000 до 40 по прямому запросу — канал не
+// 01.09.2026: снижалось с 1000 до 40 по прямому запросу — канал не
 // гарантированно "только ставки" (общение/анонсы тоже считались бы),
 // консервативный потолок надёжнее, чем полагаться только на локальный
 // фильтр (looksLikeBet) отсеять весь шум идеально точно. Считается каждый
 // РЕАЛЬНЫЙ вызов модели (текст или картинка, без разницы) — посты,
 // отсеянные looksLikeBet ДО вызова модели, в счётчик не попадают вообще.
-const MONTHLY_TELEGRAM_LIMIT = 40;
+//
+// 06.09.2026: 40/мес оказалось слишком мало для реального темпа канала —
+// лимит исчерпался за первые 6 дней сентября (~7 распознаваний/день), из-за
+// чего ВСЕ посты после этого молча отбрасывались без единого следа для
+// пользователя (найдено только через telegram_parse_usage/Logs, см.
+// CHANGELOG). Поднято до 200 (по прямому запросу) — с запасом на текущий темп, всё ещё
+// конечный потолок на случай реального завала шумом/спамом, не "без лимита
+// вообще". Если и этого не хватит — поднимать дальше отсюда же, это всего
+// одна константа.
+const MONTHLY_TELEGRAM_LIMIT = 200;
 
 // Схема на два случая — текстовый пост и пост с картинкой (после 01.09.2026
 // добавления поддержки фото). Описание bookmaker с подсказкой про
@@ -322,6 +331,78 @@ async function downloadTelegramFile(fileId: string, botToken: string): Promise<{
   }
 }
 
+// 06.09.2026: найдено по репорту "любой скрин стал распознаваться как мусор,
+// а очередь пустая" — на деле в конкретном посте не было картинки ВООБЩЕ, был
+// пост со ССЫЛКОЙ (например на шеринг-купон бет-слипа), которую Telegram сам
+// разворачивает в превью-карточку с кэфом/форой прямо в интерфейсе — но эта
+// картинка/текст карточки НЕ передаётся боту через channel_post.photo/caption
+// вообще, Bot API отдаёт только сырой текст поста и (опционально)
+// link_preview_options.url — сама карточка рисуется клиентом Telegram, не
+// ботом. Раньше код такие посты вообще не отличал от обычного текста без
+// картинки — вся суть ставки (кэф/фора/название) терялась, доходил только
+// текст подписи автора поста, часто без единой цифры.
+//
+// Фикс: если есть ссылка на превью — скачиваем страницу сами (обычный HTTP,
+// без Telegram API) и достаём её og:title/og:description/og:image — почти
+// всегда именно там лежит то же самое, что видно в развёрнутой карточке.
+// og:image (если есть) уходит модели как обычная картинка, og:title/
+// og:description — дополнительным текстом. Не идеально (не все сайты отдают
+// og:image с реальным кэфом на картинке — иногда это просто лого сервиса),
+// но несравнимо лучше, чем полностью терять данные ставки.
+function extractPreviewUrl(post: any, text: string): string | null {
+  const fromOptions = post?.link_preview_options?.url;
+  if (typeof fromOptions === 'string' && fromOptions) return fromOptions;
+  const entities = Array.isArray(post?.entities) ? post.entities : (Array.isArray(post?.caption_entities) ? post.caption_entities : []);
+  for (const e of entities) {
+    if (e?.type === 'text_link' && typeof e.url === 'string') return e.url;
+  }
+  const m = /https?:\/\/\S+/.exec(text);
+  return m ? m[0] : null;
+}
+
+async function fetchLinkPreview(url: string): Promise<{ title: string | null; description: string | null; image: { base64: string; mimeType: string } | null }> {
+  const empty = { title: null, description: null, image: null };
+  try {
+    const pageRes = await fetch(url, { redirect: 'follow' });
+    if (!pageRes.ok) {
+      console.error('fetchLinkPreview: page fetch failed', pageRes.status, url);
+      return empty;
+    }
+    const html = await pageRes.text();
+    const og = (prop: string): string | null => {
+      const re = new RegExp(`<meta[^>]+property=["']og:${prop}["'][^>]+content=["']([^"']*)["']`, 'i');
+      const alt = new RegExp(`<meta[^>]+content=["']([^"']*)["'][^>]+property=["']og:${prop}["']`, 'i');
+      const match = re.exec(html) || alt.exec(html);
+      return match ? match[1] : null;
+    };
+    const title = og('title');
+    const description = og('description');
+    const imageUrl = og('image');
+    let image: { base64: string; mimeType: string } | null = null;
+    if (imageUrl) {
+      try {
+        const imgRes = await fetch(imageUrl);
+        if (imgRes.ok) {
+          const buf = await imgRes.arrayBuffer();
+          if (buf.byteLength <= MAX_IMAGE_BYTES) {
+            const ct = imgRes.headers.get('content-type') || '';
+            const mimeType = /png/.test(ct) ? 'image/png' : /webp/.test(ct) ? 'image/webp' : /gif/.test(ct) ? 'image/gif' : 'image/jpeg';
+            image = { base64: base64FromBytes(new Uint8Array(buf)), mimeType };
+          } else {
+            console.error('fetchLinkPreview: og:image too large', buf.byteLength);
+          }
+        }
+      } catch (e) {
+        console.error('fetchLinkPreview: og:image download failed', (e as Error).message);
+      }
+    }
+    return { title, description, image };
+  } catch (e) {
+    console.error('fetchLinkPreview failed', (e as Error).message, url);
+    return empty;
+  }
+}
+
 // Убирает из очереди всё, что раньше было положено ПО ЭТОМУ ЖЕ посту
 // (message_id) — вызывается перед тем, как класть туда что-то заново после
 // правки поста (isEdit), чтобы повторное/изменённое распознавание ЗАМЕЩАЛО
@@ -378,14 +459,32 @@ Deno.serve(async (req: Request) => {
   const textOrCaption: string = (post.text || post.caption || '').trim();
 
   // Картинка — либо сжатое фото (post.photo, массив размеров от мелкого к
-  // крупному, берём самый крупный), либо документ-картинка (кто-то шлёт
-  // несжатый PNG "файлом", чтобы не терять качество купона). photo и
-  // document в одном посте не бывают одновременно — Telegram различает эти
-  // два способа прикрепить изображение.
+  // крупному), либо документ-картинка (кто-то шлёт несжатый PNG "файлом",
+  // чтобы не терять качество купона). photo и document в одном посте не
+  // бывают одновременно — Telegram различает эти два способа прикрепить
+  // изображение.
+  //
+  // 06.09.2026: раньше отсюда брался САМЫЙ КРУПНЫЙ вариант фото
+  // (photoArr[photoArr.length - 1]) — репорт "любой скрин стал мусором":
+  // скриншот интерфейса с мелким текстом (кэф/фора) на самом крупном
+  // размере, который Telegram присылает, может весить несколько МБ и
+  // упираться в MAX_IMAGE_BYTES (5МБ) — картинка тогда вообще не долетала
+  // до модели (см. downloadTelegramFile: "file too large" в логах, если кто-
+  // то доберётся их посмотреть). Telegram сам присылает НЕСКОЛЬКО размеров
+  // одного и того же фото (обычно 4: ~90px, ~320px, ~800px, полный) —
+  // берём вариант с шириной ближе к 1280px: с запасом хватает разрешения,
+  // чтобы прочитать кэф/сумму на купоне, а весит в разы меньше полного.
+  // Документ (несжатый файл) — по-прежнему как есть, там сжатия и
+  // альтернативных размеров нет вообще, качество жертвовать нечем.
   const photoArr = Array.isArray(post.photo) ? post.photo : null;
   const doc = post.document;
   const isImageDocument = !!(doc && typeof doc.mime_type === 'string' && /^image\/(png|jpe?g|webp|gif)$/i.test(doc.mime_type));
-  const imageFileId: string | null = photoArr && photoArr.length ? photoArr[photoArr.length - 1].file_id : (isImageDocument ? doc.file_id : null);
+  let bestPhoto: any = null;
+  if (photoArr && photoArr.length) {
+    const sorted = photoArr.slice().sort((a: any, b: any) => (a.width || 0) - (b.width || 0));
+    bestPhoto = sorted.find((p: any) => (p.width || 0) >= 1280) || sorted[sorted.length - 1];
+  }
+  const imageFileId: string | null = bestPhoto ? bestPhoto.file_id : (isImageDocument ? doc.file_id : null);
 
   if (!imageFileId && !textOrCaption) return jsonResponse({ ok: true });
 
@@ -472,6 +571,39 @@ Deno.serve(async (req: Request) => {
       console.error('telegram-webhook: не удалось скачать изображение и текста тоже нет, пропускаю пост');
       return jsonResponse({ ok: true });
     }
+    if (!image) {
+      // 05.09.2026: реальный баг — пост с картинкой без цифр в подписи
+      // (например "Наши это не проиграют✅") тихо пропадал целиком, если
+      // скачать картинку не получилось (сеть/временный сбой Telegram API):
+      // image оставался null, а дешёвый фильтр ниже видел "картинки нет,
+      // цифр в тексте нет" и отбрасывал пост как явно НЕ ставку — хотя
+      // единственная реальная причина была в неудачном скачивании, а не в
+      // содержимом поста. Раньше это даже не логировалось (error здесь
+      // печатался только когда подписи тоже не было вообще). Теперь строка
+      // ниже это явно видно в логах функции.
+      console.error(`telegram-webhook: imageFileId был (${imageFileId}), но скачать не удалось — пост пойдёт по тексту/эвристике без картинки`);
+    }
+  }
+
+  // 06.09.2026: пост со ссылкой, развёрнутой Telegram в превью-карточку
+  // (кэф/фора видны только в самой карточке, не в photo/document — см.
+  // extractPreviewUrl/fetchLinkPreview выше). Пробуем ТОЛЬКО когда своей
+  // картинки в посте нет вообще — если фото/документ уже есть, это не тот
+  // случай, ссылка (если она вообще есть в тексте) явно вторична.
+  let effectiveText = textOrCaption;
+  if (!imageFileId) {
+    const previewUrl = extractPreviewUrl(post, textOrCaption);
+    if (previewUrl) {
+      const preview = await fetchLinkPreview(previewUrl);
+      if (preview.image) {
+        image = preview.image;
+        console.log(`telegram-webhook: подтянул og:image с превью-ссылки ${previewUrl}`);
+      }
+      const extra = [preview.title, preview.description].filter(Boolean).join(' — ');
+      if (extra) {
+        effectiveText = effectiveText ? `${effectiveText}\n\n[Данные из развёрнутой ссылки]: ${extra}` : `[Данные из развёрнутой ссылки]: ${extra}`;
+      }
+    }
   }
 
   // 01.09.2026, дешёвый локальный фильтр ДО вызова модели (бесплатно, не
@@ -481,7 +613,17 @@ Deno.serve(async (req: Request) => {
   // гипотетически ставка может быть описана совсем без цифр — но отсекает
   // подавляющее большинство нерелевантного шума канала (анонсы, общение,
   // реклама), которое иначе жгло бы вызовы модели впустую.
-  const looksLikeBet = !!image || /\d/.test(textOrCaption);
+  //
+  // 05.09.2026: !!imageFileId (а не !!image) — специально. Если картинка
+  // БЫЛА прикреплена, но именно скачать её не удалось (см. выше), сам факт
+  // "к посту прикреплена картинка" уже сильный сигнал "похоже на ставку" —
+  // не менее сильный, чем цифра в тексте. Раньше здесь стояло !!image, из-за
+  // чего неудачное скачивание молча превращало пост с картинкой в "текст без
+  // цифр" и отбрасывало его целиком, хотя причина была не в содержимом
+  // поста, а в сбое скачивания. Модель в этом случае всё равно вызовется
+  // (просто без картинки в content — см. ветку ниже), это лучше, чем
+  // потерять пост полностью.
+  const looksLikeBet = !!imageFileId || !!image || /\d/.test(textOrCaption);
   console.log(`telegram-webhook: chat_id=${chatId} user_id=${userId} looksLikeBet=${looksLikeBet} hasImage=${!!image} text="${textOrCaption.slice(0, 200)}"`);
   if (!looksLikeBet) {
     // Чистим по message_id безусловно, не только при isEdit — см. комментарий

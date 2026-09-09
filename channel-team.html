@@ -10,8 +10,8 @@
 <link href="https://fonts.googleapis.com/css2?family=Unbounded:wght@600;700;800&family=Golos+Text:wght@400;500;600;700&family=JetBrains+Mono:wght@400;500;600&display=swap" rel="stylesheet">
 <link rel="stylesheet" href="styles.css?v=30">
 <!-- EDGE 2.0 — новая дизайн-система (палитра/типографика/фон), см. styles-edge2.css -->
-<link rel="stylesheet" href="styles-edge2.css?v=1">
-<link rel="stylesheet" href="styles-edge3.css?v=1">
+<link rel="stylesheet" href="styles-edge2.css?v=2">
+<link rel="stylesheet" href="styles-edge3.css?v=2">
 <script src="theme-toggle.js" defer></script>
 </head>
 <body>
@@ -91,6 +91,18 @@
       <h3>Кому и что уже открыто</h3>
       <div class="section-note" style="margin:-4px 0 14px;">По всем твоим журналам сразу. Роль можно поменять прямо здесь в любой момент.</div>
       <div id="editorsRoot"><div class="empty-state">Загружаю…</div></div>
+    </div>
+
+    <div class="bet-form">
+      <h3>Доступ к отдельному капперу (одному пику) в «<span id="pickChannelLabel">…</span>»</h3>
+      <div class="section-note" style="margin:-4px 0 14px;">Отдельно от доступа ко всему журналу выше — открой другу только ставки ОДНОГО источника пика, без банка и выводов. Он получит простую отдельную страницу со списком ставок и статистикой только по этому пику.</div>
+      <div id="pickShareRoot"><div class="empty-state">Загружаю…</div></div>
+    </div>
+
+    <div class="bet-form">
+      <h3>Пики, которые открыли тебе</h3>
+      <div class="section-note" style="margin:-4px 0 14px;">Доступ на просмотр конкретных капперов в чужих журналах — то, что открыли лично тебе.</div>
+      <div id="myPickSharesRoot"><div class="empty-state">Загружаю…</div></div>
     </div>
   </div>
 </section>
@@ -371,7 +383,139 @@
     loadEditors();
   }
 
-  await Promise.all([loadInvites(), loadMyInvites(), loadEditors()]);
+  // ---- Доступ к отдельному капперу (одному пику) — 09.09.2026, отдельный
+  // от доступа ко всему журналу выше механизм (schema_milestone35.sql,
+  // таблица pick_shares): "мне нужно чтобы он работал на уровне отдельного
+  // пика, это первое". Только просмотр, без банка/выводов, отдельная
+  // простая страница pick-view.html — не app.html/dashboard.html с
+  // ?owner=&channel=, туда доступа по pick_shares нет вообще.
+  const pickShareRoot = document.getElementById('pickShareRoot');
+  const myPickSharesRoot = document.getElementById('myPickSharesRoot');
+  let pickSourceOptions = [];
+
+  function pickViewLink(owner, channel, pick) {
+    return `pick-view.html?owner=${encodeURIComponent(owner)}&channel=${encodeURIComponent(channel)}&pick=${encodeURIComponent(pick)}`;
+  }
+
+  async function loadPickShares() {
+    const { data: myProfile } = await supabase.from('profiles').select('*').eq('user_id', myUserId).maybeSingle();
+    const channelLabel = activeChannel === 'default'
+      ? 'Личный дневник'
+      : (myProfile && myProfile.channel === activeChannel ? (myProfile.display_name || myProfile.username || activeChannel) : activeChannel);
+    document.getElementById('pickChannelLabel').textContent = channelLabel;
+
+    const [{ data: bets }, { data: shares, error }] = await Promise.all([
+      supabase.from('bets').select('pick_source').eq('user_id', myUserId).eq('channel', activeChannel),
+      supabase.from('pick_shares').select('*').eq('owner_user_id', myUserId).eq('channel', activeChannel).order('created_at', { ascending: false }),
+    ]);
+    pickSourceOptions = Array.from(new Set((bets || []).map(b => (b.pick_source || '').trim()).filter(Boolean))).sort();
+    if (error && error.code === '42P01') {
+      pickShareRoot.innerHTML = '<div class="empty-state">Сначала нужно выполнить schema_milestone35.sql в Supabase.</div>';
+      return;
+    }
+    const rows = shares || [];
+    pickShareRoot.innerHTML = `
+      <div class="setup-row">
+        <div class="field">
+          <label for="pickShareSource">Источник пика (каппер)</label>
+          <input id="pickShareSource" type="text" placeholder="Например, Secret series VIP" list="pickShareSourceList" autocomplete="off">
+          <datalist id="pickShareSourceList">${pickSourceOptions.map(n => `<option value="${escapeHtml(n)}"></option>`).join('')}</datalist>
+        </div>
+        <div class="field">
+          <label for="pickShareEmail">Email друга</label>
+          <input id="pickShareEmail" type="email" placeholder="friend@example.com" autocomplete="off">
+        </div>
+        <button class="btn btn-primary" type="button" id="addPickShareBtn" style="width:auto;">Открыть доступ</button>
+        <span class="form-status" id="pickShareStatus"></span>
+      </div>
+      ${!pickSourceOptions.length ? `<div class="section-note" style="margin-top:10px;">В «${escapeHtml(channelLabel)}» пока нет ставок с заполненным источником пика — сначала укажи его при добавлении ставки.</div>` : ''}
+      ${rows.length ? `
+        <div class="table-wrap" style="margin-top:14px;"><div class="table-scroll">
+          <table class="bets-table">
+            <thead><tr><th>Пик</th><th>Email</th><th>Доступ</th><th>Открыт</th><th></th></tr></thead>
+            <tbody>
+              ${rows.map(r => `
+                <tr>
+                  <td>${escapeHtml(r.pick_source)}</td>
+                  <td>${escapeHtml(r.invited_email)}</td>
+                  <td>${r.member_user_id ? '<span class="res-pill win">Открыт ✓</span>' : '<span class="res-pill pending">Ждём регистрации</span>'}</td>
+                  <td class="num">${fmtDateTime(r.created_at)}</td>
+                  <td>
+                    <button class="btn btn-ghost" type="button" data-copy-pick="${escapeHtml(pickViewLink(myUserId, activeChannel, r.pick_source))}" style="width:auto; padding:6px 12px; font-size:12.5px;">Скопировать ссылку</button>
+                    <button class="row-del" type="button" data-revoke-pick="${r.id}">Убрать</button>
+                  </td>
+                </tr>`).join('')}
+            </tbody>
+          </table>
+        </div></div>` : '<div class="empty-state" style="margin-top:14px;">Пока никому не открыт доступ к отдельному пику.</div>'}
+    `;
+    document.getElementById('addPickShareBtn').addEventListener('click', async () => {
+      const sourceInput = document.getElementById('pickShareSource');
+      const emailInput = document.getElementById('pickShareEmail');
+      const status = document.getElementById('pickShareStatus');
+      const pick = sourceInput.value.trim();
+      const email = emailInput.value.trim().toLowerCase();
+      if (!pick || !email) return;
+      status.textContent = 'Открываю…';
+      const { error: insErr } = await supabase.from('pick_shares').insert({
+        owner_user_id: myUserId, channel: activeChannel, pick_source: pick, invited_email: email,
+      });
+      if (insErr) {
+        status.textContent = insErr.code === '23505' ? 'Этому email уже открыт доступ к этому пику.' : 'Ошибка: ' + insErr.message;
+        return;
+      }
+      await loadPickShares();
+      const freshStatus = document.getElementById('pickShareStatus');
+      if (freshStatus) freshStatus.textContent = 'Готово ✓ — скопируй ссылку ниже и отправь другу.';
+    });
+    pickShareRoot.querySelectorAll('[data-revoke-pick]').forEach(btn => btn.addEventListener('click', async () => {
+      const ok = window.confirm('Убрать доступ к этому пику? Друг сразу потеряет доступ.');
+      if (!ok) return;
+      const { error: delErr } = await supabase.from('pick_shares').delete().eq('id', btn.dataset.revokePick);
+      if (delErr) { alert('Не удалось убрать: ' + delErr.message); return; }
+      await loadPickShares();
+    }));
+    pickShareRoot.querySelectorAll('[data-copy-pick]').forEach(btn => btn.addEventListener('click', async () => {
+      const url = new URL(btn.dataset.copyPick, location.href).toString();
+      try {
+        await navigator.clipboard.writeText(url);
+        const old = btn.textContent;
+        btn.textContent = 'Скопировано ✓';
+        setTimeout(() => { btn.textContent = old; }, 1500);
+      } catch { alert(url); }
+    }));
+  }
+
+  // ---- Пики, которые открыли тебе — симметрично "Приглашения для тебя",
+  // но по pick_shares: список ссылок на pick-view.html, куда у тебя уже
+  // есть доступ (member_user_id проставляется автоматически).
+  async function loadMyPickShares() {
+    const { data, error } = await supabase.from('pick_shares').select('*').eq('member_user_id', myUserId).order('created_at', { ascending: false });
+    if (error) {
+      myPickSharesRoot.innerHTML = error.code === '42P01' ? '<div class="empty-state">Сначала нужно выполнить schema_milestone35.sql в Supabase.</div>' : `<div class="empty-state">Ошибка загрузки: ${escapeHtml(error.message)}</div>`;
+      return;
+    }
+    const rows = data || [];
+    if (!rows.length) {
+      myPickSharesRoot.innerHTML = '<div class="empty-state">Пока никто не открыл тебе доступ к отдельному пику.</div>';
+      return;
+    }
+    myPickSharesRoot.innerHTML = `
+      <div class="table-wrap"><div class="table-scroll">
+        <table class="bets-table">
+          <thead><tr><th>Пик</th><th></th></tr></thead>
+          <tbody>
+            ${rows.map(r => `
+              <tr>
+                <td>${escapeHtml(r.pick_source)}</td>
+                <td><a class="btn btn-primary" href="${pickViewLink(r.owner_user_id, r.channel, r.pick_source)}" style="width:auto; padding:6px 14px; font-size:12.5px; display:inline-block;">Открыть →</a></td>
+              </tr>`).join('')}
+          </tbody>
+        </table>
+      </div></div>`;
+  }
+
+  await Promise.all([loadInvites(), loadMyInvites(), loadEditors(), loadPickShares(), loadMyPickShares()]);
 </script>
 
 </body>
