@@ -763,7 +763,7 @@ export function getChannelParams() {
 export async function loadMyChannels(supabase, myUserId) {
   const [{ data: ownBets }, { data: memberRows }, { data: myProfile }] = await Promise.all([
     supabase.from('bets').select('channel').eq('user_id', myUserId),
-    supabase.from('channel_members').select('owner_user_id, channel, channel_label, status').eq('member_user_id', myUserId).eq('status', 'approved'),
+    supabase.from('channel_members').select('owner_user_id, channel, channel_label, status, role').eq('member_user_id', myUserId).eq('status', 'approved'),
     supabase.from('profiles').select('channel, display_name, username').eq('user_id', myUserId).maybeSingle(),
   ]);
   const ownChannelSet = new Set((ownBets || []).map(b => b.channel || 'default'));
@@ -781,8 +781,13 @@ export async function loadMyChannels(supabase, myUserId) {
     label: ch === 'default' ? 'Личный дневник' : (myProfile && myProfile.channel === ch ? (myProfile.display_name || myProfile.username || ch) : ch),
     role: 'owner',
   }));
+  // 09.09.2026: r.role здесь — новая для channel_members колонка ('editor'/
+  // 'viewer', schema_milestone34.sql), НАСТОЯЩИЙ уровень доступа. Не путать
+  // с полем role НИЖЕ ('owner'/'editor') — то структурное, "мой канал или
+  // расшаренный", решает нужен ли ?owner= в ссылке (renderChannelSwitch),
+  // не про права. Кладём отдельным accessRole, чтобы не ломать старую логику.
   const shared = (memberRows || []).map(r => ({
-    channel: r.channel, ownerUserId: r.owner_user_id, label: r.channel_label || r.channel, role: 'editor',
+    channel: r.channel, ownerUserId: r.owner_user_id, label: r.channel_label || r.channel, role: 'editor', accessRole: r.role,
   }));
   return [...own, ...shared];
 }
@@ -798,7 +803,10 @@ export function renderChannelSwitch(channels, activeChannel, activeOwnerId, page
     if (c.role === 'editor') params.set('owner', c.ownerUserId);
     const qs = params.toString();
     const href = `${pageFile}${qs ? '?' + qs : ''}`;
-    const roleTag = c.role === 'editor' ? ' <span style="opacity:.6;font-weight:400;">· редактор</span>' : '';
+    // accessRole:'viewer' — явная метка "· просмотр", чтобы не удивляться
+    // потом, почему форма добавления ставки не сохраняет (RLS тихо отклонит
+    // insert/update у viewer, см. schema_milestone34.sql).
+    const roleTag = c.role === 'editor' ? ` <span style="opacity:.6;font-weight:400;">· ${c.accessRole === 'viewer' ? 'просмотр' : 'редактор'}</span>` : '';
     return `<a class="channel-pill${isActive ? ' active' : ''}" href="${href}">${escapeHtml(c.label)}${roleTag}</a>`;
   }).join('');
   return `<div class="channel-switch">${pills}</div>`;

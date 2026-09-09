@@ -70,12 +70,14 @@
   <div class="wrap">
     <div class="section-head">
       <h2>Доступ к каналу</h2>
-      <div class="section-note">Приглашай конкретных людей на редактирование своего канала — или прими приглашение, если пригласили тебя. Отдельного шага «запросить доступ» больше нет: доступ появляется сразу, как только приглашённый его принимает.</div>
+      <div class="section-note">Приглашай конкретных людей в ЛЮБОЙ свой журнал (личный дневник или именованный канал — выбери ниже) — на просмотр или на редактирование. Доступ открывается автоматически по факту регистрации/входа этой почтой в EDGE — ничего отдельно принимать не нужно.</div>
     </div>
 
+    <div id="channelSwitch"></div>
+
     <div class="bet-form">
-      <h3>Кого можно пригласить редактировать твой канал</h3>
-      <div class="section-note" style="margin:-4px 0 14px;">Редактировать канал сможет только тот, чью почту ты добавишь сюда сам — как только он примет приглашение, доступ выдаётся сразу, без отдельного одобрения.</div>
+      <h3>Кого можно пригласить в «<span id="inviteChannelLabel">…</span>»</h3>
+      <div class="section-note" style="margin:-4px 0 14px;">Доступ выдаётся автоматически той почте, что ты укажешь — как только человек зарегистрируется или войдёт в EDGE под ней. Роль можно поменять в любой момент ниже, в списке уже выданных доступов.</div>
       <div id="inviteRoot"><div class="empty-state">Загружаю…</div></div>
     </div>
 
@@ -86,7 +88,8 @@
     </div>
 
     <div class="bet-form">
-      <h3>Редакторы твоих каналов</h3>
+      <h3>Кому и что уже открыто</h3>
+      <div class="section-note" style="margin:-4px 0 14px;">По всем твоим журналам сразу. Роль можно поменять прямо здесь в любой момент.</div>
       <div id="editorsRoot"><div class="empty-state">Загружаю…</div></div>
     </div>
   </div>
@@ -94,7 +97,7 @@
 
 <script type="module">
   import { supabase, requireSession, isClvEnabled } from './supabase-client.js';
-  import { escapeHtml, preserveChannelInNav, initEmailPrivacyToggle, initNavDropdown, applyNavModes} from './lib.js';
+  import { escapeHtml, preserveChannelInNav, initEmailPrivacyToggle, initNavDropdown, applyNavModes, getChannelParams, loadMyChannels, renderChannelSwitch } from './lib.js';
 
   const session = await requireSession();
   if (session) {
@@ -108,13 +111,27 @@
     await supabase.auth.signOut();
     window.location.href = 'index.html';
   });
-  // Эта страница не привязана к конкретному каналу (охватывает сразу все
-  // каналы пользователя — и как владельца, и как редактора), поэтому
-  // переключателя каналов здесь нет — только сохраняем контекст, если сюда
-  // пришли уже находясь внутри чужого/не-default канала.
-  preserveChannelInNav('default', session.user.id, session.user.id);
 
   const myUserId = session.user.id;
+
+  // 09.09.2026: раньше эта страница управляла доступом ТОЛЬКО к тому одному
+  // каналу, что отмечен публичным (profile.channel) — переключателя не было
+  // вообще. По запросу "доступ для определённого журнала" — теперь можно
+  // выбрать ЛЮБОЙ свой журнал (личный дневник и/или любой именованный канал),
+  // владелец приглашает людей именно в него. ?channel= в URL — тот же
+  // механизм, что и на app.html/dashboard.html и т.д.
+  const { channel: activeChannel } = getChannelParams();
+  preserveChannelInNav(activeChannel, myUserId, myUserId);
+
+  loadMyChannels(supabase, myUserId).then(channels => {
+    // Только СВОИ каналы (role:'owner' в терминах loadMyChannels — ярлык
+    // "я владелец этого канала", не путать с новой ролью editor/viewer
+    // приглашённого) — приглашать людей в чужой канал, где ты сам всего
+    // лишь редактор, естественно нельзя.
+    const ownChannels = channels.filter(c => c.role === 'owner');
+    document.getElementById('channelSwitch').innerHTML =
+      renderChannelSwitch(ownChannels, activeChannel, myUserId, 'channel-team.html');
+  });
 
   const inviteRoot = document.getElementById('inviteRoot');
   const myInvitesRoot = document.getElementById('myInvitesRoot');
@@ -127,36 +144,45 @@
     } catch { return ''; }
   }
 
-  // ---- Кого можно пригласить: список email'ов, которым разрешено получить
-  // доступ на редактирование ТВОЕГО публичного канала (см. profile.channel —
-  // тот же самый канал, что виден по публичной ссылке). Без публичного
-  // профиля приглашать некого — предлагаем сначала его настроить.
+  const ROLE_LABEL = { editor: 'Редактор (может добавлять/менять ставки)', viewer: 'Только просмотр' };
+
+  // ---- Кого можно пригласить: список email'ов для ВЫБРАННОГО (переключатель
+  // сверху) журнала — activeChannel, а не жёстко "публичный канал профиля",
+  // как было раньше (см. комментарий у getChannelParams выше). Приглашать
+  // можно в личный дневник ('default') точно так же, как в именованный
+  // канал — публичный профиль для этого не нужен вообще, это ПРИВАТНЫЙ
+  // доступ конкретному человеку, а не публикация.
   //
-  // Milestone 15: раньше приглашение только открывало возможность ПОДАТЬ
-  // заявку, которую владелец потом отдельно одобрял. По просьбе пользователя
-  // этот промежуточный шаг убран: сам факт приглашения — это уже решение
-  // владельца, поэтому приглашённый сразу получает доступ, просто нажав
-  // "Принять" на своей странице (см. loadMyInvites/acceptInvite ниже).
+  // 09.09.2026: доступ теперь выдаётся автоматически (см. schema_milestone34.sql,
+  // триггеры на channel_invites/auth.users) — вставка сюда строки это уже
+  // фактическая выдача доступа (если человек уже зарегистрирован) или
+  // "отложенная" выдача (сработает сама в момент его регистрации). Раздел
+  // "Приглашения для тебя"/loadMyInvites ниже остаётся как ручной fallback.
   async function loadInvites() {
     const { data: myProfile } = await supabase.from('profiles').select('*').eq('user_id', myUserId).maybeSingle();
-    if (!myProfile || !myProfile.username) {
-      inviteRoot.innerHTML = '<div class="empty-state">Сначала настрой <a href="profile-settings.html" style="color:var(--gold);">публичный профиль</a> — приглашать редакторов можно только на канал, у которого есть публичное имя.</div>';
-      return;
-    }
-    const ownChannel = myProfile.channel || 'cybervalue';
-    const channelLabel = myProfile.display_name || myProfile.username;
+    const channelLabel = activeChannel === 'default'
+      ? 'Личный дневник'
+      : (myProfile && myProfile.channel === activeChannel ? (myProfile.display_name || myProfile.username || activeChannel) : activeChannel);
+    document.getElementById('inviteChannelLabel').textContent = channelLabel;
     const { data: invites, error } = await supabase
-      .from('channel_invites').select('*').eq('owner_user_id', myUserId).eq('channel', ownChannel).order('created_at', { ascending: false });
+      .from('channel_invites').select('*').eq('owner_user_id', myUserId).eq('channel', activeChannel).order('created_at', { ascending: false });
     if (error && error.code === '42P01') {
-      inviteRoot.innerHTML = '<div class="empty-state">Сначала нужно выполнить schema_milestone14.sql и schema_milestone15.sql в Supabase.</div>';
+      inviteRoot.innerHTML = '<div class="empty-state">Сначала нужно выполнить schema_milestone14.sql, schema_milestone15.sql и schema_milestone34.sql в Supabase.</div>';
       return;
     }
     const rows = invites || [];
     inviteRoot.innerHTML = `
       <div class="setup-row">
         <div class="field">
-          <label for="inviteEmail">Email аккаунта, которому даём доступ на редактирование «${escapeHtml(channelLabel)}»</label>
+          <label for="inviteEmail">Email аккаунта, которому даём доступ</label>
           <input id="inviteEmail" type="email" placeholder="friend@example.com" autocomplete="off">
+        </div>
+        <div class="field" style="max-width:220px;">
+          <label for="inviteRole">Роль</label>
+          <select id="inviteRole">
+            <option value="viewer">Только просмотр</option>
+            <option value="editor">Редактор</option>
+          </select>
         </div>
         <button class="btn btn-primary" type="button" id="addInviteBtn" style="width:auto;">Пригласить</button>
         <span class="form-status" id="inviteStatus"></span>
@@ -164,11 +190,12 @@
       ${rows.length ? `
         <div class="table-wrap" style="margin-top:14px;"><div class="table-scroll">
           <table class="bets-table">
-            <thead><tr><th>Email</th><th>Добавлен</th><th></th></tr></thead>
+            <thead><tr><th>Email</th><th>Роль</th><th>Добавлен</th><th></th></tr></thead>
             <tbody>
               ${rows.map(r => `
                 <tr>
                   <td>${escapeHtml(r.invited_email)}</td>
+                  <td>${escapeHtml(ROLE_LABEL[r.role] || r.role)}</td>
                   <td class="num">${fmtDateTime(r.created_at)}</td>
                   <td><button class="row-del" type="button" data-uninvite="${r.id}">Убрать</button></td>
                 </tr>`).join('')}
@@ -178,28 +205,37 @@
     `;
     document.getElementById('addInviteBtn').addEventListener('click', async () => {
       const emailInput = document.getElementById('inviteEmail');
+      const roleSelect = document.getElementById('inviteRole');
       const status = document.getElementById('inviteStatus');
       const email = emailInput.value.trim().toLowerCase();
       if (!email) return;
       status.textContent = 'Добавляю…';
       const { error: insErr } = await supabase.from('channel_invites').insert({
-        owner_user_id: myUserId, channel: ownChannel, invited_email: email, channel_label: channelLabel,
+        owner_user_id: myUserId, channel: activeChannel, invited_email: email, channel_label: channelLabel, role: roleSelect.value,
       });
       if (insErr) {
         status.textContent = insErr.code === '23505' ? 'Этот email уже в списке.' : 'Ошибка: ' + insErr.message;
         return;
       }
-      loadInvites();
+      // 09.09.2026: баг — loadInvites() ниже полностью перерисовывает
+      // inviteRoot.innerHTML (включая сам #inviteStatus), поэтому сообщение
+      // "Готово", выставленное ДО перерисовки, пропадало мгновенно вместе со
+      // старым узлом, реально его никто не успевал увидеть. Сначала
+      // перерисовываем, потом пишем сообщение в УЖЕ новый узел статуса.
+      await Promise.all([loadInvites(), loadEditors()]);
+      const freshStatus = document.getElementById('inviteStatus');
+      if (freshStatus) freshStatus.textContent = 'Готово ✓ — если человек уже зарегистрирован в EDGE, доступ уже открыт.';
     });
     inviteRoot.querySelectorAll('[data-uninvite]').forEach(btn => btn.addEventListener('click', async () => {
       const { error: delErr } = await supabase.from('channel_invites').delete().eq('id', btn.dataset.uninvite);
       if (delErr) { alert('Не удалось убрать: ' + delErr.message); return; }
-      // Убрали из приглашённых — значит, и активный доступ на редактирование
-      // (если уже был принят) больше не должен оставаться действующим:
-      // иначе получится дыра — доступ есть, а права на него уже нет.
+      // Убрали из приглашённых — значит, и активный доступ (если уже был
+      // выдан, автоматически или вручную) больше не должен оставаться
+      // действующим — иначе получится дыра: доступ есть, а права на него
+      // уже нет.
       const uninvitedEmail = btn.closest('tr').querySelector('td').textContent.trim().toLowerCase();
       const { data: activeAccess } = await supabase
-        .from('channel_members').select('*').eq('owner_user_id', myUserId).eq('channel', ownChannel);
+        .from('channel_members').select('*').eq('owner_user_id', myUserId).eq('channel', activeChannel);
       const rowsToRevoke = (activeAccess || []).filter(m => (m.member_email || '').toLowerCase() === uninvitedEmail);
       await Promise.all(rowsToRevoke.map(m => supabase.from('channel_members').delete().eq('id', m.id)));
       await Promise.all([loadInvites(), loadEditors()]);
@@ -229,22 +265,24 @@
     myInvitesRoot.innerHTML = `
       <div class="table-wrap"><div class="table-scroll">
         <table class="bets-table">
-          <thead><tr><th>Канал</th><th>Приглашён(а)</th><th></th></tr></thead>
+          <thead><tr><th>Канал</th><th>Роль</th><th>Приглашён(а)</th><th></th></tr></thead>
           <tbody>
             ${rows.map(r => {
               const access = accessByKey.get(`${r.owner_user_id}:${r.channel}`);
               return `
               <tr>
                 <td>${escapeHtml(r.channel_label || r.channel)}</td>
+                <td>${escapeHtml(ROLE_LABEL[r.role] || r.role)}</td>
                 <td class="num">${fmtDateTime(r.created_at)}</td>
                 <td>${access && access.status === 'approved'
-                  ? '<span class="res-pill win">Ты — редактор ✓</span>'
-                  : `<button class="btn btn-primary" type="button" data-accept="${r.id}" data-owner="${r.owner_user_id}" data-channel="${escapeHtml(r.channel)}" data-label="${escapeHtml(r.channel_label || r.channel)}" style="width:auto; padding:6px 14px; font-size:12.5px;">Принять</button>`}</td>
+                  ? '<span class="res-pill win">Доступ есть ✓</span>'
+                  : `<button class="btn btn-primary" type="button" data-accept="${r.id}" data-owner="${r.owner_user_id}" data-channel="${escapeHtml(r.channel)}" data-label="${escapeHtml(r.channel_label || r.channel)}" data-role="${escapeHtml(r.role)}" style="width:auto; padding:6px 14px; font-size:12.5px;">Принять</button>`}</td>
               </tr>`;
             }).join('')}
           </tbody>
         </table>
-      </div></div>`;
+      </div></div>
+      <div class="section-note" style="margin-top:10px;">Обычно доступ появляется само́й — это на случай, если по какой-то причине он ещё не открылся сам.</div>`;
     myInvitesRoot.querySelectorAll('[data-accept]').forEach(btn => btn.addEventListener('click', () => acceptInvite(btn)));
   }
 
@@ -257,6 +295,7 @@
       channel_label: btn.dataset.label,
       member_user_id: myUserId,
       member_email: session.user.email,
+      role: btn.dataset.role,
       status: 'approved',
       decided_at: new Date().toISOString(),
     });
@@ -285,12 +324,18 @@
     editorsRoot.innerHTML = `
       <div class="table-wrap"><div class="table-scroll">
         <table class="bets-table">
-          <thead><tr><th>Канал</th><th>Редактор</th><th>Доступ выдан</th><th></th></tr></thead>
+          <thead><tr><th>Канал</th><th>Кому</th><th>Роль</th><th>Доступ выдан</th><th></th></tr></thead>
           <tbody>
             ${rows.map(r => `
               <tr>
                 <td>${escapeHtml(r.channel_label || r.channel)}</td>
                 <td>${escapeHtml(r.member_email || r.member_user_id)}</td>
+                <td>
+                  <select data-role-for="${r.id}">
+                    <option value="viewer" ${r.role === 'viewer' ? 'selected' : ''}>Только просмотр</option>
+                    <option value="editor" ${r.role === 'editor' ? 'selected' : ''}>Редактор</option>
+                  </select>
+                </td>
                 <td class="num">${fmtDateTime(r.decided_at)}</td>
                 <td><button class="row-del" type="button" data-revoke="${r.id}">Отозвать</button></td>
               </tr>`).join('')}
@@ -298,10 +343,28 @@
         </table>
       </div></div>`;
     editorsRoot.querySelectorAll('[data-revoke]').forEach(btn => btn.addEventListener('click', () => revoke(btn.dataset.revoke)));
+    // 09.09.2026: смена роли уже выданного доступа — "чтобы я в личном
+    // кабинете мог менять настройки" (по прямому запросу). RLS уже позволяет
+    // это ("channel_members: owner decides", Milestone 12) — владелец может
+    // менять любые колонки СВОИХ строк channel_members, включая role, без
+    // дополнительных миграций для самого этого UPDATE.
+    editorsRoot.querySelectorAll('[data-role-for]').forEach(sel => sel.addEventListener('change', () => changeRole(sel)));
+  }
+
+  async function changeRole(sel) {
+    const id = sel.dataset.roleFor;
+    sel.disabled = true;
+    const { error } = await supabase.from('channel_members').update({ role: sel.value }).eq('id', id);
+    sel.disabled = false;
+    if (error) {
+      alert('Не удалось изменить роль: ' + error.message);
+      loadEditors();
+      return;
+    }
   }
 
   async function revoke(id) {
-    const ok = window.confirm('Отозвать доступ на редактирование? Редактор сразу потеряет доступ к каналу.');
+    const ok = window.confirm('Отозвать доступ? Человек сразу потеряет доступ к каналу.');
     if (!ok) return;
     const { error } = await supabase.from('channel_members').delete().eq('id', id);
     if (error) { alert('Не удалось отозвать: ' + error.message); return; }

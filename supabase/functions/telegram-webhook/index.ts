@@ -1,0 +1,786 @@
+// Supabase Edge Function: telegram-webhook
+// -------------------------------------------------------------------------
+// Принимает Update от Telegram Bot API (webhook), для канала, к которому
+// бот добавлен админом. Два сценария:
+//   1) Пост в ЕЩЁ НЕ привязанном канале, текст которого совпадает с кодом
+//      привязки (см. telegram-link/index.ts) — подтверждает привязку.
+//   2) Пост в УЖЕ привязанном канале — пробует распознать в тексте и/или
+//      КАРТИНКЕ данные ставки (тот же принцип tool_use/record_bet_data, что
+//      и у parse-bet-screenshot) и, если похоже на ставку, кладёт в очередь
+//      telegram_pending_bets — ничего не сохраняет в дневник само, человек
+//      подтверждает через app.html (?tg=<id>), тот же принцип
+//      верифицируемости, что у скриншотов.
+//
+// 01.09.2026: добавлена поддержка постов с картинкой (скриншот купона),
+// не только текста — раньше пост без текста (например, просто фото без
+// подписи) молча игнорировался. Фото/документ-картинка скачивается через
+// Telegram Bot API (getFile + скачивание файла) и передаётся модели тем же
+// способом, что и в parse-bet-screenshot (image content block + vision).
+// Подпись к посту (caption), если есть, идёт дополнительным текстом рядом
+// с картинкой — не обязательна.
+//
+// 01.09.2026, следом: три доработки по прямому запросу ("В + лимит и
+// реализуем ещё предыдущую штуку"), все три — про то, чтобы не жечь платные
+// вызовы модели впустую и не плодить дубликаты в очереди:
+//   1) Дешёвый локальный фильтр ДО вызова модели — см. looksLikeBet ниже.
+//   2) MONTHLY_TELEGRAM_LIMIT снижен с 1000 до 40 — консервативный потолок,
+//      раз канал не гарантированно "только ставки".
+//   3) Обработка edited_channel_post — правка подписи/текста уже
+//      опубликованного поста триггерит повторное распознавание, и результат
+//      ЗАМЕЩАЕТ прежнюю запись в очереди по этому же message_id, а не
+//      добавляет вторую (см. isEdit ниже). Требует ПЕРЕРЕГИСТРАЦИИ webhook
+//      с allowed_updates=["channel_post","edited_channel_post"] — см. п.5
+//      деплой-инструкции ниже, шаг нужно повторить с новым списком.
+//
+// 02.09.2026: пофикшен баг п.3 выше — Telegram сам, без участия пользователя,
+// присылает "фантомный" edited_channel_post через несколько секунд после
+// поста со ссылкой (подтягивает превью), с тем же message_id. Раньше это
+// безусловно чистило уже показанную пользователю карточку из очереди ДО
+// повторной проверки моделью — если та на фантомной правке отвечала
+// "не ставка" (не гарантированно детерминирована на грани), карточка молча
+// исчезала без всякого действия человека. Теперь очистка/замена по
+// message_id происходит ТОЛЬКО когда модель СЕЙЧАС же подтверждает, что это
+// ставка — иначе то, что уже лежало в очереди, не трогается (см. комментарий
+// у detectedBets.length ниже).
+//
+// ВАЖНОЕ ОТЛИЧИЕ от parse-bet-screenshot: эту функцию дёргает Telegram, а
+// не залогиненный пользователь EDGE — у запроса нет и не может быть
+// Supabase JWT. Поэтому у ЭТОЙ функции в Supabase Dashboard нужно ВЫКЛЮЧИТЬ
+// "Verify JWT with legacy secret" (единственная функция в проекте, где это
+// нужно) — иначе Supabase будет отклонять все запросы от Telegram ещё до
+// того, как код функции вообще начнёт выполняться. Подлинность запроса
+// вместо JWT проверяется секретным заголовком, который сам Telegram
+// присылает в каждом вызове (см. verifyTelegramSecret ниже) — это НЕ
+// опционально, без него кто угодно, узнав URL функции, сможет прислать
+// поддельные "посты" и подсунуть в твою очередь мусорные ставки.
+//
+// Всегда отвечает 200 (jsonResponse({ok:true})), даже при внутренних
+// ошибках — так и должно быть с Telegram webhook: не-200/таймаут заставляет
+// Telegram повторять доставку того же update раз за разом. Ошибки — только
+// в console.error (Supabase Logs), не в ответе.
+//
+// ------------------------- ДЕПЛОЙ (пошагово) -----------------------
+// 1. Создать бота: написать @BotFather в Telegram, /newbot, получить токен
+//    вида 123456:AA玄...
+// 2. supabase secrets set TELEGRAM_BOT_TOKEN=<токен>
+// 3. supabase secrets set TELEGRAM_WEBHOOK_SECRET=<случайная строка, придумай сам>
+// 4. Задеплоить функцию БЕЗ проверки JWT:
+//      supabase functions deploy telegram-webhook --no-verify-jwt
+//    (или через Dashboard: Deploy a new function → после деплоя зайти в
+//    Settings этой функции и ВЫКЛЮЧИТЬ "Verify JWT with legacy secret")
+// 5. Зарегистрировать webhook у Telegram (одноразово, из терминала, не из
+//    функции — просто вызов их API с токеном бота). allowed_updates ниже
+//    ВКЛЮЧАЕТ edited_channel_post — если webhook уже был зарегистрирован
+//    раньше только с channel_post, эту команду нужно выполнить ПОВТОРНО с
+//    обновлённым списком, иначе правки постов Telegram присылать не будет:
+//      curl "https://api.telegram.org/bot<ТОКЕН>/setWebhook" \
+//        -d "url=https://<project-ref>.supabase.co/functions/v1/telegram-webhook" \
+//        -d "secret_token=<та же случайная строка, что в шаге 3>" \
+//        -d "allowed_updates=[\"channel_post\",\"edited_channel_post\"]"
+// 6. Добавить бота АДМИНОМ в свой Telegram-канал (без этого бот физически
+//    не видит посты канала) — права достаточно минимальные, "видеть посты"
+//    хватает, публиковать от имени бота не нужно.
+// 7. На telegram-import.html — "Показать код привязки", опубликовать код
+//    ОДНИМ постом в канале (после подтверждения сообщение можно удалить).
+// ---------------------------------------------------------------------------
+
+// deno-lint-ignore-file no-explicit-any
+
+const DEFAULT_MODEL = 'claude-sonnet-5';
+const ANTHROPIC_VERSION = '2023-06-01';
+const MAX_IMAGE_BYTES = 5 * 1024 * 1024; // тот же практический лимит, что и у parse-bet-screenshot
+
+// 01.09.2026: снижалось с 1000 до 40 по прямому запросу — канал не
+// гарантированно "только ставки" (общение/анонсы тоже считались бы),
+// консервативный потолок надёжнее, чем полагаться только на локальный
+// фильтр (looksLikeBet) отсеять весь шум идеально точно. Считается каждый
+// РЕАЛЬНЫЙ вызов модели (текст или картинка, без разницы) — посты,
+// отсеянные looksLikeBet ДО вызова модели, в счётчик не попадают вообще.
+//
+// 06.09.2026: 40/мес оказалось слишком мало для реального темпа канала —
+// лимит исчерпался за первые 6 дней сентября (~7 распознаваний/день), из-за
+// чего ВСЕ посты после этого молча отбрасывались без единого следа для
+// пользователя (найдено только через telegram_parse_usage/Logs, см.
+// CHANGELOG). Поднято до 200 (по прямому запросу) — с запасом на текущий темп, всё ещё
+// конечный потолок на случай реального завала шумом/спамом, не "без лимита
+// вообще". Если и этого не хватит — поднимать дальше отсюда же, это всего
+// одна константа.
+const MONTHLY_TELEGRAM_LIMIT = 200;
+
+// Схема на два случая — текстовый пост и пост с картинкой (после 01.09.2026
+// добавления поддержки фото). Описание bookmaker с подсказкой про
+// визуальный стиль актуально в первую очередь для картинок (в тексте
+// определить букмекер по "стилю" неоткуда), но модель сама разберётся,
+// какая ветка описания к чему относится — держать один инструмент проще,
+// чем плодить два почти одинаковых.
+const BET_TOOL = {
+  name: 'record_bet_data',
+  description: 'Записать распознанные из текста и/или изображения поста данные об одной или нескольких ставках на спорт, если пост похож на объявление ставки.',
+  input_schema: {
+    type: 'object',
+    properties: {
+      detected: {
+        type: 'boolean',
+        description: 'true, если пост похож хотя бы на одну ставку. false для любого другого поста (анонс, аналитика без конкретной ставки, реклама, обсуждение, поздравление и т.п.) — тогда bets можно оставить пустым массивом. Не пытайся притянуть за уши: лучше false, чем ложное срабатывание на посте без реальной ставки.',
+      },
+      bets: {
+        type: 'array',
+        description: 'Обычно один элемент — один пост Telegram-канала почти всегда содержит одну ставку (или один купон на скриншоте). Несколько элементов — если в ОДНОМ посте явно перечислено/показано несколько отдельных ставок (не путать с экспрессом — это одна ставка с несколькими ногами, is_express=true).',
+        items: {
+          type: 'object',
+          properties: {
+            confidence: { type: 'string', enum: ['high', 'medium', 'low'], description: 'Уверенность в распознавании именно этой ставки.' },
+            bet_date: { type: ['string', 'null'], description: 'Дата ставки YYYY-MM-DD, если явно видна/указана. null, если не видна — НЕ подставляй дату публикации поста сама по себе.' },
+            discipline: { type: ['string', 'null'], description: 'Вид спорта/киберспорта, например "Dota2", "CS2", "Football", "Tennis". null, если не ясно.' },
+            bookmaker: {
+              type: ['string', 'null'],
+              description:
+                'Название букмекера. Если явного текста/логотипа с названием нет (актуально для скриншотов) — попробуй определить по узнаваемому фирменному визуальному стилю интерфейса (цветовая схема, иконки, шрифт, вёрстка — Fonbet/1xBet/Winline/Marathon/Betcity/Пари/Лига Ставок/Pinnacle/Пинко(Pinco) и т.п.). Если определил ТОЛЬКО по стилю — обязательно добавь "Букмекер" в uncertain_fields. Для обычного текстового поста букмекер указывается, только если явно упомянут словами. Если ни того ни другого нет — null, и это НЕ повод считать всю ставку нераспознанной — незнакомый визуальный стиль конкретного букмекера не мешает распознать саму ставку (кэф/сумму/исход) по тексту/картинке.',
+            },
+            tournament: { type: ['string', 'null'], description: 'Название турнира/лиги, если указано.' },
+            is_express: { type: 'boolean', description: 'true, если это экспресс (несколько событий одной ставкой), false для одиночной ставки.' },
+            match: { type: ['string', 'null'], description: 'Название матча/события для одиночной ставки. null для экспресса.' },
+            pick: { type: ['string', 'null'], description: 'Конкретный исход/пик для одиночной ставки. null для экспресса.' },
+            legs: {
+              type: 'array',
+              description: 'Только для is_express=true: список ног экспресса. Пусто для одиночной ставки.',
+              items: {
+                type: 'object',
+                properties: {
+                  text: { type: 'string', description: 'Описание одной ноги экспресса.' },
+                  odds: { type: ['number', 'null'], description: 'Кэф этой ноги.' },
+                },
+                required: ['text'],
+              },
+            },
+            odds: { type: ['number', 'null'], description: 'Итоговый кэф ставки. null, если не указан/не виден.' },
+            stake: { type: ['number', 'null'], description: 'Сумма ставки, если явно указана числом, В ТОЙ ВАЛЮТЕ, В КОТОРОЙ ОНА УКАЗАНА (не конвертируй сам). null, если не указана.' },
+            stake_currency: {
+              type: ['string', 'null'],
+              enum: ['USD', 'RUB', 'EUR', 'KZT', null],
+              description: 'Валюта суммы ставки — по символу/коду рядом с числом (₽/руб/RUB → RUB, $/USD → USD, €/EUR → EUR, ₸/KZT → KZT). null, если не удалось определить — тогда считается уже долларами.',
+            },
+            result: {
+              type: ['string', 'null'],
+              enum: ['Pending', 'Win', 'Loss', 'Push', null],
+              description: 'Результат, ЕСЛИ явно указан текстом или виден на скриншоте (например "🟢 зашло", купон подсвечен зелёным). Если пост — анонс до начала события, "Pending". Если не ясно — null.',
+            },
+            uncertain_fields: {
+              type: 'array',
+              items: { type: 'string' },
+              description: 'Названия полей (на русском, как в форме — "Кэф", "Сумма", "Дата", "Букмекер"), в которых модель не уверена и стоит перепроверить человеку.',
+            },
+          },
+          required: ['confidence', 'is_express', 'legs', 'uncertain_fields'],
+        },
+      },
+    },
+    required: ['detected', 'bets'],
+  },
+};
+
+// 02.09.2026: та же конвертация валюты, что и в parse-bet-screenshot (см.
+// его index.ts, комментарий 02.09.2026, полное обоснование там) — очередь
+// telegram_pending_bets хранит "Сумма" как просто число в предположении
+// доллара, конвертим по курсу на момент распознавания и всегда отмечаем
+// uncertain_fields (курс приблизительный, не на момент самой ставки).
+const RATE_CACHE = new Map<string, number>();
+async function usdRateFor(currency: string): Promise<number | null> {
+  if (currency === 'USD') return 1;
+  if (RATE_CACHE.has(currency)) return RATE_CACHE.get(currency)!;
+  try {
+    const res = await fetch(`https://open.er-api.com/v6/latest/${currency}`);
+    if (!res.ok) return null;
+    const data = await res.json();
+    const rate = data?.rates?.USD;
+    if (typeof rate !== 'number') return null;
+    RATE_CACHE.set(currency, rate);
+    return rate;
+  } catch (e) {
+    console.error('usdRateFor: не удалось получить курс для', currency, (e as Error).message);
+    return null;
+  }
+}
+async function convertStakesToUsd(bets: any[]): Promise<void> {
+  for (const b of bets) {
+    if (b == null || typeof b !== 'object') continue;
+    const currency = typeof b.stake_currency === 'string' ? b.stake_currency.toUpperCase() : null;
+    if (!currency || currency === 'USD' || b.stake == null || typeof b.stake !== 'number') continue;
+    const rate = await usdRateFor(currency);
+    if (rate == null) continue;
+    b.stake = Math.round(b.stake * rate * 100) / 100;
+    if (!Array.isArray(b.uncertain_fields)) b.uncertain_fields = [];
+    if (!b.uncertain_fields.includes('Сумма')) b.uncertain_fields.push('Сумма');
+  }
+}
+
+function jsonResponse(body: unknown, status = 200) {
+  return new Response(JSON.stringify(body), { status, headers: { 'Content-Type': 'application/json' } });
+}
+
+// Telegram сам присылает этот заголовок в каждом webhook-запросе, если он
+// был задан параметром secret_token при регистрации (см. деплой-инструкцию
+// выше, шаг 5) — сравнение строкой, без него любой человек, узнавший URL
+// функции, мог бы слать сюда поддельные "посты".
+function verifyTelegramSecret(req: Request): boolean {
+  const expected = Deno.env.get('TELEGRAM_WEBHOOK_SECRET');
+  if (!expected) return false; // секрет не задан — ничего не подтверждаем, отказываем всем
+  return req.headers.get('x-telegram-bot-api-secret-token') === expected;
+}
+
+async function supaFetch(path: string, init: RequestInit, supabaseUrl: string, serviceKey: string) {
+  return fetch(`${supabaseUrl}/rest/v1/${path}`, {
+    ...init,
+    headers: {
+      apikey: serviceKey,
+      Authorization: `Bearer ${serviceKey}`,
+      'Content-Type': 'application/json',
+      ...(init.headers || {}),
+    },
+  });
+}
+
+// Тот же принцип, что checkAndIncrementUsage в parse-bet-screenshot/index.ts
+// (известное упрощение: read-then-write не в одной транзакции), отдельная
+// таблица telegram_parse_usage — см. schema_milestone27.sql.
+async function checkAndIncrementTelegramUsage(userId: string, supabaseUrl: string, serviceKey: string): Promise<boolean> {
+  const month = new Date().toISOString().slice(0, 7);
+  const selectRes = await supaFetch(
+    `telegram_parse_usage?user_id=eq.${encodeURIComponent(userId)}&month=eq.${month}&select=count`,
+    { headers: { Accept: 'application/vnd.pgrst.object+json' } },
+    supabaseUrl, serviceKey,
+  );
+  let currentCount = 0;
+  if (selectRes.ok) {
+    const row = await selectRes.json().catch(() => null);
+    if (row && typeof row.count === 'number') currentCount = row.count;
+  } else if (selectRes.status !== 406) {
+    console.error('checkAndIncrementTelegramUsage: select failed', selectRes.status);
+    return true; // не смогли посчитать — не блокируем из-за временного сбоя
+  }
+  if (currentCount >= MONTHLY_TELEGRAM_LIMIT) return false;
+  const upsertRes = await supaFetch('telegram_parse_usage', {
+    method: 'POST',
+    headers: { Prefer: 'resolution=merge-duplicates' },
+    body: JSON.stringify([{ user_id: userId, month, count: currentCount + 1, updated_at: new Date().toISOString() }]),
+  }, supabaseUrl, serviceKey);
+  if (!upsertRes.ok) console.error('checkAndIncrementTelegramUsage: upsert failed', upsertRes.status);
+  return true;
+}
+
+async function replyToChat(chatId: number, text: string, botToken: string) {
+  try {
+    await fetch(`https://api.telegram.org/bot${botToken}/sendMessage`, {
+      method: 'POST',
+      headers: { 'content-type': 'application/json' },
+      body: JSON.stringify({ chat_id: chatId, text }),
+    });
+  } catch (e) {
+    console.error('replyToChat failed', (e as Error).message);
+  }
+}
+
+// Uint8Array -> base64 кусками (не String.fromCharCode(...bytes) на весь
+// массив разом — на скриншотах в несколько сотен КБ+ это может упереться в
+// лимит аргументов вызова функции в Deno/V8). Тот же приём, что обычно
+// используют для конвертации больших ArrayBuffer в base64 без сторонних
+// зависимостей.
+function base64FromBytes(bytes: Uint8Array): string {
+  let binary = '';
+  const chunkSize = 0x8000;
+  for (let i = 0; i < bytes.length; i += chunkSize) {
+    binary += String.fromCharCode(...bytes.subarray(i, i + chunkSize));
+  }
+  return btoa(binary);
+}
+
+// Скачивает файл (фото/документ-картинку) с серверов Telegram по file_id —
+// два шага их Bot API: getFile (по file_id узнать file_path), затем скачать
+// сами байты по этому пути. mimeType определяется по расширению файла —
+// Telegram при сжатии фото (post.photo) всегда отдаёт JPEG, для документов
+// расширение обычно совпадает с исходным типом.
+async function downloadTelegramFile(fileId: string, botToken: string): Promise<{ base64: string; mimeType: string } | null> {
+  try {
+    const getFileRes = await fetch(`https://api.telegram.org/bot${botToken}/getFile?file_id=${encodeURIComponent(fileId)}`);
+    if (!getFileRes.ok) {
+      console.error('downloadTelegramFile: getFile failed', getFileRes.status);
+      return null;
+    }
+    const getFileData = await getFileRes.json();
+    const filePath: string | undefined = getFileData?.result?.file_path;
+    if (!filePath) {
+      console.error('downloadTelegramFile: no file_path in getFile response');
+      return null;
+    }
+    const fileRes = await fetch(`https://api.telegram.org/file/bot${botToken}/${filePath}`);
+    if (!fileRes.ok) {
+      console.error('downloadTelegramFile: file download failed', fileRes.status);
+      return null;
+    }
+    const buf = await fileRes.arrayBuffer();
+    if (buf.byteLength > MAX_IMAGE_BYTES) {
+      console.error('downloadTelegramFile: file too large', buf.byteLength);
+      return null;
+    }
+    const ext = (filePath.split('.').pop() || '').toLowerCase();
+    const mimeType = ext === 'png' ? 'image/png' : ext === 'webp' ? 'image/webp' : ext === 'gif' ? 'image/gif' : 'image/jpeg';
+    return { base64: base64FromBytes(new Uint8Array(buf)), mimeType };
+  } catch (e) {
+    console.error('downloadTelegramFile failed', (e as Error).message);
+    return null;
+  }
+}
+
+// 06.09.2026: найдено по репорту "любой скрин стал распознаваться как мусор,
+// а очередь пустая" — на деле в конкретном посте не было картинки ВООБЩЕ, был
+// пост со ССЫЛКОЙ (например на шеринг-купон бет-слипа), которую Telegram сам
+// разворачивает в превью-карточку с кэфом/форой прямо в интерфейсе — но эта
+// картинка/текст карточки НЕ передаётся боту через channel_post.photo/caption
+// вообще, Bot API отдаёт только сырой текст поста и (опционально)
+// link_preview_options.url — сама карточка рисуется клиентом Telegram, не
+// ботом. Раньше код такие посты вообще не отличал от обычного текста без
+// картинки — вся суть ставки (кэф/фора/название) терялась, доходил только
+// текст подписи автора поста, часто без единой цифры.
+//
+// Фикс: если есть ссылка на превью — скачиваем страницу сами (обычный HTTP,
+// без Telegram API) и достаём её og:title/og:description/og:image — почти
+// всегда именно там лежит то же самое, что видно в развёрнутой карточке.
+// og:image (если есть) уходит модели как обычная картинка, og:title/
+// og:description — дополнительным текстом. Не идеально (не все сайты отдают
+// og:image с реальным кэфом на картинке — иногда это просто лого сервиса),
+// но несравнимо лучше, чем полностью терять данные ставки.
+function extractPreviewUrl(post: any, text: string): string | null {
+  const fromOptions = post?.link_preview_options?.url;
+  if (typeof fromOptions === 'string' && fromOptions) return fromOptions;
+  const entities = Array.isArray(post?.entities) ? post.entities : (Array.isArray(post?.caption_entities) ? post.caption_entities : []);
+  for (const e of entities) {
+    if (e?.type === 'text_link' && typeof e.url === 'string') return e.url;
+  }
+  const m = /https?:\/\/\S+/.exec(text);
+  return m ? m[0] : null;
+}
+
+async function fetchLinkPreview(url: string): Promise<{ title: string | null; description: string | null; image: { base64: string; mimeType: string } | null }> {
+  const empty = { title: null, description: null, image: null };
+  try {
+    const pageRes = await fetch(url, { redirect: 'follow' });
+    if (!pageRes.ok) {
+      console.error('fetchLinkPreview: page fetch failed', pageRes.status, url);
+      return empty;
+    }
+    const html = await pageRes.text();
+    const og = (prop: string): string | null => {
+      const re = new RegExp(`<meta[^>]+property=["']og:${prop}["'][^>]+content=["']([^"']*)["']`, 'i');
+      const alt = new RegExp(`<meta[^>]+content=["']([^"']*)["'][^>]+property=["']og:${prop}["']`, 'i');
+      const match = re.exec(html) || alt.exec(html);
+      return match ? match[1] : null;
+    };
+    const title = og('title');
+    const description = og('description');
+    const imageUrl = og('image');
+    let image: { base64: string; mimeType: string } | null = null;
+    if (imageUrl) {
+      try {
+        const imgRes = await fetch(imageUrl);
+        if (imgRes.ok) {
+          const buf = await imgRes.arrayBuffer();
+          if (buf.byteLength <= MAX_IMAGE_BYTES) {
+            const ct = imgRes.headers.get('content-type') || '';
+            const mimeType = /png/.test(ct) ? 'image/png' : /webp/.test(ct) ? 'image/webp' : /gif/.test(ct) ? 'image/gif' : 'image/jpeg';
+            image = { base64: base64FromBytes(new Uint8Array(buf)), mimeType };
+          } else {
+            console.error('fetchLinkPreview: og:image too large', buf.byteLength);
+          }
+        }
+      } catch (e) {
+        console.error('fetchLinkPreview: og:image download failed', (e as Error).message);
+      }
+    }
+    return { title, description, image };
+  } catch (e) {
+    console.error('fetchLinkPreview failed', (e as Error).message, url);
+    return empty;
+  }
+}
+
+// Убирает из очереди всё, что раньше было положено ПО ЭТОМУ ЖЕ посту
+// (message_id) — вызывается перед тем, как класть туда что-то заново после
+// правки поста (isEdit), чтобы повторное/изменённое распознавание ЗАМЕЩАЛО
+// прежнюю карточку, а не плодило вторую рядом. Если пользователь уже успел
+// подтвердить и сохранить ставку из этого поста ДО правки — её строки в
+// telegram_pending_bets уже нет (удалена при сохранении, см. app.html), эта
+// функция в таком случае просто ничего не найдёт и ничего не удалит —
+// известное упрощение, повторная правка после подтверждения создаст новую
+// отдельную карточку, а не "обновит" уже сохранённую в дневнике ставку.
+async function clearPendingForMessage(userId: string, messageId: number, supabaseUrl: string, serviceKey: string) {
+  const res = await supaFetch(
+    `telegram_pending_bets?user_id=eq.${userId}&telegram_message_id=eq.${messageId}`,
+    { method: 'DELETE' },
+    supabaseUrl, serviceKey,
+  );
+  if (!res.ok) console.error('clearPendingForMessage: delete failed', res.status);
+}
+
+Deno.serve(async (req: Request) => {
+  if (req.method !== 'POST') return jsonResponse({ ok: true });
+  if (!verifyTelegramSecret(req)) {
+    console.error('telegram-webhook: неверный или отсутствующий секретный заголовок');
+    return jsonResponse({ ok: true }); // не подтверждаем факт отказа деталями — просто тихо игнорируем
+  }
+
+  const supabaseUrl = Deno.env.get('SUPABASE_URL');
+  const serviceKey = Deno.env.get('SUPABASE_SERVICE_ROLE_KEY');
+  const botToken = Deno.env.get('TELEGRAM_BOT_TOKEN');
+  if (!supabaseUrl || !serviceKey || !botToken) {
+    console.error('telegram-webhook: не заданы SUPABASE_URL/SUPABASE_SERVICE_ROLE_KEY/TELEGRAM_BOT_TOKEN');
+    return jsonResponse({ ok: true });
+  }
+
+  let update: any;
+  try {
+    update = await req.json();
+  } catch {
+    return jsonResponse({ ok: true });
+  }
+
+  // Публичные каналы шлют channel_post на новый пост и edited_channel_post
+  // на правку уже существующего (правка подписи/текста — тоже это событие).
+  // Личные чаты с ботом (например, будущая привязка через ЛС) сюда
+  // сознательно не добавлены в этой версии — см. CHANGELOG, "Сознательно не
+  // сделано". isEdit нужен ниже, чтобы решить, замещать ли старую карточку
+  // в очереди по этому message_id, а не создавать вторую.
+  const post = update?.channel_post || update?.edited_channel_post;
+  const isEdit = !!update?.edited_channel_post;
+  if (!post || !post.chat || typeof post.chat.id !== 'number') {
+    return jsonResponse({ ok: true });
+  }
+  const chatId: number = post.chat.id;
+  const chatTitle: string = post.chat.title || '';
+  const textOrCaption: string = (post.text || post.caption || '').trim();
+
+  // Картинка — либо сжатое фото (post.photo, массив размеров от мелкого к
+  // крупному), либо документ-картинка (кто-то шлёт несжатый PNG "файлом",
+  // чтобы не терять качество купона). photo и document в одном посте не
+  // бывают одновременно — Telegram различает эти два способа прикрепить
+  // изображение.
+  //
+  // 06.09.2026: раньше отсюда брался САМЫЙ КРУПНЫЙ вариант фото
+  // (photoArr[photoArr.length - 1]) — репорт "любой скрин стал мусором":
+  // скриншот интерфейса с мелким текстом (кэф/фора) на самом крупном
+  // размере, который Telegram присылает, может весить несколько МБ и
+  // упираться в MAX_IMAGE_BYTES (5МБ) — картинка тогда вообще не долетала
+  // до модели (см. downloadTelegramFile: "file too large" в логах, если кто-
+  // то доберётся их посмотреть). Telegram сам присылает НЕСКОЛЬКО размеров
+  // одного и того же фото (обычно 4: ~90px, ~320px, ~800px, полный) —
+  // берём вариант с шириной ближе к 1280px: с запасом хватает разрешения,
+  // чтобы прочитать кэф/сумму на купоне, а весит в разы меньше полного.
+  // Документ (несжатый файл) — по-прежнему как есть, там сжатия и
+  // альтернативных размеров нет вообще, качество жертвовать нечем.
+  const photoArr = Array.isArray(post.photo) ? post.photo : null;
+  const doc = post.document;
+  const isImageDocument = !!(doc && typeof doc.mime_type === 'string' && /^image\/(png|jpe?g|webp|gif)$/i.test(doc.mime_type));
+  let bestPhoto: any = null;
+  if (photoArr && photoArr.length) {
+    const sorted = photoArr.slice().sort((a: any, b: any) => (a.width || 0) - (b.width || 0));
+    bestPhoto = sorted.find((p: any) => (p.width || 0) >= 1280) || sorted[sorted.length - 1];
+  }
+  const imageFileId: string | null = bestPhoto ? bestPhoto.file_id : (isImageDocument ? doc.file_id : null);
+
+  if (!imageFileId && !textOrCaption) return jsonResponse({ ok: true });
+
+  // ---- Сценарий 1: канал ещё не привязан -- проверяем, не код ли это ----
+  // Код привязки всегда публикуется отдельным текстовым постом (не
+  // картинкой), так что здесь по-прежнему смотрим только на textOrCaption.
+  const linkedRes = await supaFetch(
+    `telegram_links?telegram_chat_id=eq.${chatId}&select=user_id`,
+    { headers: { Accept: 'application/vnd.pgrst.object+json' } },
+    supabaseUrl, serviceKey,
+  );
+  const alreadyLinked = linkedRes.ok ? await linkedRes.json().catch(() => null) : null;
+
+  if (!alreadyLinked) {
+    if (textOrCaption) {
+      const codeRes = await supaFetch(
+        `telegram_links?link_code=eq.${encodeURIComponent(textOrCaption)}&telegram_chat_id=is.null&select=user_id`,
+        { headers: { Accept: 'application/vnd.pgrst.object+json' } },
+        supabaseUrl, serviceKey,
+      );
+      if (codeRes.ok) {
+        const match = await codeRes.json().catch(() => null);
+        if (match && match.user_id) {
+          const confirmRes = await supaFetch(`telegram_links?user_id=eq.${match.user_id}`, {
+            method: 'PATCH',
+            body: JSON.stringify({ telegram_chat_id: chatId, telegram_chat_title: chatTitle, linked_at: new Date().toISOString() }),
+          }, supabaseUrl, serviceKey);
+          if (confirmRes.ok) {
+            await replyToChat(chatId, '✅ Канал привязан к EDGE — новые посты со ставками теперь будут появляться в очереди на подтверждение.', botToken);
+          } else {
+            console.error('telegram-webhook: confirm link failed', confirmRes.status);
+          }
+          return jsonResponse({ ok: true });
+        }
+      }
+    }
+    // Не код (или картинка без текста) и канал не привязан — просто
+    // игнорируем пост молча: непривязанный канал нам не принадлежит, не
+    // должен засорять чью-то очередь распознанными "ставками".
+    return jsonResponse({ ok: true });
+  }
+
+  // ---- Сценарий 2: канал уже привязан -- пробуем распознать ставку ----
+  const userId: string = alreadyLinked.user_id;
+
+  const linkRowRes = await supaFetch(
+    `telegram_links?user_id=eq.${userId}&select=channel`,
+    { headers: { Accept: 'application/vnd.pgrst.object+json' } },
+    supabaseUrl, serviceKey,
+  );
+  const linkRow = linkRowRes.ok ? await linkRowRes.json().catch(() => null) : null;
+  const targetChannel = linkRow?.channel || 'default';
+
+  // 02.09.2026: заметки о визуальном стиле букмекеров (settings.bookmaker_notes,
+  // schema_milestone29.sql) — то же самое ручное "обучение" незнакомым
+  // интерфейсам, что и в parse-bet-screenshot (см. комментарий там же),
+  // подмешивается в промпт ниже только для постов с картинкой (для
+  // текстовых постов визуальный стиль ни при чём).
+  const settingsRes = await supaFetch(
+    `settings?user_id=eq.${userId}&channel=eq.${encodeURIComponent(targetChannel)}&select=bookmaker_notes`,
+    { headers: { Accept: 'application/vnd.pgrst.object+json' } },
+    supabaseUrl, serviceKey,
+  );
+  const settingsRow = settingsRes.ok ? await settingsRes.json().catch(() => null) : null;
+  const bookmakerNotes = settingsRow?.bookmaker_notes && typeof settingsRow.bookmaker_notes === 'object' ? settingsRow.bookmaker_notes : {};
+  let bookmakerNotesBlock = '';
+  {
+    const lines = Object.entries(bookmakerNotes)
+      .filter(([name, note]) => typeof name === 'string' && typeof note === 'string' && (note as string).trim())
+      .map(([name, note]) => `- ${name}: ${(note as string).trim()}`);
+    if (lines.length) {
+      bookmakerNotesBlock =
+        ' Пользователь заранее описал, как выглядят интерфейсы некоторых букмекеров (сверься с этим списком в первую ' +
+        'очередь при определении bookmaker по визуальному стилю): ' + lines.join('; ') + '.';
+    }
+  }
+
+  // Картинку скачиваем ДО фильтра/лимита — если скачать не удалось (и
+  // текста тоже нет), тратить платный вызов модели незачем.
+  let image: { base64: string; mimeType: string } | null = null;
+  if (imageFileId) {
+    image = await downloadTelegramFile(imageFileId, botToken);
+    if (!image && !textOrCaption) {
+      console.error('telegram-webhook: не удалось скачать изображение и текста тоже нет, пропускаю пост');
+      return jsonResponse({ ok: true });
+    }
+    if (!image) {
+      // 05.09.2026: реальный баг — пост с картинкой без цифр в подписи
+      // (например "Наши это не проиграют✅") тихо пропадал целиком, если
+      // скачать картинку не получилось (сеть/временный сбой Telegram API):
+      // image оставался null, а дешёвый фильтр ниже видел "картинки нет,
+      // цифр в тексте нет" и отбрасывал пост как явно НЕ ставку — хотя
+      // единственная реальная причина была в неудачном скачивании, а не в
+      // содержимом поста. Раньше это даже не логировалось (error здесь
+      // печатался только когда подписи тоже не было вообще). Теперь строка
+      // ниже это явно видно в логах функции.
+      console.error(`telegram-webhook: imageFileId был (${imageFileId}), но скачать не удалось — пост пойдёт по тексту/эвристике без картинки`);
+    }
+  }
+
+  // 06.09.2026: пост со ссылкой, развёрнутой Telegram в превью-карточку
+  // (кэф/фора видны только в самой карточке, не в photo/document — см.
+  // extractPreviewUrl/fetchLinkPreview выше). Пробуем ТОЛЬКО когда своей
+  // картинки в посте нет вообще — если фото/документ уже есть, это не тот
+  // случай, ссылка (если она вообще есть в тексте) явно вторична.
+  let effectiveText = textOrCaption;
+  if (!imageFileId) {
+    const previewUrl = extractPreviewUrl(post, textOrCaption);
+    if (previewUrl) {
+      const preview = await fetchLinkPreview(previewUrl);
+      if (preview.image) {
+        image = preview.image;
+        console.log(`telegram-webhook: подтянул og:image с превью-ссылки ${previewUrl}`);
+      }
+      const extra = [preview.title, preview.description].filter(Boolean).join(' — ');
+      if (extra) {
+        effectiveText = effectiveText ? `${effectiveText}\n\n[Данные из развёрнутой ссылки]: ${extra}` : `[Данные из развёрнутой ссылки]: ${extra}`;
+      }
+    }
+  }
+
+  // 01.09.2026, дешёвый локальный фильтр ДО вызова модели (бесплатно, не
+  // расходует MONTHLY_TELEGRAM_LIMIT): если картинки нет И в тексте нет ни
+  // одной цифры — почти наверняка не ставка (нет намёка на кэф/сумму),
+  // отсекаем без обращения к Anthropic вообще. Не идеально точный фильтр —
+  // гипотетически ставка может быть описана совсем без цифр — но отсекает
+  // подавляющее большинство нерелевантного шума канала (анонсы, общение,
+  // реклама), которое иначе жгло бы вызовы модели впустую.
+  //
+  // 05.09.2026: !!imageFileId (а не !!image) — специально. Если картинка
+  // БЫЛА прикреплена, но именно скачать её не удалось (см. выше), сам факт
+  // "к посту прикреплена картинка" уже сильный сигнал "похоже на ставку" —
+  // не менее сильный, чем цифра в тексте. Раньше здесь стояло !!image, из-за
+  // чего неудачное скачивание молча превращало пост с картинкой в "текст без
+  // цифр" и отбрасывало его целиком, хотя причина была не в содержимом
+  // поста, а в сбое скачивания. Модель в этом случае всё равно вызовется
+  // (просто без картинки в content — см. ветку ниже), это лучше, чем
+  // потерять пост полностью.
+  const looksLikeBet = !!imageFileId || !!image || /\d/.test(textOrCaption);
+  console.log(`telegram-webhook: chat_id=${chatId} user_id=${userId} looksLikeBet=${looksLikeBet} hasImage=${!!image} text="${textOrCaption.slice(0, 200)}"`);
+  if (!looksLikeBet) {
+    // Чистим по message_id безусловно, не только при isEdit — см. комментарий
+    // ниже у второго вызова clearPendingForMessage(): та же защита от дублей
+    // при повторной доставке актуальна и здесь (на обычном новом посте это
+    // просто no-op, удалять нечего).
+    console.log('telegram-webhook: отсеяно локальным фильтром looksLikeBet, модель не вызывалась');
+    await clearPendingForMessage(userId, post.message_id, supabaseUrl, serviceKey);
+    return jsonResponse({ ok: true });
+  }
+
+  const withinLimit = await checkAndIncrementTelegramUsage(userId, supabaseUrl, serviceKey);
+  if (!withinLimit) {
+    console.error(`telegram-webhook: лимит ${MONTHLY_TELEGRAM_LIMIT}/мес исчерпан для user_id=${userId}, пост пропущен без распознавания`);
+    return jsonResponse({ ok: true });
+  }
+
+  const apiKey = Deno.env.get('ANTHROPIC_API_KEY');
+  if (!apiKey) {
+    console.error('telegram-webhook: ANTHROPIC_API_KEY не задан');
+    return jsonResponse({ ok: true });
+  }
+  const model = Deno.env.get('ANTHROPIC_MODEL') || DEFAULT_MODEL;
+
+  // Текст промпта разный для картинки (доп. контекст — есть ли подпись) и
+  // для чистого текстового поста — но инструмент (BET_TOOL) один и тот же.
+  const content: any[] = [];
+  if (image) {
+    content.push({ type: 'image', source: { type: 'base64', media_type: image.mimeType, data: image.base64 } });
+    content.push({
+      type: 'text',
+      text:
+        `Изображение из поста Telegram-канала со ставками (скриншот купона/бетслипа или похожее)` +
+        (textOrCaption ? `, к посту есть подпись: "${textOrCaption}".` : ', подписи к посту нет.') +
+        ' Определи, похоже ли это (картинка и/или подпись вместе) на объявление ставки, и если да — вызови record_bet_data строго по описанной схеме. ' +
+        'Если букмекер не назван явно текстом/логотипом на картинке — попробуй определить его по узнаваемому фирменному визуальному стилю интерфейса ' +
+        'и обязательно отметь это в uncertain_fields той ставки. ВАЖНО: интерфейс конкретного букмекера тебе может быть незнаком — это НЕ повод считать ' +
+        'ставку нераспознанной, тогда просто bookmaker: null. Если на картинке видны признаки ставки (исход/пик, кэф, сумма, результат — не обязательно ' +
+        'все сразу) — это detected: true. Если это ДЕЙСТВИТЕЛЬНО не похоже на ставку — detected: false, bets: [].' + bookmakerNotesBlock,
+    });
+  } else {
+    content.push({
+      type: 'text',
+      text: `Пост из Telegram-канала со ставками. Определи, похож ли он на объявление ставки, и если да — вызови record_bet_data строго по описанной схеме. Если это НЕ объявление ставки (анонс без конкретики, реклама, обсуждение, разбор без факта ставки и т.п.) — detected: false, bets: [].\n\n---\n${textOrCaption}\n---`,
+    });
+  }
+
+  let anthropicRes: Response;
+  try {
+    anthropicRes = await fetch('https://api.anthropic.com/v1/messages', {
+      method: 'POST',
+      headers: { 'content-type': 'application/json', 'x-api-key': apiKey, 'anthropic-version': ANTHROPIC_VERSION },
+      body: JSON.stringify({
+        model,
+        max_tokens: image ? 4096 : 1536, // картинке нужен запас побольше, тот же принцип, что у parse-bet-screenshot
+        tools: [BET_TOOL],
+        tool_choice: { type: 'tool', name: 'record_bet_data' },
+        messages: [{ role: 'user', content }],
+      }),
+    });
+  } catch (e) {
+    console.error('telegram-webhook: Anthropic fetch failed', (e as Error).message);
+    return jsonResponse({ ok: true });
+  }
+  if (!anthropicRes.ok) {
+    console.error('telegram-webhook: Anthropic вернул ошибку', anthropicRes.status, (await anthropicRes.text().catch(() => '')).slice(0, 500));
+    return jsonResponse({ ok: true });
+  }
+
+  const data = await anthropicRes.json();
+  const toolUse = (data.content || []).find((b: any) => b.type === 'tool_use' && b.name === 'record_bet_data');
+  // 02.09.2026: замечен случай, когда модель вместо {detected, bets} на
+  // верхнем уровне (как того требует BET_TOOL.input_schema) вернула
+  // {bets: "<весь правильный JSON, включая detected и bets, запакованный
+  // ЕЩЁ РАЗ строкой>"} — редкое искажение форматирования у модели на сложной
+  // вложенной схеме (bets[].legs[]), не воспроизводится стабильно. Раньше
+  // из-за этого toolUse.input.detected был undefined, ставка (реально верно
+  // распознанная) тихо терялась. Разворачиваем один уровень такой
+  // "двойной упаковки", если verdict.detected не нашёлся напрямую.
+  let verdict: any = toolUse?.input;
+  if (verdict && verdict.detected === undefined && typeof verdict.bets === 'string') {
+    try {
+      const unwrapped = JSON.parse(verdict.bets);
+      if (unwrapped && typeof unwrapped === 'object') verdict = unwrapped;
+    } catch (e) {
+      console.error('telegram-webhook: не удалось разобрать вложенный JSON в bets', (e as Error).message);
+    }
+  }
+  // 02.09.2026: страховка на случай, когда bets — настоящий непустой массив,
+  // а detected просто не пришло полем (не строка-обёртка выше, а буквально
+  // отсутствует) — модель явно распознала ставки, забытое поле detected не
+  // повод их выбрасывать. Блокирует только ЯВНОЕ detected: false.
+  const detectedBets = verdict?.detected !== false && Array.isArray(verdict?.bets) ? verdict.bets : [];
+  // Временное диагностическое логирование (01.09.2026) — раньше при
+  // detected:false не логировалось вообще ничего, что делало "почему не
+  // распозналось" непроверяемым без гадания. Печатаем сырой вердикт модели
+  // целиком (не только bets.length), чтобы видеть даже случай, когда модель
+  // не вызвала tool_use вовсе (toolUse === undefined, например если ответ
+  // модели был усечён/сломан).
+  console.log(`telegram-webhook: verdict detected=${verdict?.detected} betsCount=${Array.isArray(verdict?.bets) ? verdict.bets.length : 'n/a'} toolUsePresent=${!!toolUse} raw=${JSON.stringify(toolUse?.input ?? data).slice(0, 1500)}`);
+
+  if (!detectedBets.length) {
+    // 02.09.2026: раньше здесь БЕЗУСЛОВНО чистили старую запись по этому
+    // message_id перед этой же проверкой — из-за чего настоящий баг: Telegram
+    // сам, без участия пользователя, шлёт "фантомный" edited_channel_post
+    // через несколько секунд после публикации поста со ссылкой (подтягивает
+    // превью ссылки) — с тем же message_id. Наша функция честно перепроверяла
+    // такую фантомную правку моделью заново, и если та (не гарантированно
+    // детерминированная на грани, тот же текст может дать разный вердикт)
+    // на этот раз отвечала "не ставка" — старая, уже правильно распознанная
+    // и показанная пользователю карточка стиралась без замены, без всякого
+    // действия человека. Обнаружено по факту: карточка "пропала из очереди
+    // после изменения поста", хотя пользователь ничего не трогал — четвёртый
+    // DELETE в API-логах Supabase, не привязанный ни к одному успешному
+    // вызову с bets>0.
+    //
+    // Фикс: если СЕЙЧАС модель не считает пост ставкой — просто ничего не
+    // делаем и выходим, НЕ трогая то, что уже могло лежать в очереди по этому
+    // message_id. Худший случай — в очереди останется чуть устаревшая
+    // карточка (пользователь сам отклонит её кнопкой «Отклонить», если она
+    // больше не актуальна) — что несравнимо безопаснее, чем молча терять уже
+    // подтверждённо распознанные данные из-за шумной/фантомной правки.
+    return jsonResponse({ ok: true });
+  }
+
+  // Чистим то, что было по этому message_id раньше — только здесь, ПЕРЕД
+  // вставкой новой версии, а не заранее "на всякий случай". Две причины:
+  //   1) Правка поста — новый результат заменяет старую карточку, а не
+  //      добавляется второй (см. заголовок файла, п.3).
+  //   2) Telegram может ПОВТОРНО доставить один и тот же channel_post (если
+  //      функция не ответила достаточно быстро) — без этой чистки повторная
+  //      доставка вставила бы дубликат. На обычном новом посте это
+  //      безопасный no-op — удалять по этому message_id ещё нечего.
+  await clearPendingForMessage(userId, post.message_id, supabaseUrl, serviceKey);
+  await convertStakesToUsd(detectedBets);
+
+  // raw_text для очереди на telegram-import.html — при посте-картинке без
+  // подписи там нечего показать как "исходный текст", подставляем короткую
+  // пометку, чтобы карточка в очереди не выглядела пустой/сломанной.
+  const rawTextForStorage = textOrCaption || (image ? '[скриншот]' : '');
+
+  const rows = detectedBets.map((b: any) => ({
+    user_id: userId,
+    channel: targetChannel,
+    telegram_message_id: post.message_id ?? null,
+    raw_text: rawTextForStorage,
+    parsed: b,
+  }));
+  const insertRes = await supaFetch('telegram_pending_bets', {
+    method: 'POST',
+    body: JSON.stringify(rows),
+  }, supabaseUrl, serviceKey);
+  if (!insertRes.ok) {
+    console.error('telegram-webhook: insert telegram_pending_bets failed', insertRes.status, await insertRes.text().catch(() => ''));
+    return jsonResponse({ ok: true });
+  }
+
+  console.log(`telegram-webhook: user_id=${userId} chat_id=${chatId} bets=${rows.length} image=${!!image} edit=${isEdit} -> telegram_pending_bets`);
+  return jsonResponse({ ok: true });
+});
