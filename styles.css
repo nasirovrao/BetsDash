@@ -131,8 +131,13 @@ h1,h2{ font-family: 'Space Grotesk', -apple-system, sans-serif; font-weight: 600
 .stake-leg-bookmaker{ flex:1 1 auto; }
 .stake-leg-odds{ flex:0 0 90px; }
 .stake-leg-stake{ flex:0 0 120px; }
+/* .stake-leg-row — внешняя обёртка (букмекер/кэф/сумма/✕ первой строкой,
+   необязательная "своя формулировка исхода" второй, во всю ширину) —
+   09.09.2026, по запросу "на Олимпе брал ТМ 76.5, на Cloudbet ТМ 75.5". */
+.stake-leg-main{ margin-bottom:6px; }
+.stake-leg-pick{ width:100%; font-size:13px; }
 @media (max-width: 560px){
-  .stake-leg-row{ flex-wrap:wrap; }
+  .stake-leg-main{ flex-wrap:wrap; }
   .stake-leg-bookmaker{ flex:1 1 100%; }
   .stake-leg-odds, .stake-leg-stake{ flex:1 1 0; }
 }
@@ -152,6 +157,9 @@ h1,h2{ font-family: 'Space Grotesk', -apple-system, sans-serif; font-weight: 600
 .bet-card-leg-bk{ flex:1 1 auto; color: var(--ink); }
 .bet-card-leg-odds{ flex:none; }
 .bet-card-leg-stake{ flex:none; min-width:60px; text-align:right; }
+/* Своя формулировка исхода этой части, если отличается от общего "Пика"
+   карточки (например другая линия тотала/форы у конкретного букмекера). */
+.bet-card-leg-pick{ font-size:11.5px; color: var(--ink-faint); margin:-2px 0 2px 2px; font-style:italic; }
 .hedge-preview-value{
   font-family:'JetBrains Mono', monospace; font-size:14.5px; font-weight:600; padding:11px 13px;
   border:1px dashed var(--line); border-radius: var(--radius); background: var(--bg-raised); color: var(--ink-dim);

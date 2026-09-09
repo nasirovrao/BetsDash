@@ -8,7 +8,7 @@
 <link rel="preconnect" href="https://fonts.googleapis.com">
 <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
 <link href="https://fonts.googleapis.com/css2?family=Unbounded:wght@600;700;800&family=Golos+Text:wght@400;500;600;700&family=JetBrains+Mono:wght@400;500;600&display=swap" rel="stylesheet">
-<link rel="stylesheet" href="styles.css?v=31">
+<link rel="stylesheet" href="styles.css?v=32">
 <!-- EDGE 2.0 — новая дизайн-система (палитра/типографика/фон), см. styles-edge2.css -->
 <link rel="stylesheet" href="styles-edge2.css?v=3">
 <link rel="stylesheet" href="styles-edge3.css?v=3">
@@ -77,6 +77,19 @@
     margin-top:10px; margin-right:8px; background:none; border:1px solid var(--line); color:var(--ink-dim);
     border-radius:8px; padding:5px 12px; font-size:12px; cursor:pointer;
   }
+  /* 09.09.2026: "научить" модель прямо из баннера проверки — см.
+     renderQueueBanner. Отдельный приглушённый блок ВНУТРИ баннера (не
+     rust/gold, это не предупреждение, а приглашение к действию). */
+  .parse-review-banner .prb-teach{
+    margin-top:10px; padding-top:10px; border-top:1px dashed var(--line-soft);
+    color:var(--ink-dim); font-size:12.5px;
+  }
+  .parse-review-banner .prb-teach-btn{
+    display:block; margin-top:8px; background:none; border:1px solid var(--gold); color:var(--gold);
+    border-radius:8px; padding:5px 12px; font-size:12px; cursor:pointer;
+  }
+  .parse-review-banner .prb-teach-btn:hover{ background:var(--gold); color:var(--gold-ink); }
+  .parse-review-banner .prb-teach-status{ display:block; margin-top:6px; font-size:11.5px; color:var(--ink-faint); }
   .field.parse-uncertain input,
   .field.parse-uncertain select{ border-color:var(--rust) !important; }
   .field.parse-uncertain label::after{ content:" ⚠"; color:var(--rust); }
@@ -479,9 +492,24 @@
   // удобства — от Флета считается "Профит по флетам" (computeFlatStats в
   // lib.js), и если сумму подправили руками, а флет не тронули, эта метрика
   // станет врать по этой конкретной ставке.
+  // 09.09.2026: баг — при разбитой по букмекерам ставке "Флет" считался
+  // только от суммы ПЕРВОЙ части (f_stake), доп. части (см. stakeLegsList
+  // ниже по файлу) не учитывались вообще — итоговый флет карточки выходил
+  // сильно заниженным (например 0.10× вместо честных ~0.3× на реальную
+  // сумму всех частей). totalStakeForFlat() — сумма именно как её видит
+  // пользователь ПРЯМО СЕЙЧАС (даже если доп. часть ещё не полностью
+  // заполнена — букмекер/кэф не обязательны для этого подсчёта, важна
+  // только цифра в поле "Сумма").
+  function totalStakeForFlat(){
+    const own = Number(stakeInput.value) || 0;
+    const extra = stakeLegsList
+      ? Array.from(stakeLegsList.querySelectorAll('.stake-leg-stake')).reduce((s, i) => s + (Number(i.value) || 0), 0)
+      : 0;
+    return own + extra;
+  }
   function applyStakeToFlat() {
     if (!defaultFlatSize) return;
-    const stakeVal = Number(stakeInput.value);
+    const stakeVal = totalStakeForFlat();
     if (!stakeVal || stakeVal <= 0) return;
     flatInput.value = (stakeVal / defaultFlatSize).toFixed(2);
   }
@@ -841,31 +869,42 @@
   // вообще не нажимал "+ ещё букмекер" — обычная нераздельная ставка
   // сохраняется ровно как раньше, group_id остаётся null.
   // ---------------------------------------------------------------------
-  function makeStakeLegRow(bookmaker, odds, stake, existingId){
+  // pick — необязательная СВОЯ формулировка исхода именно для этой части
+  // (09.09.2026, по прямому запросу: "на Олимпе брал ТМ 76.5, а на Cloudbet
+  // ТМ 75.5" — разные букмекеры реально могут давать разные линии на один
+  // и тот же матч, это не опечатка и не редкий случай для тотала/форы).
+  // Пусто = эта часть использует общий "Пик" формы, как и раньше.
+  function makeStakeLegRow(bookmaker, odds, stake, existingId, pick){
     const row = document.createElement('div');
-    row.className = 'express-leg-row stake-leg-row';
+    row.className = 'stake-leg-row';
     row.dataset.legId = existingId || '';
     row.innerHTML = `
-      <input type="text" class="leg-input stake-leg-bookmaker" placeholder="Букмекер" list="stakeLegBookmakerList" required>
-      <input type="number" class="leg-input stake-leg-odds" step="0.001" min="1.01" placeholder="Кэф" required>
-      <input type="number" class="leg-input stake-leg-stake" step="0.01" min="0.01" placeholder="Сумма ($)" required>
-      <button type="button" class="leg-remove-btn" title="Убрать часть">✕</button>
+      <div class="express-leg-row stake-leg-main">
+        <input type="text" class="leg-input stake-leg-bookmaker" placeholder="Букмекер" list="stakeLegBookmakerList" required>
+        <input type="number" class="leg-input stake-leg-odds" step="0.001" min="1.01" placeholder="Кэф" required>
+        <input type="number" class="leg-input stake-leg-stake" step="0.01" min="0.01" placeholder="Сумма ($)" required>
+        <button type="button" class="leg-remove-btn" title="Убрать часть">✕</button>
+      </div>
+      <input type="text" class="leg-input stake-leg-pick" placeholder="Своя формулировка исхода — необязательно, если тут другая линия (например «ТМ 75.5»)">
     `;
     row.querySelector('.stake-leg-bookmaker').value = bookmaker || '';
     row.querySelector('.stake-leg-odds').value = odds != null ? odds : '';
     row.querySelector('.stake-leg-stake').value = stake != null ? stake : '';
-    row.querySelector('.stake-leg-stake').addEventListener('input', updateStakeLegsTotalNote);
+    row.querySelector('.stake-leg-pick').value = pick || '';
+    row.querySelector('.stake-leg-stake').addEventListener('input', () => { updateStakeLegsTotalNote(); applyStakeToFlat(); });
     row.querySelector('.leg-remove-btn').addEventListener('click', () => {
       row.remove();
       if (!stakeLegsList.children.length) setSplitMode(false);
       updateStakeLegsTotalNote();
+      applyStakeToFlat();
     });
     return row;
   }
 
-  function addStakeLegRow(bookmaker, odds, stake, existingId){
-    stakeLegsList.appendChild(makeStakeLegRow(bookmaker, odds, stake, existingId));
+  function addStakeLegRow(bookmaker, odds, stake, existingId, pick){
+    stakeLegsList.appendChild(makeStakeLegRow(bookmaker, odds, stake, existingId, pick));
     updateStakeLegsTotalNote();
+    applyStakeToFlat();
   }
 
   function clearStakeLegs(){
@@ -873,9 +912,14 @@
     stakeLegsTotalNote.textContent = '';
   }
 
-  function populateStakeLegs(legs){
+  // sharedPick — текущий общий "Пик" формы (bet.pick того, кого редактируем)
+  // — доп. часть показывает поле "своя формулировка" ЗАПОЛНЕННЫМ только если
+  // у неё реально СВОЙ, отличный от общего, пик (иначе поле лучше оставить
+  // пустым — так виднее, что это именно исключение, а не факт для каждой
+  // части).
+  function populateStakeLegs(legs, sharedPick){
     clearStakeLegs();
-    (legs || []).forEach(l => addStakeLegRow(l.bookmaker, l.odds, l.stake, l.id));
+    (legs || []).forEach(l => addStakeLegRow(l.bookmaker, l.odds, l.stake, l.id, l.pick && l.pick !== sharedPick ? l.pick : ''));
   }
 
   // Просто справочная подсказка "Итого по всем частям: $X" — ничего не
@@ -913,6 +957,7 @@
       bookmaker: row.querySelector('.stake-leg-bookmaker').value.trim(),
       odds: Number(row.querySelector('.stake-leg-odds').value),
       stake: Number(row.querySelector('.stake-leg-stake').value),
+      pick: row.querySelector('.stake-leg-pick').value.trim() || null,
     })).filter(l => l.bookmaker && l.odds > 1 && l.stake > 0);
   }
 
@@ -1061,6 +1106,10 @@
     const profit = isGroup ? groupProfit : computeProfit(bet);
     const profitCls = profit == null ? '' : profit > 0 ? 'pos-text' : profit < 0 ? 'neg-text' : '';
     const { title, bodyHtml, hasMatch } = cardTitleAndBody(bet);
+    // 09.09.2026: у части может быть СВОЯ линия/формулировка исхода (например
+    // ТМ 76.5 на одном букмекере и ТМ 75.5 на другом) — если l.pick реально
+    // отличается от общего bet.pick, показываем её отдельной приглушённой
+    // строкой под букмекером этой части, а не молча теряем разницу.
     const legsHtml = isGroup ? `
       <div class="bet-card-legs">
         ${legs.map(l => `
@@ -1068,7 +1117,8 @@
             <span class="bet-card-leg-bk">${escapeHtml(l.bookmaker)}</span>
             <span class="bet-card-leg-odds">@${Number(l.odds).toFixed(2)}</span>
             <span class="bet-card-leg-stake">${fm(Number(l.stake))}</span>
-          </div>`).join('')}
+          </div>
+          ${l.pick && l.pick !== bet.pick ? `<div class="bet-card-leg-pick">${escapeHtml(l.pick)}</div>` : ''}`).join('')}
       </div>` : '';
     div.innerHTML = `
       <div class="bet-card-main">
@@ -1793,7 +1843,14 @@
 
     if (extraLegs && extraLegs.length) {
       setSplitMode(true);
-      populateStakeLegs(extraLegs);
+      populateStakeLegs(extraLegs, bet.pick);
+      // populateStakeLegs выше уже пересчитала "Флет" через applyStakeToFlat
+      // (если задан "Флет по умолчанию" для канала) — но точнее просто
+      // сложить исторические flat_mult всех "ног" как они были сохранены:
+      // работает даже без "Флета по умолчанию", и не зависит от того, не
+      // менялась ли эта настройка с момента, когда ставка создавалась.
+      const historicalTotal = Number(bet.flat_mult || 0) + extraLegs.reduce((s, l) => s + Number(l.flat_mult || 0), 0);
+      if (historicalTotal > 0) document.getElementById('f_flat').value = historicalTotal.toFixed(4).replace(/0+$/, '').replace(/\.$/, '');
     } else {
       setSplitMode(false);
       clearStakeLegs();
@@ -1955,6 +2012,12 @@
         bookmaker: l.bookmaker,
         odds: l.odds,
         stake: l.stake,
+        // 09.09.2026: "на Олимпе брал ТМ 76.5, а на Cloudbet ТМ 75.5" —
+        // разные букмекеры реально дают разные линии на один и тот же матч.
+        // l.pick (необязательное поле "своя формулировка" у доп. части)
+        // перекрывает общий sharedPayload.pick ТОЛЬКО для этой ноги, если
+        // заполнено — иначе часть использует общий пик формы, как раньше.
+        pick: l.pick || sharedPayload.pick,
         // toFixed(4) — без округления доля от деления могла давать длинные
         // "0.06309148264984227", некрасиво в поле "Флет" при повторном
         // редактировании; 4 знака более чем достаточно для флет-множителя.
@@ -2121,6 +2184,28 @@
     bookmakerSelect.value = trimmed;
   }
 
+  // 09.09.2026: то же сохранение референса, что и в confirmAddBookmaker
+  // (кнопка "+" у поля "Букмекер"), но вызывается из баннера проверки
+  // распознанной ставки — "модель не узнала букмекера, вот тебе шанс тут же
+  // прямо этим скриншотом её научить", без похода в отдельную форму.
+  async function saveBookmakerReference(name, base64, mimeType){
+    const known = [...DEFAULT_BOOKMAKERS, ...customBookmakers];
+    const exists = known.some(n => n.toLowerCase() === name.toLowerCase());
+    const canonicalName = exists ? known.find(n => n.toLowerCase() === name.toLowerCase()) : name;
+    const updated = exists ? customBookmakers : [...customBookmakers, name];
+    const updatedNotes = { ...bookmakerNotes, [canonicalName]: { image: base64, mimeType } };
+    const payload = { custom_bookmakers: updated, bookmaker_notes: updatedNotes };
+    const { error } = settingsRowExists
+      ? await supabase.from('settings').update(payload).eq('user_id', ownerUserId).eq('channel', activeChannel)
+      : await supabase.from('settings').insert({ user_id: ownerUserId, channel: activeChannel, ...payload });
+    if (error) return { error };
+    settingsRowExists = true;
+    customBookmakers = updated;
+    bookmakerNotes = updatedNotes;
+    renderBookmakerOptions();
+    return { error: null, canonicalName };
+  }
+
   function showParseBanner(html, low){
     parseReviewBanner.className = 'parse-review-banner' + (low ? ' low' : '');
     parseReviewBanner.innerHTML = html;
@@ -2145,6 +2230,13 @@
   // очереди (DELETE), иначе она останется висеть в telegram-import.html как
   // будто ещё не обработана, и её можно было бы случайно добавить дважды.
   let telegramPendingId = null;
+  // 09.09.2026: последний УСПЕШНО распознанный скриншот (тот самый файл,
+  // который сейчас лежит в очереди на проверку) — держим здесь, чтобы можно
+  // было предложить "сохранить этот же скриншот как референс букмекера",
+  // если модель его не распознала (см. renderQueueBanner ниже). Для
+  // многоставочного скриншота (несколько карточек истории) все ставки
+  // очереди делят один и тот же исходный файл — это ожидаемо и корректно.
+  let lastParsedScreenshot = null;
 
   // Заполняет саму форму данными ОДНОЙ распознанной ставки — общая часть
   // для одиночного скриншота и для каждого шага очереди.
@@ -2227,11 +2319,26 @@
     const cancelBtn = total > 1
       ? `<button type="button" class="prb-dismiss" id="prbCancelBtn">Прервать очередь (осталось ${total - parseQueueIndex})</button>`
       : '';
+    // 09.09.2026: прямой отчёт "модель либо путает букмекера, либо оставляет
+    // поле пустым" — механизм научить её уже был (референс-скриншот через
+    // "+" у поля "Букмекер"), просто спрятан и требовал отдельного захода.
+    // Здесь — тот же самый уже загруженный скриншот предлагается сохранить
+    // как референс сразу в момент, когда видно, что букмекер не распознался
+    // или распознался с неуверенностью: пользователь и так уже открывает
+    // форму, чтобы вписать/поправить букмекера руками — грех не сохранить.
+    const bookmakerNeedsTeaching = !bet.bookmaker || fieldsToFlag.includes('Букмекер');
+    const teachBlock = (bookmakerNeedsTeaching && lastParsedScreenshot)
+      ? `<div class="prb-teach">
+          📎 Букмекера модель не узнала. Впиши его в форме выше и сохрани этот же скриншот как пример — в следующий раз узнает сама.
+          <button type="button" class="prb-teach-btn" id="prbTeachBtn">Сохранить как пример букмекера</button>
+          <span class="prb-teach-status" id="prbTeachStatus"></span>
+        </div>`
+      : '';
     showParseBanner(
       progressLine +
       `<div class="prb-title">${low ? '⚠' : '✓'} Заполнено по ${parseSourceLabel} — проверь перед сохранением</div>` +
       `Ставка ещё НЕ сохранена. Уверенность распознавания: ${confidenceLabel}` +
-      `${fieldsToFlag.length ? ', особенно перепроверь поля, отмеченные красным' : ''}.` + uncertainList +
+      `${fieldsToFlag.length ? ', особенно перепроверь поля, отмеченные красным' : ''}.` + uncertainList + teachBlock +
       `<button type="button" class="prb-dismiss" id="prbDismissBtn">Скрыть подсказку</button>` + skipBtn + cancelBtn,
       low
     );
@@ -2244,6 +2351,22 @@
       parseQueueIndex = 0;
       parseReviewBanner.style.display = 'none';
     });
+    const teachBtn = document.getElementById('prbTeachBtn');
+    if (teachBtn) teachBtn.addEventListener('click', async () => {
+      const statusEl = document.getElementById('prbTeachStatus');
+      const name = document.getElementById('f_bookmaker').value.trim();
+      if (!name) { statusEl.textContent = 'Сначала укажи букмекера в форме выше.'; return; }
+      teachBtn.disabled = true;
+      statusEl.textContent = 'Сохраняю…';
+      const { error } = await saveBookmakerReference(name, lastParsedScreenshot.base64, lastParsedScreenshot.mimeType);
+      if (error) {
+        teachBtn.disabled = false;
+        statusEl.textContent = 'Не удалось сохранить: ' + error.message;
+        return;
+      }
+      statusEl.textContent = `Готово ✓ — «${name}» теперь узнаётся по этому примеру.`;
+      teachBtn.style.display = 'none';
+    });
   }
 
   // i >= длины очереди -> всё обработано, просто гасим очередь молча
@@ -2253,6 +2376,7 @@
     if (i >= parseQueue.length) {
       parseQueue = [];
       parseQueueIndex = 0;
+      lastParsedScreenshot = null;
       parseReviewBanner.style.display = 'none';
       return;
     }
@@ -2327,6 +2451,7 @@
       }
       parseSourceLabel = 'скриншоту';
       telegramPendingId = null;
+      lastParsedScreenshot = { base64, mimeType: file.type };
       parseQueue = bets;
       loadParseQueueItem(0);
       if (usingLegacyShape) {
