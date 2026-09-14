@@ -32,11 +32,11 @@
 <link rel="preconnect" href="https://fonts.googleapis.com">
 <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
 <link href="https://fonts.googleapis.com/css2?family=Unbounded:wght@600;700;800&family=Golos+Text:wght@400;500;600;700&family=JetBrains+Mono:wght@400;500;600&display=swap" rel="stylesheet">
-<link rel="stylesheet" href="styles.css?v=32">
+<link rel="stylesheet" href="styles.css?v=33">
 <!-- EDGE 2.0 — новая дизайн-система (палитра/типографика/фон), см. styles-edge2.css -->
 <link rel="stylesheet" href="styles-edge2.css?v=3">
 <link rel="stylesheet" href="styles-edge3.css?v=3">
-<link rel="stylesheet" href="styles-edge4.css?v=2">
+<link rel="stylesheet" href="styles-edge4.css?v=3">
 <link rel="stylesheet" href="styles-edge5.css?v=1">
 <script src="theme-toggle.js" defer></script>
 </head>
@@ -80,7 +80,7 @@
     computeRatingTier, computeSpecialization, renderProfileBanner, wasEditedAfterSettle,
     initEmailPrivacyToggle, getDisplayCurrency,
     monthKeyOf, monthLabelOf, weekKeyOf, weekLabelOf, dayKeyOf, dayLabelOf, monthYearGenitiveOf,
-    computeTopBets, computeProfit,
+    computeTopBets, computeProfit, disciplineIconOf,
   } from './lib.js';
 
   // 02.09.2026: фильтр по периоду на вкладке "Дашборд" публичного профиля —
@@ -400,7 +400,7 @@
             </div>
             ${periodStatsHtml}
             ${bestStatsHtml}
-            ${specialization.length ? `<div class="pf-spec">${specialization.map(sp => `<span class="pf-spec-chip"><span class="pf-spec-bar"><i style="width:${sp.pct}%"></i></span>${escapeHtml(sp.discipline)} <b>${sp.pct}%</b></span>`).join('')}</div>` : ''}
+            ${specialization.length ? `<div class="pf-spec">${specialization.map(sp => `<span class="pf-spec-chip">${disciplineIconOf(sp.discipline, 'discipline-icon')}<span class="pf-spec-bar"><i style="width:${sp.pct}%"></i></span>${escapeHtml(sp.discipline)} <b>${sp.pct}%</b></span>`).join('')}</div>` : ''}
             <div class="pf-rating is-collapsed" id="pfRatingBox">
               <div class="pf-rating-head" id="pfRatingToggle" role="button" tabindex="0" aria-expanded="false" aria-controls="pfRatingBody">
                 <div class="pf-rating-tier">${rating.tierName}</div>
@@ -409,7 +409,12 @@
               <div class="pf-rating-body" id="pfRatingBody" hidden>
                 <div class="pf-rating-track"><div class="pf-rating-fill" style="width:${rating.score}%"></div></div>
                 <div class="pf-rating-ticks">${rating.tiers.map(t => `<span>${t}</span>`).join('')}</div>
-                <div class="pf-rating-note">Сейчас грейд считается по количеству закрытых ставок — <b>${rating.closedCount}</b>, чем больше отслеженная история, тем выше рейтинг. В планах — добавить и другие факторы: стабильность серии, точность CLV, активность в канале и реакцию подписчиков.</div>
+                <!-- 14.09.2026: "рейтинг" в этом тексте убрали намеренно — сам
+                     грейд считается ЧИСТО по объёму истории (см. computeRatingTier
+                     в lib.js), это метрика активности/объёма, не честности/навыка.
+                     Слово "рейтинг" рядом с "чем больше... тем выше" звучало как
+                     обещание оценки качества, которого формула пока не даёт. -->
+                <div class="pf-rating-note">Сейчас грейд считается по количеству закрытых ставок — <b>${rating.closedCount}</b>, чем больше отслеженная история, тем выше показатель активности. В планах — добавить и другие факторы: стабильность серии, точность CLV, активность в канале и реакцию подписчиков.</div>
               </div>
             </div>
             <div class="trust-note" style="margin-top:16px;">
@@ -616,11 +621,16 @@
         }
 
         function renderBreakdownTab(labelHeader, groups, keyLabel2, hideBookmakerCol) {
+          // 14.09.2026: иконка дисциплины — только для вкладки "Дисциплина",
+          // остальные (Букмекер/Рынок/Команда) через тот же renderBreakdownTab
+          // не трогаем, определяем по самому labelHeader, не по отдельному
+          // параметру — во всех 4 вызовах ниже менять ничего не пришлось.
+          const showDisciplineIcon = labelHeader === 'Дисциплина';
           if (keyParam) {
             const group = groups.find(g => g.key === keyParam);
-            return renderBreakdownDetail(labelHeader, keyParam, group, pageFile, !!hideBookmakerCol, dispCurrency, dispRate);
+            return renderBreakdownDetail(labelHeader, keyParam, group, pageFile, !!hideBookmakerCol, dispCurrency, dispRate, showDisciplineIcon);
           }
-          return renderGroupCards(groups, labelHeader, pageFile, dispCurrency, dispRate);
+          return renderGroupCards(groups, labelHeader, pageFile, dispCurrency, dispRate, showDisciplineIcon);
         }
 
         let html = '';

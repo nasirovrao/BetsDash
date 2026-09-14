@@ -513,9 +513,18 @@ table.bets-table tbody tr:hover td.num{ color: var(--gold); }
 .meta-chip{
   font-family:'JetBrains Mono', monospace; font-size:10.5px; text-transform:uppercase; letter-spacing:0.03em;
   background: var(--bg-card); border:1px solid var(--line); color: var(--ink-faint); padding:2px 8px; border-radius:20px;
+  /* 14.09.2026: inline-flex+gap — на голых текстовых чипах (букмекер/турнир)
+     эффекта нет (один child, gap не на что тратить), а на чипе дисциплины
+     теперь выравнивает значок дисциплины (.discipline-icon) с текстом. */
+  display:inline-flex; align-items:center; gap:4px;
 }
 .bet-card:hover .meta-chip{ border-color: var(--line); color: var(--ink-dim); }
 .meta-date{ font-family:'JetBrains Mono', monospace; font-size:11px; color: var(--ink-faint); }
+/* Общий класс под disciplineIconOf() (lib.js) — используется в чипах/лейблах
+   по всему сайту (карточка ставки, лента, публичный профиль, разбивка "По
+   дисциплинам"), везде один и тот же размер и flex:none (не сжимается,
+   если текст рядом длинный). */
+.discipline-icon{ width:11px; height:11px; flex:none; }
 .bet-leg{
   font-size:13px; color: var(--ink-dim); padding-left:14px; position:relative; margin-bottom:4px; line-height:1.4;
 }
@@ -666,7 +675,15 @@ table.bets-table tbody tr:hover td.num{ color: var(--gold); }
 .bd-card-link:hover{ border-color: var(--gold); background: var(--bg-raised); transform: translateY(-2px); }
 .bd-card-link:hover .bd-card-arrow{ opacity:1; transform: translateX(2px); }
 .bd-card-head{ display:flex; align-items:flex-start; justify-content:space-between; gap:10px; margin-bottom:12px; }
-.bd-card-name{ font-family:'Space Grotesk', sans-serif; font-weight:600; font-size:16px; color: var(--ink); line-height:1.3; }
+.bd-card-name{
+  font-family:'Space Grotesk', sans-serif; font-weight:600; font-size:16px; color: var(--ink); line-height:1.3;
+  /* 14.09.2026: только на "По дисциплинам" (disciplines.html передаёт свой
+     необязательный showIcon-параметр в renderGroupCards) внутри окажется
+     .discipline-icon-lg — на остальных разбивках (букмекеры/команды/etc,
+     тот же общий рендерер) просто текст, display:flex тут ни на что не
+     влияет без второго ребёнка. */
+  display:flex; align-items:center; gap:8px;
+}
 .bd-card-count{ font-family:'JetBrains Mono', monospace; font-size:10.5px; text-transform:uppercase; letter-spacing:0.04em; color: var(--ink-faint); white-space:nowrap; flex:none; margin-top:2px; }
 .bd-card-desc{ font-size:12.5px; color: var(--ink-faint); line-height:1.4; margin:-6px 0 14px; }
 .bd-card-bar{ height:5px; border-radius:4px; background: var(--line-soft); overflow:hidden; margin-bottom:16px; }
@@ -689,7 +706,8 @@ table.bets-table tbody tr:hover td.num{ color: var(--gold); }
 .bd-back:hover{ color: var(--gold); }
 .bd-detail-head{ margin-bottom:20px; }
 .bd-detail-label{ font-family:'JetBrains Mono', monospace; font-size:11px; text-transform:uppercase; letter-spacing:0.05em; color: var(--ink-faint); margin-bottom:4px; }
-.bd-detail-name{ font-size:26px; }
+.bd-detail-name{ font-size:26px; display:flex; align-items:center; gap:10px; }
+.discipline-icon-lg{ width:22px; height:22px; flex:none; color: var(--gold); }
 .bd-detail-desc{ margin-top:8px; font-size:13.5px; color: var(--ink-dim); max-width:560px; line-height:1.5; }
 
 /* ---- дашборд: текущая серия ---- */

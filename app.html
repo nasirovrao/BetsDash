@@ -8,7 +8,7 @@
 <link rel="preconnect" href="https://fonts.googleapis.com">
 <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
 <link href="https://fonts.googleapis.com/css2?family=Unbounded:wght@600;700;800&family=Golos+Text:wght@400;500;600;700&family=JetBrains+Mono:wght@400;500;600&display=swap" rel="stylesheet">
-<link rel="stylesheet" href="styles.css?v=32">
+<link rel="stylesheet" href="styles.css?v=33">
 <!-- EDGE 2.0 — новая дизайн-система (палитра/типографика/фон), см. styles-edge2.css -->
 <link rel="stylesheet" href="styles-edge2.css?v=3">
 <link rel="stylesheet" href="styles-edge3.css?v=3">
@@ -422,7 +422,7 @@
 
 <script type="module">
   import { supabase, requireSession, isClvEnabled } from './supabase-client.js';
-  import { computeProfit, fmtMoney, computeStats, computeFlatStats, weekKeyOf, monthKeyOf, getChannelParams, loadMyChannels, renderChannelSwitch, preserveChannelInNav, initEmailPrivacyToggle, initNavDropdown, applyNavModes, channelHref, fmtDateTime, getDisplayCurrency, groupBetLegs } from './lib.js';
+  import { computeProfit, fmtMoney, computeStats, computeFlatStats, weekKeyOf, monthKeyOf, getChannelParams, loadMyChannels, renderChannelSwitch, preserveChannelInNav, initEmailPrivacyToggle, initNavDropdown, applyNavModes, channelHref, fmtDateTime, getDisplayCurrency, groupBetLegs, disciplineIconOf } from './lib.js';
 
   const session = await requireSession();
   if (session) {
@@ -1126,7 +1126,7 @@
         ${bodyHtml}
         ${legsHtml}
         <div class="bet-card-meta">
-          <span class="meta-chip">${escapeHtml(bet.discipline)}</span>
+          <span class="meta-chip">${disciplineIconOf(bet.discipline, 'discipline-icon')}${escapeHtml(bet.discipline)}</span>
           ${isGroup ? `<span class="meta-chip">${legs.length} букмекера</span>` : `<span class="meta-chip">${escapeHtml(bet.bookmaker)}</span>`}
           ${bet.tournament ? `<span class="meta-chip">${escapeHtml(bet.tournament)}</span>` : ''}
           ${bet.edge_tag ? `<span class="tag-chip">${escapeHtml(bet.edge_tag)}</span>` : ''}

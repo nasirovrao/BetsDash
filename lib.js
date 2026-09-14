@@ -495,6 +495,57 @@ export function escapeHtml(s) {
   return String(s ?? '').replace(/[&<>"']/g, c => ({ '&': '&amp;', '<': '&lt;', '>': '&gt;', '"': '&quot;', "'": '&#39;' }[c]));
 }
 
+// ---------------------------------------------------------------------
+// 14.09.2026, "Иконки дисциплин по всему сайту" (CHANGELOG) — discipline
+// это свободный текст (b.discipline вводится вручную, не enum), гарантированного
+// конечного списка значений нет. Решение — вариант (1) из открытого вопроса
+// в CHANGELOG: курируем иконки только под явно узнаваемые тайтлы (те, что
+// реально встречаются в базе — 4 киберспортивные + 4 обычных вида спорта),
+// для всего остального — нейтральная иконка-заглушка, а не попытка угадать.
+// Порядок проверки важен: "table tennis"/"настольный теннис" должны поймать
+// tabletennis РАНЬШЕ общего tennis-паттерна (иначе "table tennis" тоже
+// подошло бы под /tennis/i и получил бы не тот значок).
+//
+// Каждая запись — [regexp, svgInnerMarkup]. viewBox везде 16x16,
+// stroke=currentColor (наследует цвет текста чипа/лейбла само, без лишней
+// разметки на вызывающей стороне) — тот же паттерн, что у других
+// hand-drawn SVG-иконок по сайту (nav-dropdown-caret, brand-mark и т.д.),
+// не эмодзи (сознательно — см. "цветные эмодзи-иконки заменены на SVG").
+const DISCIPLINE_ICON_RULES = [
+  // 14.09.2026: по прямому отзыву ("трудно отличить с первого взгляда") —
+  // переработаны на заметно более различимые СИЛУЭТЫ, каждый в своей
+  // геометрической "семье" (круг/эгида для Dota2 vs угловатый гекс-герб
+  // для LOL — обе MOBA, раньше были слишком похожи; угол-стрела для
+  // Valorant vs круглый прицел для CS2 — обе тактические, тоже раньше
+  // путались). Это СВОИ, придуманные с нуля формы, вдохновлённые темой
+  // игры (глаз/эгида для Dota2, угловатость для Valorant) — НЕ копии и
+  // не попытка имитации официальных логотипов Valve/Riot Games (те —
+  // зарегистрированные товарные знаки, точное воспроизведение — открытый
+  // вопрос отдельно, см. CHANGELOG, копировать не стали сознательно).
+  [/dota\s*2?/i, '<circle cx="8" cy="8" r="6.2"/><path d="M4 8c1.5-2 2.7-2.8 4-2.8s2.5.8 4 2.8c-1.5 2-2.7 2.8-4 2.8S5.5 10 4 8z"/><circle cx="8" cy="8" r="1.2" fill="currentColor" stroke="none"/>'],
+  [/valorant/i, '<path d="M2.5 11.5L8 2l5.5 9.5h-3.3L8 6.2l-2.2 5.3z"/><path d="M5.3 14h5.4"/>'],
+  [/\bcs\s*:?\s*2\b|\bcs\s*:?\s*go\b|counter-?strike/i, '<circle cx="8" cy="8" r="5.6"/><circle cx="8" cy="8" r="1.6"/><line x1="8" y1="0.7" x2="8" y2="3"/><line x1="8" y1="13" x2="8" y2="15.3"/><line x1="0.7" y1="8" x2="3" y2="8"/><line x1="13" y1="8" x2="15.3" y2="8"/>'],
+  [/\block\b|league of legends/i, '<path d="M8 1.3l5.8 3.4v6.6L8 14.7l-5.8-3.4V4.7L8 1.3z"/><path d="M8 5l2.2 3.8L8 12.6 5.8 8.8 8 5z"/>'],
+  [/table\s*tennis|ping\s*pong|настольн\S*\s*тенн|пинг.?понг/i, '<circle cx="11.5" cy="4.5" r="2"/><path d="M9.7 6.3L2 14"/><path d="M2 14l1.5-4.5L7 11 2 14z"/>'],
+  [/tennis|теннис/i, '<circle cx="8" cy="8" r="6"/><path d="M2.3 5.5c2.2 1.6 2.2 7.4 0 9M13.7 5.5c-2.2 1.6-2.2 7.4 0 9"/>'],
+  [/football|soccer|футбол/i, '<circle cx="8" cy="8" r="6"/><path d="M8 5l2.4 1.7-.9 2.8H6.5l-.9-2.8L8 5z"/><path d="M8 5V2.3M10.4 6.7l2.4-1M9.5 9.5l1.6 2.2M6.5 9.5l-1.6 2.2M5.6 6.7l-2.4-1"/>'],
+  [/basketball|баскетбол/i, '<circle cx="8" cy="8" r="6"/><path d="M2 8h12M8 2v12M3.5 3.5c2.8 2.8 2.8 7.2 0 10M12.5 3.5c-2.8 2.8-2.8 7.2 0 10"/>'],
+];
+const DISCIPLINE_ICON_FALLBACK = '<circle cx="8" cy="8" r="1.4" fill="currentColor" stroke="none"/><circle cx="8" cy="8" r="6"/>';
+
+// Возвращает готовый <svg>...</svg> (viewBox 16x16, fill="none" stroke=
+// currentColor) для названия дисциплины — используется везде, где раньше
+// был просто escapeHtml(discipline). className необязателен — своя рамка
+// под размер/отступы у каждого места использования (чип в ленте ≠ карточка
+// разбивки), задаётся вызывающей стороной через CSS-класс, не инлайн-стилями.
+export function disciplineIconOf(name, className){
+  const n = String(name || '');
+  const rule = DISCIPLINE_ICON_RULES.find(([re]) => re.test(n));
+  const inner = rule ? rule[1] : DISCIPLINE_ICON_FALLBACK;
+  const cls = className ? ` class="${className}"` : '';
+  return `<svg${cls} viewBox="0 0 16 16" fill="none" stroke="currentColor" stroke-width="1.4" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true">${inner}</svg>`;
+}
+
 // Рендерит таблицу "группа → статистика" — используется на страницах
 // Сегментация, чтобы не повторять одну и ту же вёрстку таблицы.
 export function renderGroupTable(groups, labelHeader) {
@@ -527,7 +578,13 @@ export function renderGroupTable(groups, labelHeader) {
 // и мини-полоской винрейта; если pageFile задан — карточка кликабельна и
 // ведёт на ?key=... той же страницы, где renderBreakdownDetail() покажет
 // полную статистику и список ставок именно по этой сущности.
-export function renderGroupCards(groups, labelHeader, pageFile, currency, rate) {
+// showDisciplineIcon — необязательно, true только у disciplines.html (см.
+// "Иконки дисциплин по всему сайту", CHANGELOG): renderGroupCards общий для
+// По букмекерам/Рынки/Команды/Найденные эджи и т.д. — иконка дисциплины
+// имеет смысл ТОЛЬКО когда g.key реально название дисциплины, поэтому
+// параметр по умолчанию выключен, ни один другой вызывающий код трогать
+// не пришлось.
+export function renderGroupCards(groups, labelHeader, pageFile, currency, rate, showDisciplineIcon) {
   if (!groups.length) {
     return '<div class="empty-state">Пока нет данных для этой разбивки — добавь ставки с этим полем на странице «Ставки».</div>';
   }
@@ -543,7 +600,7 @@ export function renderGroupCards(groups, labelHeader, pageFile, currency, rate) 
     const barPct = Math.min(100, Math.abs(g.totalProfit) / maxAbsProfit * 100);
     const inner = `
       <div class="bd-card-head">
-        <div class="bd-card-name">${escapeHtml(g.label || g.key)}</div>
+        <div class="bd-card-name">${showDisciplineIcon ? disciplineIconOf(g.key, 'discipline-icon') : ''}${escapeHtml(g.label || g.key)}</div>
         <div class="bd-card-count">${g.total} ${g.total === 1 ? 'ставка' : 'ставок'}</div>
       </div>
       ${g.description ? `<div class="bd-card-desc">${escapeHtml(g.description)}</div>` : ''}
@@ -570,7 +627,9 @@ export function renderGroupCards(groups, labelHeader, pageFile, currency, rate) 
 
 // Полная статистика по одной сущности (клик по карточке из renderGroupCards) —
 // повторяет вид дашборда (сетка stat-card) + список конкретных ставок ниже.
-export function renderBreakdownDetail(labelHeader, keyLabel, group, backHref, hideBookmakerCol, currency, rate) {
+// showDisciplineIcon — тот же смысл, что у renderGroupCards выше (только
+// disciplines.html передаёт true).
+export function renderBreakdownDetail(labelHeader, keyLabel, group, backHref, hideBookmakerCol, currency, rate, showDisciplineIcon) {
   if (!group) {
     return `
       <a class="bd-back" href="${backHref}">← Назад к списку</a>
@@ -595,7 +654,7 @@ export function renderBreakdownDetail(labelHeader, keyLabel, group, backHref, hi
     <a class="bd-back" href="${backHref}">← Назад к списку</a>
     <div class="bd-detail-head">
       <div class="bd-detail-label">${labelHeader}</div>
-      <h3 class="bd-detail-name">${escapeHtml(keyLabel)}</h3>
+      <h3 class="bd-detail-name">${showDisciplineIcon ? disciplineIconOf(keyLabel, 'discipline-icon-lg') : ''}${escapeHtml(keyLabel)}</h3>
       ${group.description ? `<div class="bd-detail-desc">${escapeHtml(group.description)}</div>` : ''}
     </div>
     <div class="stat-grid stat-grid-3">${statHtml}</div>
