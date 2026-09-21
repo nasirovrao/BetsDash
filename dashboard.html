@@ -12,7 +12,7 @@
 <!-- EDGE 2.0 — новая дизайн-система (палитра/типографика/фон), см. styles-edge2.css -->
 <link rel="stylesheet" href="styles-edge2.css?v=3">
 <link rel="stylesheet" href="styles-edge3.css?v=3">
-<link rel="stylesheet" href="styles-edge5.css?v=1">
+<link rel="stylesheet" href="styles-edge5.css?v=2">
 <script src="theme-toggle.js" defer></script>
 <style>
   /* Вводный блок "3 способа занести ставку" (01.09.2026, по мотивам
@@ -183,12 +183,23 @@
     <div class="streak-block" id="streakBlock" style="display:none;"></div>
 
     <div class="section-note" id="dashHint" style="margin-top:-14px; margin-bottom:26px;"></div>
+
+    <!-- 21.09.2026: "выбираю неделю — не показывает ставки снизу за эту
+         неделю": список ставок под статой на дашборде раньше не было вообще
+         (только цифры/серия), фильтр менял лишь их. Теперь при любом
+         активном фильтре (турнир/период) ниже — те самые ставки, по которым
+         посчитана стата выше. Без фильтра блок скрыт (весь журнал — это
+         страница "Ставки", дашборд остаётся сводкой). -->
+    <div class="dash-bets" id="dashBets" style="display:none; margin-top:8px;">
+      <div class="bd-detail-label" id="dashBetsTitle"></div>
+      <div id="dashBetsRoot"></div>
+    </div>
   </div>
 </section>
 
 <script type="module">
   import { supabase, requireSession, isClvEnabled } from './supabase-client.js';
-  import { fmtMoney, computeStats, computeStreak, computeFlatStats, escapeHtml, monthKeyOf, monthLabelOf, dayKeyOf, dayLabelOf, weekKeyOf, weekLabelOf, renderWLP, getChannelParams, loadMyChannels, renderChannelSwitch, preserveChannelInNav, initEmailPrivacyToggle, initNavDropdown, applyNavModes, channelHref, computeCardTrend, renderSparkline, renderWlpBars, renderTopBetsPop, initStatCardPopovers, wasEditedAfterSettle, getDisplayCurrency } from './lib.js';
+  import { fmtMoney, computeStats, computeStreak, computeFlatStats, escapeHtml, monthKeyOf, monthLabelOf, dayKeyOf, dayLabelOf, weekKeyOf, weekLabelOf, renderWLP, getChannelParams, loadMyChannels, renderChannelSwitch, preserveChannelInNav, initEmailPrivacyToggle, initNavDropdown, applyNavModes, channelHref, computeCardTrend, renderSparkline, renderWlpBars, renderTopBetsPop, initStatCardPopovers, wasEditedAfterSettle, getDisplayCurrency, renderBetsFlatTable } from './lib.js';
 
   const session = await requireSession();
   if (session) {
@@ -412,10 +423,26 @@
     const filtered = allBets.filter(b =>
       (!trn || b.tournament === trn) && (!per || cfg.keyOf(b.bet_date) === per)
     );
+    const s = computeStats(filtered, allWithdrawals, startingBankroll);
     renderStreak(filtered);
-    renderStats(computeStats(filtered, allWithdrawals, startingBankroll), isFiltered, filtered);
+    renderStats(s, isFiltered, filtered);
     filterResetBtn.style.display = isFiltered ? '' : 'none';
-    filterCount.textContent = isFiltered ? `${filtered.length} из ${allBets.length} ставок` : '';
+    // Счётчики — по числу СТАВОК (ставка, разбитая по нескольким
+    // букмекерам, — одна), а не строк bets; s.total уже так считает.
+    const allTotal = computeStats(allBets, [], 0).total;
+    filterCount.textContent = isFiltered ? `${s.total} из ${allTotal} ставок` : '';
+
+    // Список ставок среза — те самые, по которым посчитана стата выше.
+    const betsBlock = document.getElementById('dashBets');
+    if (isFiltered) {
+      betsBlock.style.display = '';
+      document.getElementById('dashBetsTitle').textContent = `Ставки выбранного среза — ${s.total}`;
+      document.getElementById('dashBetsRoot').innerHTML = filtered.length
+        ? renderBetsFlatTable(filtered, { hideBookmaker: false, currency: dispCurrency, rate: dispRate })
+        : '<div class="empty-state">В этом срезе ставок нет.</div>';
+    } else {
+      betsBlock.style.display = 'none';
+    }
   }
 
   filterTournamentSel.addEventListener('change', applyDashFilters);
