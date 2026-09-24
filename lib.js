@@ -911,9 +911,26 @@ export async function loadMyChannels(supabase, myUserId) {
 // (user_id, channel) отклонит вставку 23505, это не ошибка, а "уже есть,
 // просто переходим".
 export async function createChannel(supabase, myUserId, name) {
-  const channel = String(name || '').trim();
-  if (!channel) return { error: { message: 'Название канала не может быть пустым.' } };
-  if (channel.toLowerCase() === 'default') return { error: { message: '«default» зарезервировано под личный дневник — выбери другое название.' } };
+  const raw = String(name || '').trim();
+  if (!raw) return { error: { message: 'Название канала не может быть пустым.' } };
+  if (raw.toLowerCase() === 'default') return { error: { message: '«default» зарезервировано под личный дневник — выбери другое название.' } };
+  // 24.09.2026: БД (settings_channel_check/profiles_channel_check,
+  // schema_milestone23.sql) разрешает только channel = 'default' или
+  // значение вида ^[a-z0-9_-]{3,32}$ — а форма принимает любой текст
+  // ("Cybervalue PRO" с пробелом и заглавными). Раньше имя уходило в insert
+  // как есть, и падало сырой ошибкой Postgres ("violates check constraint
+  // settings_channel_check"), непонятной пользователю. Теперь сами приводим
+  // ввод к допустимому виду: нижний регистр, всё не latin/digit — в "-",
+  // схлопываем повторы дефисов, обрезаем края и длину.
+  const channel = raw
+    .toLowerCase()
+    .replace(/[^a-z0-9_-]+/g, '-')
+    .replace(/-+/g, '-')
+    .replace(/^-+|-+$/g, '')
+    .slice(0, 32);
+  if (channel.length < 3 || channel === 'default') {
+    return { error: { message: 'Название канала должно содержать минимум 3 латинские буквы/цифры (без спецсимволов и пробелов — они превратятся в дефис).' } };
+  }
   const { error } = await supabase.from('settings').insert({ user_id: myUserId, channel });
   if (error && error.code !== '23505') return { error };
   return { error: null, channel, alreadyExisted: error?.code === '23505' };
