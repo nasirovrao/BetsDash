@@ -195,6 +195,13 @@
         ? profile.public_channels
         : legacyChannel;
       const channel = (channelParam && publicChannels.includes(channelParam)) ? channelParam : publicChannels[0];
+      // 24.09.2026: аватар теперь отдельный на каждый канал
+      // (schema_milestone38.sql, profiles.channel_logos jsonb) — раньше
+      // profile.logo_url был один на весь профиль, при нескольких публичных
+      // каналах у второго выглядело так, будто аватар "чужой". logo_url
+      // остаётся запасным вариантом, если для ЭТОГО канала своей картинки
+      // ещё не загрузили.
+      const channelLogoUrl = (profile.channel_logos && profile.channel_logos[channel]) || profile.logo_url || null;
       // 04.09.2026: подписки (schema_milestone33.sql) — счётчик подписчиков
       // нужен всегда (виден анонимусам тоже), собственная строка "я
       // подписан?" — только если зритель залогинен и смотрит НЕ свой же
@@ -407,7 +414,7 @@
           <div class="pf-banner">${renderProfileBanner(computeCardTrend('profit', allBets))}</div>
           <div class="pf-identity">
             <div class="pf-top">
-              <div class="pf-avatar">${profile.logo_url ? `<img src="${escapeHtml(profile.logo_url)}" alt="">` : escapeHtml(initialsOf(profile.display_name || profile.username))}</div>
+              <div class="pf-avatar">${channelLogoUrl ? `<img src="${escapeHtml(channelLogoUrl)}" alt="">` : escapeHtml(initialsOf(profile.display_name || profile.username))}</div>
             </div>
             <div class="pf-name-row">
               <div class="pf-name">${escapeHtml(profile.display_name || profile.username)}</div>

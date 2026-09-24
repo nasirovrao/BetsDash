@@ -540,7 +540,7 @@
         <div class="feed-post">
           <div class="feed-post-head">
             <a class="feed-post-headline" href="${profileHref}" title="${escapeHtml(addedTitle)}">
-              <div class="feed-avatar">${profile.logo_url ? `<img src="${escapeHtml(profile.logo_url)}" alt="">` : escapeHtml(initialsOf(profile.display_name || profile.username))}</div>
+              <div class="feed-avatar">${((profile.channel_logos && profile.channel_logos[channel]) || profile.logo_url) ? `<img src="${escapeHtml((profile.channel_logos && profile.channel_logos[channel]) || profile.logo_url)}" alt="">` : escapeHtml(initialsOf(profile.display_name || profile.username))}</div>
               <div class="feed-who">
                 <div class="feed-name-row">${name}${profile.is_verified ? `<span class="feed-verify">${VERIFY_ICON}</span>` : ''}</div>
                 <div class="feed-handle">@${escapeHtml(profile.username)}</div>
