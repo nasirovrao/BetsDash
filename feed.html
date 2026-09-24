@@ -305,19 +305,28 @@
   if (profilesErr || !profiles || !profiles.length) {
     feedRoot.innerHTML = '<div class="empty-state">Пока нет ни одного публичного канала — лента появится, как только кто-то включит публичность в настройках профиля.</div>';
   } else {
+    // 24.09.2026: profile.channel было РОВНО одним каналом — теперь
+    // (schema_milestone37.sql) profile.public_channels — список, у одного
+    // каппера может быть публично сразу несколько журналов. Разворачиваем
+    // каждый профиль в N параллельных подзапросов (по одному на канал) —
+    // тот же принцип N+1, что уже был, просто на один уровень глубже.
     const results = await Promise.all(profiles.map(async p => {
-      const channel = p.channel || 'cybervalue';
-      const [{ data: bets }, { data: settingsRow }] = await Promise.all([
-        supabase.from('bets').select('*').eq('user_id', p.user_id).eq('channel', channel),
-        supabase.from('settings').select('hidden_bookmakers').eq('user_id', p.user_id).eq('channel', channel).maybeSingle(),
-      ]);
-      // 02.09.2026: "скрывать букмекеров по запросу" (bookmakers.html,
-      // schema_milestone31.sql) — тот же принцип, что и на public.html:
-      // маскируем название прямо здесь, один раз на каждого автора, до того
-      // как ставки попадут в саму ленту/фильтр по букмекеру/лидерборд.
-      const hiddenBk = settingsRow && Array.isArray(settingsRow.hidden_bookmakers) ? settingsRow.hidden_bookmakers : [];
-      const maskedBets = (bets || []).map(b => hiddenBk.includes(b.bookmaker) ? { ...b, bookmaker: 'Скрыто' } : b);
-      return maskedBets.map(b => ({ bet: b, profile: p }));
+      const legacyChannel = p.channel ? [p.channel] : ['cybervalue'];
+      const channels = (Array.isArray(p.public_channels) && p.public_channels.length) ? p.public_channels : legacyChannel;
+      const perChannel = await Promise.all(channels.map(async channel => {
+        const [{ data: bets }, { data: settingsRow }] = await Promise.all([
+          supabase.from('bets').select('*').eq('user_id', p.user_id).eq('channel', channel),
+          supabase.from('settings').select('hidden_bookmakers').eq('user_id', p.user_id).eq('channel', channel).maybeSingle(),
+        ]);
+        // 02.09.2026: "скрывать букмекеров по запросу" (bookmakers.html,
+        // schema_milestone31.sql) — тот же принцип, что и на public.html:
+        // маскируем название прямо здесь, один раз на каждого автора, до того
+        // как ставки попадут в саму ленту/фильтр по букмекеру/лидерборд.
+        const hiddenBk = settingsRow && Array.isArray(settingsRow.hidden_bookmakers) ? settingsRow.hidden_bookmakers : [];
+        const maskedBets = (bets || []).map(b => hiddenBk.includes(b.bookmaker) ? { ...b, bookmaker: 'Скрыто' } : b);
+        return maskedBets.map(b => ({ bet: b, profile: p, channel }));
+      }));
+      return perChannel.flat();
     }));
     let items = results.flat();
 
@@ -381,7 +390,7 @@
       items = items.filter(it => it.profile.username === authorFilter);
     }
     if (followScope === '1') {
-      items = items.filter(it => followSet.has(`${it.profile.user_id}|${it.profile.channel || 'cybervalue'}`));
+      items = items.filter(it => followSet.has(`${it.profile.user_id}|${it.channel}`));
     }
 
     // Фильтр по капперу задаётся не списком в сайдбаре (капперов может быть
@@ -402,16 +411,22 @@
     // уже загружены для самой ленты — ни одного лишнего запроса к базе.
     // Порог в 5 ставок — отсекает шум от каппера с одной случайно удачной
     // ставкой наверху таблицы по ROI/профиту.
+    // 24.09.2026: ключ группировки — user_id+channel, а не только user_id —
+    // у каппера с несколькими публичными каналами это отдельные журналы с
+    // отдельной статистикой, смешивать их в одну строку топа было бы
+    // некорректно (та же логика, что и везде на сайте — канал есть канал).
     const MIN_BETS_FOR_LEADERBOARD = 5;
     const byProfile = new Map();
-    results.flat().forEach(({ bet, profile }) => {
-      if (!byProfile.has(profile.user_id)) byProfile.set(profile.user_id, { profile, bets: [] });
-      byProfile.get(profile.user_id).bets.push(bet);
+    results.flat().forEach(({ bet, profile, channel }) => {
+      const key = profile.user_id + '|' + channel;
+      if (!byProfile.has(key)) byProfile.set(key, { profile, channel, bets: [] });
+      byProfile.get(key).bets.push(bet);
     });
     const leaderboardEntries = Array.from(byProfile.values())
       .filter(e => e.bets.length >= MIN_BETS_FOR_LEADERBOARD)
       .map(e => ({
         profile: e.profile,
+        channel: e.channel,
         stats: computeStats(e.bets, [], 0),
         rating: computeRatingTier(e.bets),
       }));
@@ -445,7 +460,7 @@
       leaderboardRoot.innerHTML = sorted.map((e, i) => {
         const name = escapeHtml(e.profile.display_name || e.profile.username);
         const betsSub = `${e.stats.total} ${ruCount(e.stats.total, 'ставка', 'ставки', 'ставок')}`;
-        const lbChannel = e.profile.channel || 'cybervalue';
+        const lbChannel = e.channel;
         const lbIsOwn = session && session.user.id === e.profile.user_id;
         const lbIsFollowing = followSet.has(`${e.profile.user_id}|${lbChannel}`);
         const lbFollowBtnHtml = (session && !lbIsOwn)
@@ -466,7 +481,7 @@
         }
         return `
         <div class="lb-item">
-          <a class="lb-item-link" href="public.html?u=${encodeURIComponent(e.profile.username)}">
+          <a class="lb-item-link" href="public.html?u=${encodeURIComponent(e.profile.username)}&channel=${encodeURIComponent(lbChannel)}">
             <span class="lb-rank">${i + 1}</span>
             <span class="lb-info">
               <span class="lb-name">${name}</span>
@@ -503,19 +518,19 @@
         ? `<div class="empty-state">${followSet.size ? 'Никто из тех, на кого ты подписан, пока не публиковал ставки.' : 'Ты пока ни на кого не подписан — найди каппера в ленте или в топе слева и нажми «Подписаться».'}</div>`
         : '<div class="empty-state">В этой ленте пока нет ставок.</div>';
     } else {
-      feedRoot.innerHTML = items.map(({ bet, profile }) => {
+      feedRoot.innerHTML = items.map(({ bet, profile, channel }) => {
         const name = escapeHtml(profile.display_name || profile.username);
         const cls = RES_CLASS[bet.result] || 'pending';
         const label = RES_LABEL[bet.result] || bet.result || '';
         const matchTitle = bet.match || '';
         const pickTitle = bet.pick || '';
         const addedTitle = bet.created_at ? `Добавлено в систему: ${fmtDateTime(bet.created_at)}` : '';
-        const profileHref = `public.html?u=${encodeURIComponent(profile.username)}`;
+        const profileHref = `public.html?u=${encodeURIComponent(profile.username)}&channel=${encodeURIComponent(channel)}`;
         const filterHref = feedHref(disciplineFilter, resultFilter, bkFilter, profile.username);
         // 04.09.2026: быстрая подписка прямо из карточки — только если
         // залогинен и это не свой же пост (свои посты и так видны себе без
         // подписки, плюс follows_no_self_follow всё равно бы отклонил).
-        const authorChannel = profile.channel || 'cybervalue';
+        const authorChannel = channel;
         const isOwnPost = session && session.user.id === profile.user_id;
         const isFollowingAuthor = followSet.has(`${profile.user_id}|${authorChannel}`);
         const followBtnHtml = (session && !isOwnPost)

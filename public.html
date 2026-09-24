@@ -135,6 +135,7 @@
   const username = (params.get('u') || '').trim().toLowerCase();
   const activeTab = params.get('tab') || 'bets';
   const keyParam = params.get('key');
+  const channelParam = params.get('channel');
 
   const profileHero = document.getElementById('profileHero');
   const publicTabs = document.getElementById('publicTabs');
@@ -184,7 +185,16 @@
       // иначе на публичной странице могли бы перемешаться данные разных
       // капперов, если публичных профилей станет больше одного.
       const uid = profile.user_id;
-      const channel = profile.channel || 'cybervalue';
+      // 24.09.2026: раньше profile.channel хранил РОВНО один публичный
+      // канал. Теперь (schema_milestone37.sql) их список —
+      // profile.public_channels. legacyChannel — подстраховка для строк,
+      // где миграция на базе ещё не накачена (колонки просто нет в ответе)
+      // или список почему-то пуст, но старое поле channel всё ещё стоит.
+      const legacyChannel = profile.channel ? [profile.channel] : ['cybervalue'];
+      const publicChannels = (Array.isArray(profile.public_channels) && profile.public_channels.length)
+        ? profile.public_channels
+        : legacyChannel;
+      const channel = (channelParam && publicChannels.includes(channelParam)) ? channelParam : publicChannels[0];
       // 04.09.2026: подписки (schema_milestone33.sql) — счётчик подписчиков
       // нужен всегда (виден анонимусам тоже), собственная строка "я
       // подписан?" — только если зритель залогинен и смотрит НЕ свой же
@@ -218,13 +228,19 @@
         const allWithdrawals = withdrawals || [];
         const startingBankroll = settings ? settings.starting_bankroll : 0;
 
+        // &channel= добавлен во все внутренние ссылки ниже (переключатель
+        // вкладок, ссылки со статкарточек и т.д.) — иначе выбор канала на
+        // переключателе публичных каналов (см. channelSwitchHtml ниже)
+        // сбрасывался бы обратно на первый публичный канал при переходе
+        // на другую вкладку.
+        const channelQS = `&channel=${encodeURIComponent(channel)}`;
         publicTabs.style.display = '';
         publicTabs.innerHTML = `<div class="wrap">${TABS.map(t => `
-          <a class="nav-pill${t.id === activeTab ? ' active' : ''}" href="public.html?u=${encodeURIComponent(username)}&tab=${t.id}">${escapeHtml(t.label)}</a>
+          <a class="nav-pill${t.id === activeTab ? ' active' : ''}" href="public.html?u=${encodeURIComponent(username)}&tab=${t.id}${channelQS}">${escapeHtml(t.label)}</a>
         `).join('')}</div>`;
 
-        const pageFile = `public.html?u=${encodeURIComponent(username)}&tab=${activeTab}`;
-        const betsHref = `public.html?u=${encodeURIComponent(username)}&tab=bets`;
+        const pageFile = `public.html?u=${encodeURIComponent(username)}&tab=${activeTab}${channelQS}`;
+        const betsHref = `public.html?u=${encodeURIComponent(username)}&tab=bets${channelQS}`;
 
         // Считаем один раз здесь — используется и в шапке профиля (статы,
         // рейтинг), и во вкладке "Дашборд" ниже (renderPfCards/pfApplyFilter) —
@@ -245,6 +261,19 @@
         const channelBadgeHtml = isDiary
           ? `<span class="pf-badge channel-type diary">Личный дневник</span>`
           : `<span class="pf-badge channel-type">Публичный канал</span>`;
+
+        // 24.09.2026: переключатель, если у владельца публично больше
+        // одного канала (schema_milestone37.sql, profiles.public_channels) —
+        // при одном канале (обычный случай) ничего не рисуем, чтобы не
+        // захламлять шапку переключателем из одной неактивной кнопки.
+        const channelSwitchHtml = publicChannels.length > 1
+          ? `<div class="channel-switch" style="margin:10px 0 0;">${publicChannels.map(c => {
+              const isActiveC = c === channel;
+              const cLabel = c === 'default' ? 'Личный дневник' : c;
+              const href = `public.html?u=${encodeURIComponent(username)}&tab=${activeTab}&channel=${encodeURIComponent(c)}`;
+              return `<a class="channel-pill${isActiveC ? ' active' : ''}" href="${href}">${escapeHtml(cLabel)}</a>`;
+            }).join('')}</div>`
+          : '';
 
         // 04.09.2026: явный бейдж доверия ("три лица" — инвестор отметил,
         // что неподделываемая история правок — реальное УТП сайта, а не
@@ -388,6 +417,7 @@
             <div class="pf-handle">@${escapeHtml(profile.username)}</div>
             <div class="pf-badges">${roleBadgesHtml}${channelBadgeHtml}${trustBadgeHtml}</div>
             ${profile.bio ? `<div class="pf-bio">${escapeHtml(profile.bio)}</div>` : ''}
+            ${channelSwitchHtml}
             <div class="pf-meta">
               ${joinedLabel ? `<span><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><rect x="3" y="5" width="18" height="16" rx="2"/><path d="M3 10h18M8 3v4M16 3v4" stroke-linecap="round"/></svg>На EDGE с ${joinedLabel}</span>` : ''}
               <span><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><circle cx="12" cy="12" r="9"/><path d="M12 7v5l3.5 2" stroke-linecap="round"/></svg>${rating.closedCount} ${ruCount(rating.closedCount, 'закрытая ставка', 'закрытые ставки', 'закрытых ставок')}</span>

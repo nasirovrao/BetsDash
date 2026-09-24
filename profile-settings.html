@@ -92,11 +92,15 @@
           <input id="p_bio" type="text" placeholder="в двух словах — что это за канал" autocomplete="off">
         </div>
         <div class="field" style="margin-top:14px;">
-          <label for="p_channel">Какой канал показывать публично</label>
-          <select id="p_channel">
-            <option value="cybervalue">Cybervalue</option>
-            <option value="default">Личный дневник</option>
-          </select>
+          <!-- 24.09.2026: раньше был <select> ровно на один канал —
+               profiles.channel мог хранить только одно значение, второй
+               выбор просто затирал первый (см. schema_milestone37.sql).
+               Теперь список чекбоксов по ВСЕМ твоим реальным каналам
+               (loadMyChannels), можно отметить публичными сразу несколько —
+               значения уходят в profiles.public_channels (text[]). -->
+          <label>Какие каналы показывать публично</label>
+          <div class="section-note" style="margin:2px 0 8px;">Можно отметить сразу несколько — на публичной странице появится переключатель между ними.</div>
+          <div id="publicChannelsList" class="public-channels-list"></div>
         </div>
         <div class="field" style="margin-top:16px;">
           <label>Логотип канала (необязательно)</label>
@@ -177,7 +181,7 @@
 
 <script type="module">
   import { supabase, requireSession, isClvEnabled } from './supabase-client.js';
-  import { initEmailPrivacyToggle, initNavDropdown, applyNavModes } from './lib.js';
+  import { initEmailPrivacyToggle, initNavDropdown, applyNavModes, loadMyChannels, escapeHtml } from './lib.js';
 
   const session = await requireSession();
   if (session) {
@@ -195,7 +199,7 @@
   const usernameInput = document.getElementById('p_username');
   const displayNameInput = document.getElementById('p_display_name');
   const bioInput = document.getElementById('p_bio');
-  const channelInput = document.getElementById('p_channel');
+  const publicChannelsList = document.getElementById('publicChannelsList');
   const isPublicInput = document.getElementById('p_is_public');
   const showBankInput = document.getElementById('p_show_bank');
   const showBestTournamentInput = document.getElementById('p_show_best_tournament');
@@ -339,6 +343,25 @@
     setTimeout(() => { copyStatus.textContent = ''; }, 2500);
   });
 
+  // 24.09.2026: чекбоксы по РЕАЛЬНЫМ каналам пользователя (тот же
+  // loadMyChannels, что и в переключателе каналов на других страницах),
+  // а не по двум зашитым вариантам, как было раньше. checkedSet — какие
+  // каналы отмечены публичными прямо сейчас (до сохранения формы).
+  function renderPublicChannelsList(channels, checkedSet) {
+    publicChannelsList.innerHTML = channels.map(c => {
+      const id = 'pubch_' + c.channel.replace(/[^a-z0-9_-]/gi, '_');
+      const label = c.channel === 'default' ? 'Личный дневник' : c.label;
+      return `
+        <label class="check-row" for="${id}" style="margin-bottom:6px;">
+          <input type="checkbox" id="${id}" data-channel="${escapeHtml(c.channel)}" ${checkedSet.has(c.channel) ? 'checked' : ''}>
+          <span>${escapeHtml(label)}</span>
+        </label>`;
+    }).join('') || '<div class="section-note">Каналов пока нет — сначала заведи хотя бы один на «Ставках».</div>';
+  }
+  function getCheckedPublicChannels() {
+    return Array.from(publicChannelsList.querySelectorAll('input[type=checkbox]:checked')).map(i => i.dataset.channel);
+  }
+
   async function load() {
     const { data, error } = await supabase.from('profiles').select('*').eq('user_id', session.user.id).maybeSingle();
     if (error && error.code !== '42P01') {
@@ -353,7 +376,22 @@
     usernameInput.value = existingProfile ? (existingProfile.username || '') : '';
     displayNameInput.value = existingProfile ? (existingProfile.display_name || '') : '';
     bioInput.value = existingProfile ? (existingProfile.bio || '') : '';
-    channelInput.value = existingProfile && existingProfile.channel ? existingProfile.channel : 'cybervalue';
+    // public_channels — новая колонка (schema_milestone37.sql). Если
+    // миграция на базе ещё не накачена, её просто нет в ответе — тогда
+    // подстраховываемся старым единственным полем .channel, чтобы форма
+    // не показывала пустой список зря.
+    const legacyChannel = existingProfile && existingProfile.is_public && existingProfile.channel ? [existingProfile.channel] : [];
+    const checkedChannels = new Set(
+      (existingProfile && Array.isArray(existingProfile.public_channels) && existingProfile.public_channels.length)
+        ? existingProfile.public_channels
+        : legacyChannel
+    );
+    loadMyChannels(supabase, session.user.id).then(channels => {
+      // Публичным можно сделать только СВОЙ канал (role:'owner') — чужой
+      // расшаренный (role:'editor', куда тебя пригласили) тут ни при чём:
+      // это поле управляет видимостью ТВОЕЙ строки profiles, а не чужой.
+      renderPublicChannelsList(channels.filter(c => c.role === 'owner'), checkedChannels);
+    });
     isPublicInput.checked = !!(existingProfile && existingProfile.is_public);
     showBankInput.checked = !!(existingProfile && existingProfile.show_bank);
     // show_best_tournament/show_best_bet — по умолчанию ВКЛЮЧЕНО (в отличие
@@ -385,6 +423,11 @@
       usernameInput.focus();
       return;
     }
+    const publicChannels = getCheckedPublicChannels();
+    if (isPublicInput.checked && !publicChannels.length) {
+      formStatus.textContent = 'Профиль отмечен публичным, но не выбрано ни одного канала — отметь хотя бы один ниже.';
+      return;
+    }
     saveBtn.disabled = true;
     formStatus.textContent = 'Сохраняю…';
     const roles = [];
@@ -394,7 +437,14 @@
       username: username || null,
       display_name: displayNameInput.value.trim() || null,
       bio: bioInput.value.trim() || null,
-      channel: channelInput.value,
+      // channel — легаси-поле, not null в базе (schema_milestone8.sql) —
+      // держим в синхроне с первым отмеченным каналом просто для обратной
+      // совместимости с кодом, который может на него смотреть (например
+      // ярлык "свой публичный канал" в loadMyChannels/lib.js). 'cybervalue'
+      // как запасной вариант, когда публичных каналов не отмечено вообще —
+      // сама видимость теперь решается ТОЛЬКО через public_channels ниже.
+      channel: publicChannels[0] || 'cybervalue',
+      public_channels: publicChannels,
       is_public: isPublicInput.checked,
       show_bank: showBankInput.checked,
       show_best_tournament: showBestTournamentInput.checked,
