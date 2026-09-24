@@ -71,11 +71,12 @@
   <div class="wrap">
     <div class="section-head">
       <h2>Публичный профиль</h2>
-      <div class="section-note">Включи публичность — и любой человек по ссылке увидит дашборд и все разбивки отмеченных ниже каналов в режиме только для чтения, без входа в аккаунт. Каждый канал — независимый набор ставок со своим аватаром и своей ссылкой.</div>
+      <div class="section-note">Личность (имя/юзернейм/описание) — одна на все каналы. Видимость, аватар и ссылка — отдельно для каждого канала, переключи его ниже.</div>
     </div>
 
     <div class="bet-form">
-      <h3>Настройки</h3>
+      <h3>Личность</h3>
+      <div class="section-note" style="margin:0 0 14px;">Общее для всех каналов — не зависит от того, какой канал выбран переключателем ниже.</div>
       <form id="profileForm">
         <div class="form-grid form-grid-2">
           <div class="field">
@@ -90,17 +91,6 @@
         <div class="field" style="margin-top:14px;">
           <label for="p_bio">Описание (необязательно)</label>
           <input id="p_bio" type="text" placeholder="в двух словах — что это за канал" autocomplete="off">
-        </div>
-        <div class="field" style="margin-top:14px;">
-          <!-- 24.09.2026: раньше был <select> ровно на один канал —
-               profiles.channel мог хранить только одно значение, второй
-               выбор просто затирал первый (см. schema_milestone37.sql).
-               Теперь список чекбоксов по ВСЕМ твоим реальным каналам
-               (loadMyChannels), можно отметить публичными сразу несколько —
-               значения уходят в profiles.public_channels (text[]). -->
-          <label>Публичные каналы</label>
-          <div class="section-note" style="margin:2px 0 8px;">Для каждого отмеченного канала — своя ссылка и свой аватар (не общий на весь профиль).</div>
-          <div id="publicChannelsList" class="public-channels-list"></div>
         </div>
         <div class="field" style="margin-top:16px;">
           <label>Метки профиля (необязательно)</label>
@@ -122,12 +112,6 @@
           </div>
         </div>
         <div class="field" style="margin-top:16px;">
-          <label class="check-row" for="p_is_public">
-            <input id="p_is_public" type="checkbox">
-            <span>Профиль публичный — виден всем по ссылке, без входа в аккаунт</span>
-          </label>
-        </div>
-        <div class="field" style="margin-top:10px;">
           <label class="check-row" for="p_show_bank">
             <input id="p_show_bank" type="checkbox">
             <span>Показывать банк и прирост банка на публичном профиле (по умолчанию скрыто — включай точечно, например на время челленджа)</span>
@@ -151,12 +135,54 @@
         </div>
       </form>
     </div>
+
+    <!-- 24.09.2026: по прямому запросу — вместо общего списка чекбоксов на
+         все каналы сразу, отдельная карточка НА ОДИН канал, переключается
+         тем же переключателем-пилюлями, что и везде на сайте (app.html,
+         dashboard.html, import.html — renderChannelSwitch из lib.js).
+         Сохранение здесь трогает ТОЛЬКО активный канал — остальные каналы
+         в profiles.public_channels не читаются и не перезаписываются этой
+         формой вообще, значит другие каналы физически не могут пострадать
+         от правки этого. -->
+    <div id="channelSwitch"></div>
+
+    <div class="bet-form">
+      <h3 id="channelSettingsTitle">Настройки канала</h3>
+      <div class="section-note" style="margin:0 0 14px;" id="channelSettingsNote"></div>
+
+      <label class="check-row" for="ch_is_public">
+        <input id="ch_is_public" type="checkbox">
+        <span>Показывать этот канал публично — виден всем по ссылке, без входа в аккаунт</span>
+      </label>
+
+      <div style="display:flex; align-items:center; gap:10px; margin-top:14px; flex-wrap:wrap;">
+        <div class="logo-preview-wrap" id="chLogoPreviewWrap" style="width:44px; height:44px;">
+          <div class="logo-preview-placeholder" id="chLogoPreviewPlaceholder">нет лого</div>
+          <img id="chLogoPreviewImg" class="logo-preview-img" style="display:none; width:100%; height:100%; object-fit:cover; border-radius:50%;" alt="">
+        </div>
+        <label class="btn btn-ghost" for="ch_logo_file" style="width:auto; cursor:pointer;">Аватар этого канала</label>
+        <input id="ch_logo_file" type="file" accept="image/png,image/jpeg,image/webp,image/svg+xml" style="display:none;">
+        <button class="btn btn-ghost" type="button" id="chRemoveLogoBtn" style="width:auto; display:none;">Удалить</button>
+        <span class="form-status" id="chLogoStatus"></span>
+      </div>
+
+      <div id="chLinkRow" class="public-link-row" style="margin-top:14px; display:none;">
+        <code class="public-link-value" id="chLinkValue"></code>
+        <button class="btn btn-ghost" type="button" id="chCopyLinkBtn" style="width:auto;">Скопировать</button>
+        <a class="btn btn-ghost" id="chOpenLinkBtn" href="#" target="_blank" rel="noopener" style="width:auto;">Открыть →</a>
+      </div>
+
+      <div class="form-actions" style="margin-top:16px;">
+        <button class="btn btn-primary" type="button" id="chSaveBtn" style="width:auto;">Сохранить настройки канала</button>
+        <span class="form-status" id="chFormStatus"></span>
+      </div>
+    </div>
   </div>
 </section>
 
 <script type="module">
   import { supabase, requireSession, isClvEnabled } from './supabase-client.js';
-  import { initEmailPrivacyToggle, initNavDropdown, applyNavModes, loadMyChannels, escapeHtml } from './lib.js';
+  import { initEmailPrivacyToggle, initNavDropdown, applyNavModes, loadMyChannels, escapeHtml, getChannelParams, renderChannelSwitch, preserveChannelInNav } from './lib.js';
 
   const session = await requireSession();
   if (session) {
@@ -174,8 +200,6 @@
   const usernameInput = document.getElementById('p_username');
   const displayNameInput = document.getElementById('p_display_name');
   const bioInput = document.getElementById('p_bio');
-  const publicChannelsList = document.getElementById('publicChannelsList');
-  const isPublicInput = document.getElementById('p_is_public');
   const showBankInput = document.getElementById('p_show_bank');
   const showBestTournamentInput = document.getElementById('p_show_best_tournament');
   const showBestBetInput = document.getElementById('p_show_best_bet');
@@ -211,146 +235,162 @@
   const saveBtn = document.getElementById('saveBtn');
 
   let existingProfile = null;
-  // currentLogos — {channel: url}, аватар отдельно на каждый канал
-  // (schema_milestone38.sql, profiles.channel_logos jsonb). Раньше было
-  // одно currentLogoUrl на весь профиль сразу — при нескольких публичных
-  // каналах выглядело так, будто у второго канала "чужой" аватар (прямой
-  // фидбек, см. CHANGELOG).
-  let currentLogos = {};
-  let lastOwnChannels = [];
-
   const USERNAME_RE = /^[a-z0-9_-]{3,32}$/;
 
-  function publicUrlForChannel(username, channel) {
-    const base = `${location.origin}${location.pathname.replace(/profile-settings\.html$/, '')}public.html?u=${encodeURIComponent(username)}`;
-    return `${base}&channel=${encodeURIComponent(channel)}`;
+  // 24.09.2026: по прямому запросу — вместо одной страницы со списком
+  // чекбоксов на все каналы разом, теперь как везде на сайте (app.html,
+  // dashboard.html, import.html): переключатель-пилюли сверху выбирает
+  // ОДИН активный канал через ?channel= в адресной строке, и всё ниже
+  // (видимость/аватар/ссылка) относится ТОЛЬКО к нему. Сохранение читает
+  // и правит только запись активного канала внутри public_channels/
+  // channel_logos — остальные каналы физически не участвуют в этом
+  // запросе, значит не могут пострадать от правки текущего.
+  const { channel: activeChannel } = getChannelParams();
+  preserveChannelInNav(activeChannel, session.user.id, session.user.id);
+
+  const chIsPublicInput = document.getElementById('ch_is_public');
+  const chLogoFileInput = document.getElementById('ch_logo_file');
+  const chLogoPreviewImg = document.getElementById('chLogoPreviewImg');
+  const chLogoPreviewPlaceholder = document.getElementById('chLogoPreviewPlaceholder');
+  const chRemoveLogoBtn = document.getElementById('chRemoveLogoBtn');
+  const chLogoStatus = document.getElementById('chLogoStatus');
+  const chLinkRow = document.getElementById('chLinkRow');
+  const chLinkValue = document.getElementById('chLinkValue');
+  const chOpenLinkBtn = document.getElementById('chOpenLinkBtn');
+  const chCopyLinkBtn = document.getElementById('chCopyLinkBtn');
+  const chSaveBtn = document.getElementById('chSaveBtn');
+  const chFormStatus = document.getElementById('chFormStatus');
+  const channelSettingsTitle = document.getElementById('channelSettingsTitle');
+  const channelSettingsNote = document.getElementById('channelSettingsNote');
+
+  let currentChannelLogoUrl = null;
+
+  function activeChannelLabel() {
+    return activeChannel === 'default' ? 'Личный дневник' : activeChannel;
   }
 
-  // 24.09.2026: чекбоксы по РЕАЛЬНЫМ каналам пользователя (тот же
-  // loadMyChannels, что и в переключателе каналов на других страницах), а
-  // не по двум зашитым вариантам, как было раньше. checkedSet — какие
-  // каналы отмечены публичными прямо сейчас (до сохранения формы). Метка —
-  // ВСЕГДА настоящее значение channel как есть (не display_name — раньше
-  // подмена на display_name у "своего" легаси-канала давала две строки с
-  // ОДИНАКОВОЙ подписью при похожих каналах, не отличить было). Каждая
-  // карточка несёт СВОЙ аватар и СВОЮ публичную ссылку — не общие на весь
-  // профиль, как было раньше (прямой фидбог пользователя).
-  function renderPublicChannelsList(channels, checkedSet) {
-    lastOwnChannels = channels;
+  function chPublicUrl() {
     const username = (usernameInput.value || '').trim();
-    publicChannelsList.innerHTML = channels.map(c => {
-      const id = 'pubch_' + c.channel.replace(/[^a-z0-9_-]/gi, '_');
-      const label = c.channel === 'default' ? 'Личный дневник' : c.channel;
-      const isChecked = checkedSet.has(c.channel);
-      const logoUrl = currentLogos[c.channel] || null;
-      const link = (isChecked && username) ? publicUrlForChannel(username, c.channel) : null;
-      return `
-        <div class="public-channel-card" data-channel="${escapeHtml(c.channel)}" style="border:1px solid var(--line-soft); border-radius:var(--radius); padding:12px 14px; margin-bottom:10px;">
-          <label class="check-row" for="${id}">
-            <input type="checkbox" id="${id}" class="pubch-checkbox" data-channel="${escapeHtml(c.channel)}" ${isChecked ? 'checked' : ''}>
-            <span><b>${escapeHtml(label)}</b></span>
-          </label>
-          <div style="display:flex; align-items:center; gap:10px; margin-top:8px; flex-wrap:wrap;">
-            <div class="logo-preview-wrap" style="width:36px; height:36px;">
-              ${logoUrl
-                ? `<img class="logo-preview-img" src="${escapeHtml(logoUrl)}" alt="" style="width:100%; height:100%; object-fit:cover; border-radius:50%;">`
-                : `<div class="logo-preview-placeholder" style="width:100%; height:100%; font-size:9px;">нет лого</div>`}
-            </div>
-            <label class="btn btn-ghost pubch-logo-label" style="width:auto; cursor:pointer; font-size:12.5px; padding:7px 12px;">
-              Аватар этого канала
-              <input type="file" class="pubch-logo-input" data-channel="${escapeHtml(c.channel)}" accept="image/png,image/jpeg,image/webp,image/svg+xml" style="display:none;">
-            </label>
-            ${logoUrl ? `<button type="button" class="btn btn-ghost pubch-logo-remove" data-channel="${escapeHtml(c.channel)}" style="width:auto; font-size:12.5px; padding:7px 12px;">Удалить</button>` : ''}
-            <span class="form-status pubch-logo-status" data-channel="${escapeHtml(c.channel)}"></span>
-          </div>
-          ${link ? `
-          <div class="public-link-row" style="margin-top:10px;">
-            <code class="public-link-value" style="font-size:11.5px;">${escapeHtml(link)}</code>
-            <button type="button" class="btn btn-ghost pubch-copy-link" data-link="${escapeHtml(link)}" style="width:auto; font-size:12.5px; padding:7px 12px;">Скопировать</button>
-            <a class="btn btn-ghost" href="${escapeHtml(link)}" target="_blank" rel="noopener" style="width:auto; font-size:12.5px; padding:7px 12px;">Открыть →</a>
-          </div>` : ''}
-        </div>`;
-    }).join('') || '<div class="section-note">Каналов пока нет — сначала заведи хотя бы один на «Ставках».</div>';
-
-    // Чекбоксы и загрузка лого перерисовывают список — вешаем обработчики
-    // заново при каждой перерисовке (делегирование на неизменный контейнер
-    // тут не годится: инпуту файла нужен доступ именно к своему <input>).
-    publicChannelsList.querySelectorAll('.pubch-checkbox').forEach(cb => {
-      cb.addEventListener('change', () => renderPublicChannelsList(lastOwnChannels, new Set(getCheckedPublicChannels())));
-    });
-    publicChannelsList.querySelectorAll('.pubch-logo-input').forEach(inp => {
-      inp.addEventListener('change', () => handleChannelLogoUpload(inp));
-    });
-    publicChannelsList.querySelectorAll('.pubch-logo-remove').forEach(btn => {
-      btn.addEventListener('click', () => {
-        delete currentLogos[btn.dataset.channel];
-        renderPublicChannelsList(lastOwnChannels, new Set(getCheckedPublicChannels()));
-      });
-    });
-    publicChannelsList.querySelectorAll('.pubch-copy-link').forEach(btn => {
-      btn.addEventListener('click', async () => {
-        try {
-          await navigator.clipboard.writeText(btn.dataset.link);
-          const prev = btn.textContent;
-          btn.textContent = 'Скопировано ✓';
-          setTimeout(() => { btn.textContent = prev; }, 2000);
-        } catch {}
-      });
-    });
+    if (!username) return null;
+    return `${location.origin}${location.pathname.replace(/profile-settings\.html$/, '')}public.html?u=${encodeURIComponent(username)}&channel=${encodeURIComponent(activeChannel)}`;
   }
 
-  async function handleChannelLogoUpload(inputEl) {
-    const channel = inputEl.dataset.channel;
-    const file = inputEl.files[0];
-    if (!file) return;
-    const statusEl = publicChannelsList.querySelector(`.pubch-logo-status[data-channel="${CSS.escape(channel)}"]`);
-    if (!file.type.startsWith('image/')) {
-      if (statusEl) statusEl.textContent = 'Нужен файл изображения (PNG, JPG, WebP или SVG).';
-      inputEl.value = '';
-      return;
+  function renderChLogoPreview() {
+    if (currentChannelLogoUrl) {
+      chLogoPreviewImg.src = currentChannelLogoUrl;
+      chLogoPreviewImg.style.display = '';
+      chLogoPreviewPlaceholder.style.display = 'none';
+      chRemoveLogoBtn.style.display = '';
+    } else {
+      chLogoPreviewImg.removeAttribute('src');
+      chLogoPreviewImg.style.display = 'none';
+      chLogoPreviewPlaceholder.style.display = '';
+      chRemoveLogoBtn.style.display = 'none';
     }
-    if (file.size > 2 * 1024 * 1024) {
-      if (statusEl) statusEl.textContent = 'Файл больше 2 МБ — выбери изображение поменьше.';
-      inputEl.value = '';
-      return;
-    }
-    if (statusEl) statusEl.textContent = 'Загружаю…';
-    const ext = (file.name.split('.').pop() || 'png').toLowerCase().replace(/[^a-z0-9]/g, '') || 'png';
-    // Путь включает канал — у каждого канала свой файл в Storage, не
-    // перезаписывают друг друга (раньше был один путь logo.<ext> на всех).
-    const safeChannel = channel.replace(/[^a-z0-9_-]/gi, '_');
-    const path = `${session.user.id}/logo-${safeChannel}.${ext}`;
-    const { error: upErr } = await supabase.storage.from('profile-logos').upload(path, file, { upsert: true, cacheControl: '3600' });
-    inputEl.value = '';
-    if (upErr) {
-      if (statusEl) statusEl.textContent = 'Не удалось загрузить: ' + upErr.message;
-      return;
-    }
-    const { data: urlData } = supabase.storage.from('profile-logos').getPublicUrl(path);
-    currentLogos[channel] = urlData.publicUrl.startsWith('data:')
-      ? urlData.publicUrl
-      : urlData.publicUrl + (urlData.publicUrl.includes('?') ? '&' : '?') + 't=' + Date.now();
-    renderPublicChannelsList(lastOwnChannels, new Set(getCheckedPublicChannels()));
   }
 
-  function getCheckedPublicChannels() {
-    return Array.from(publicChannelsList.querySelectorAll('input[type=checkbox]:checked')).map(i => i.dataset.channel);
+  function renderChLink() {
+    const url = chIsPublicInput.checked ? chPublicUrl() : null;
+    if (url) {
+      chLinkRow.style.display = '';
+      chLinkValue.textContent = url;
+      chOpenLinkBtn.href = url;
+    } else {
+      chLinkRow.style.display = 'none';
+    }
   }
 
-  // Юзернейм в базе — строго строчная латиница/цифры/дефис/подчёркивание
-  // (constraint profiles_username_format в schema_milestone7.sql). Раньше
-  // регистр приводился только в момент сохранения — если ввести "Cybervalue"
-  // с заглавной буквы, поле визуально показывало это, и до клика «Сохранить»
-  // было непонятно, что это исправится. Теперь поле само переводит текст в
-  // нижний регистр на лету, а перед отправкой в базу — ещё и явная проверка
-  // с понятным сообщением вместо сырой ошибки Postgres.
+  chIsPublicInput.addEventListener('change', renderChLink);
   usernameInput.addEventListener('input', () => {
     const cursor = usernameInput.selectionStart;
     usernameInput.value = usernameInput.value.toLowerCase();
     usernameInput.setSelectionRange(cursor, cursor);
-    // Ссылки в карточках зависят от юзернейма — перерисовываем, чтобы они
-    // сразу обновились, не дожидаясь «Сохранить».
-    renderPublicChannelsList(lastOwnChannels, new Set(getCheckedPublicChannels()));
+    renderChLink();
+  });
+
+  chLogoFileInput.addEventListener('change', async () => {
+    const file = chLogoFileInput.files[0];
+    if (!file) return;
+    if (!file.type.startsWith('image/')) {
+      chLogoStatus.textContent = 'Нужен файл изображения (PNG, JPG, WebP или SVG).';
+      chLogoFileInput.value = '';
+      return;
+    }
+    if (file.size > 2 * 1024 * 1024) {
+      chLogoStatus.textContent = 'Файл больше 2 МБ — выбери изображение поменьше.';
+      chLogoFileInput.value = '';
+      return;
+    }
+    chLogoStatus.textContent = 'Загружаю…';
+    const ext = (file.name.split('.').pop() || 'png').toLowerCase().replace(/[^a-z0-9]/g, '') || 'png';
+    // Путь включает канал — у каждого канала свой файл в Storage, не
+    // перезаписывают друг друга (раньше был один путь logo.<ext> на всех).
+    const safeChannel = activeChannel.replace(/[^a-z0-9_-]/gi, '_');
+    const path = `${session.user.id}/logo-${safeChannel}.${ext}`;
+    const { error: upErr } = await supabase.storage.from('profile-logos').upload(path, file, { upsert: true, cacheControl: '3600' });
+    chLogoFileInput.value = '';
+    if (upErr) {
+      chLogoStatus.textContent = 'Не удалось загрузить: ' + upErr.message;
+      return;
+    }
+    const { data: urlData } = supabase.storage.from('profile-logos').getPublicUrl(path);
+    currentChannelLogoUrl = urlData.publicUrl.startsWith('data:')
+      ? urlData.publicUrl
+      : urlData.publicUrl + (urlData.publicUrl.includes('?') ? '&' : '?') + 't=' + Date.now();
+    renderChLogoPreview();
+    chLogoStatus.textContent = 'Загружено ✓ — нажми «Сохранить настройки канала»';
+  });
+
+  chRemoveLogoBtn.addEventListener('click', () => {
+    currentChannelLogoUrl = null;
+    renderChLogoPreview();
+    chLogoStatus.textContent = 'Будет удалено при сохранении.';
+  });
+
+  chCopyLinkBtn.addEventListener('click', async () => {
+    try {
+      await navigator.clipboard.writeText(chLinkValue.textContent);
+      chCopyLinkBtn.textContent = 'Скопировано ✓';
+      setTimeout(() => { chCopyLinkBtn.textContent = 'Скопировать'; }, 2000);
+    } catch {}
+  });
+
+  // Сохраняет ТОЛЬКО активный канал: читает текущий public_channels/
+  // channel_logos из уже загруженного existingProfile, меняет запись ровно
+  // для activeChannel, остальные ключи копирует как есть без изменений —
+  // другой канал физически не может пострадать от этого сохранения.
+  chSaveBtn.addEventListener('click', async () => {
+    if (chIsPublicInput.checked && !(usernameInput.value || '').trim()) {
+      chFormStatus.textContent = 'Сначала укажи и сохрани юзернейм в блоке «Личность» выше.';
+      return;
+    }
+    chSaveBtn.disabled = true;
+    chFormStatus.textContent = 'Сохраняю…';
+    const existingPublicChannels = (existingProfile && Array.isArray(existingProfile.public_channels)) ? existingProfile.public_channels.slice() : [];
+    const existingLogos = (existingProfile && existingProfile.channel_logos && typeof existingProfile.channel_logos === 'object') ? { ...existingProfile.channel_logos } : {};
+    const nextPublicChannels = chIsPublicInput.checked
+      ? (existingPublicChannels.includes(activeChannel) ? existingPublicChannels : [...existingPublicChannels, activeChannel])
+      : existingPublicChannels.filter(c => c !== activeChannel);
+    if (currentChannelLogoUrl) existingLogos[activeChannel] = currentChannelLogoUrl;
+    else delete existingLogos[activeChannel];
+    const payload = {
+      public_channels: nextPublicChannels,
+      channel_logos: existingLogos,
+      // is_public — общий рубильник в RLS (schema_milestone7/37.sql),
+      // вычисляется автоматически: публичен хоть один канал — включён.
+      is_public: nextPublicChannels.length > 0,
+    };
+    const { error } = existingProfile
+      ? await supabase.from('profiles').update(payload).eq('user_id', session.user.id)
+      : await supabase.from('profiles').insert({ user_id: session.user.id, username: null, ...payload });
+    chSaveBtn.disabled = false;
+    if (error) {
+      chFormStatus.textContent = 'Ошибка: ' + error.message;
+      return;
+    }
+    chFormStatus.textContent = 'Сохранено ✓';
+    setTimeout(() => { chFormStatus.textContent = ''; }, 2500);
+    await load();
   });
 
   async function load() {
@@ -367,23 +407,6 @@
     usernameInput.value = existingProfile ? (existingProfile.username || '') : '';
     displayNameInput.value = existingProfile ? (existingProfile.display_name || '') : '';
     bioInput.value = existingProfile ? (existingProfile.bio || '') : '';
-    // public_channels — новая колонка (schema_milestone37.sql). Если
-    // миграция на базе ещё не накачена, её просто нет в ответе — тогда
-    // подстраховываемся старым единственным полем .channel, чтобы форма
-    // не показывала пустой список зря.
-    const legacyChannel = existingProfile && existingProfile.is_public && existingProfile.channel ? [existingProfile.channel] : [];
-    const checkedChannels = new Set(
-      (existingProfile && Array.isArray(existingProfile.public_channels) && existingProfile.public_channels.length)
-        ? existingProfile.public_channels
-        : legacyChannel
-    );
-    loadMyChannels(supabase, session.user.id).then(channels => {
-      // Публичным можно сделать только СВОЙ канал (role:'owner') — чужой
-      // расшаренный (role:'editor', куда тебя пригласили) тут ни при чём:
-      // это поле управляет видимостью ТВОЕЙ строки profiles, а не чужой.
-      renderPublicChannelsList(channels.filter(c => c.role === 'owner'), checkedChannels);
-    });
-    isPublicInput.checked = !!(existingProfile && existingProfile.is_public);
     showBankInput.checked = !!(existingProfile && existingProfile.show_bank);
     // show_best_tournament/show_best_bet — по умолчанию ВКЛЮЧЕНО (в отличие
     // от show_bank выше, который по умолчанию выключен из-за приватности
@@ -397,29 +420,35 @@
     roleCapperInput.checked = roles.includes('capper');
     roleStreamerInput.checked = roles.includes('streamer');
     updateRoleDropdownLabel();
-    // channel_logos — новая колонка (schema_milestone38.sql). Если миграция
-    // ещё не накачена, её просто нет в ответе — тогда пусто (без логотипов),
-    // а не падаем и не путаем со старым единым logo_url.
-    currentLogos = (existingProfile && existingProfile.channel_logos && typeof existingProfile.channel_logos === 'object')
-      ? { ...existingProfile.channel_logos }
-      : {};
+
+    // ---- Блок активного канала ----
+    channelSettingsTitle.textContent = `Настройки канала «${activeChannelLabel()}»`;
+    const publicChannels = (existingProfile && Array.isArray(existingProfile.public_channels)) ? existingProfile.public_channels : [];
+    chIsPublicInput.checked = publicChannels.includes(activeChannel);
+    const logos = (existingProfile && existingProfile.channel_logos && typeof existingProfile.channel_logos === 'object') ? existingProfile.channel_logos : {};
+    currentChannelLogoUrl = logos[activeChannel] || null;
+    renderChLogoPreview();
+    renderChLink();
+
+    loadMyChannels(supabase, session.user.id).then(channels => {
+      // Переключатель — только СВОИ каналы (role:'owner'); расшаренный
+      // (куда тебя пригласили редактором) тут ни при чём — эта страница
+      // управляет ТВОЕЙ строкой profiles, не чужой.
+      document.getElementById('channelSwitch').innerHTML =
+        renderChannelSwitch(channels.filter(c => c.role === 'owner'), activeChannel, session.user.id, 'profile-settings.html');
+      const found = channels.find(c => c.channel === activeChannel && c.role === 'owner');
+      channelSettingsNote.textContent = found
+        ? `Переключись выше на другой канал, чтобы настроить его отдельно — этот блок относится только к «${found.label}».`
+        : '';
+    });
   }
 
   document.getElementById('profileForm').addEventListener('submit', async (e) => {
     e.preventDefault();
     const username = usernameInput.value.trim().toLowerCase();
-    if (isPublicInput.checked && !username) {
-      formStatus.textContent = 'Для публичного профиля нужен юзернейм.';
-      return;
-    }
     if (username && !USERNAME_RE.test(username)) {
       formStatus.textContent = 'Юзернейм: только латинские буквы, цифры, дефис и подчёркивание, 3–32 символа (проверь раскладку клавиатуры — похожие русские буквы не подходят).';
       usernameInput.focus();
-      return;
-    }
-    const publicChannels = getCheckedPublicChannels();
-    if (isPublicInput.checked && !publicChannels.length) {
-      formStatus.textContent = 'Профиль отмечен публичным, но не выбрано ни одного канала — отметь хотя бы один ниже.';
       return;
     }
     saveBtn.disabled = true;
@@ -427,23 +456,16 @@
     const roles = [];
     if (roleCapperInput.checked) roles.push('capper');
     if (roleStreamerInput.checked) roles.push('streamer');
+    // Только "личность" — видимость/аватар/ссылка канала эта форма не
+    // трогает вообще (те ключи ей не переданы), сохраняются отдельной
+    // кнопкой "Сохранить настройки канала" выше.
     const payload = {
       username: username || null,
       display_name: displayNameInput.value.trim() || null,
       bio: bioInput.value.trim() || null,
-      // channel — легаси-поле, not null в базе (schema_milestone8.sql) —
-      // держим в синхроне с первым отмеченным каналом просто для обратной
-      // совместимости с кодом, который может на него смотреть (например
-      // ярлык "свой публичный канал" в loadMyChannels/lib.js). 'cybervalue'
-      // как запасной вариант, когда публичных каналов не отмечено вообще —
-      // сама видимость теперь решается ТОЛЬКО через public_channels ниже.
-      channel: publicChannels[0] || 'cybervalue',
-      public_channels: publicChannels,
-      is_public: isPublicInput.checked,
       show_bank: showBankInput.checked,
       show_best_tournament: showBestTournamentInput.checked,
       show_best_bet: showBestBetInput.checked,
-      channel_logos: currentLogos,
       roles,
     };
     const { error } = existingProfile

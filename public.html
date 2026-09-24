@@ -194,14 +194,24 @@
       const publicChannels = (Array.isArray(profile.public_channels) && profile.public_channels.length)
         ? profile.public_channels
         : legacyChannel;
+      // 24.09.2026: раньше при ?channel=X, которого нет в publicChannels
+      // (устаревшая ссылка, канал сделали снова приватным, и т.п.), код
+      // молча подставлял publicChannels[0] — человек открывал ссылку на
+      // ОДИН канал, а видел статистику СОВСЕМ ДРУГОГО, без единого намёка,
+      // что подмена вообще произошла (нашли этим багом настоящую путаницу
+      // с cybervalue/cybervaluepro). Явный return тут невозможен — весь
+      // скрипт идёт на верхнем уровне модуля (top-level await), не внутри
+      // функции — поэтому вместо тихой подмены показываем предупреждение
+      // прямо в шапке профиля ниже (channelMismatchWarningHtml).
+      const channelMismatch = !!(channelParam && !publicChannels.includes(channelParam));
       const channel = (channelParam && publicChannels.includes(channelParam)) ? channelParam : publicChannels[0];
-      // 24.09.2026: аватар теперь отдельный на каждый канал
-      // (schema_milestone38.sql, profiles.channel_logos jsonb) — раньше
-      // profile.logo_url был один на весь профиль, при нескольких публичных
-      // каналах у второго выглядело так, будто аватар "чужой". logo_url
-      // остаётся запасным вариантом, если для ЭТОГО канала своей картинки
-      // ещё не загрузили.
-      const channelLogoUrl = (profile.channel_logos && profile.channel_logos[channel]) || profile.logo_url || null;
+      // 24.09.2026: аватар отдельный на каждый канал (schema_milestone38.sql,
+      // profiles.channel_logos jsonb) — раньше profile.logo_url был один на
+      // весь профиль, при нескольких публичных каналах у второго выглядело
+      // так, будто аватар "чужой". По явному запросу — без подстановки
+      // старого общего logo_url: нет своего аватара у канала — просто
+      // инициалы, а не чей-то чужой логотип.
+      const channelLogoUrl = (profile.channel_logos && profile.channel_logos[channel]) || null;
       // 04.09.2026: подписки (schema_milestone33.sql) — счётчик подписчиков
       // нужен всегда (виден анонимусам тоже), собственная строка "я
       // подписан?" — только если зритель залогинен и смотрит НЕ свой же
@@ -410,7 +420,11 @@
           ? `<div class="best-stats-block">${bestTournamentHtml}${bestBetHtml}</div>`
           : '';
 
+        const channelMismatchWarningHtml = channelMismatch
+          ? `<div class="warn-box" style="margin-bottom:16px;">Канал «${escapeHtml(channelParam)}» не найден или больше не публичный у этого профиля — показан «${escapeHtml(channel)}» вместо него. Публичные каналы: ${publicChannels.map(escapeHtml).join(', ')}.</div>`
+          : '';
         profileHero.innerHTML = `
+          ${channelMismatchWarningHtml}
           <div class="pf-banner">${renderProfileBanner(computeCardTrend('profit', allBets))}</div>
           <div class="pf-identity">
             <div class="pf-top">
