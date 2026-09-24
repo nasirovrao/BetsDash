@@ -8,7 +8,7 @@
 <link rel="preconnect" href="https://fonts.googleapis.com">
 <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
 <link href="https://fonts.googleapis.com/css2?family=Unbounded:wght@600;700;800&family=Golos+Text:wght@400;500;600;700&family=JetBrains+Mono:wght@400;500;600&display=swap" rel="stylesheet">
-<link rel="stylesheet" href="styles.css?v=33">
+<link rel="stylesheet" href="styles.css?v=34">
 <!-- EDGE 2.0 — новая дизайн-система (палитра/типографика/фон), см. styles-edge2.css -->
 <link rel="stylesheet" href="styles-edge2.css?v=3">
 <link rel="stylesheet" href="styles-edge3.css?v=3">
@@ -75,6 +75,19 @@
 
     <div id="channelSwitch"></div>
 
+    <div class="bet-form" id="newChannelBlock">
+      <h3>Новый канал</h3>
+      <div class="section-note" style="margin:-4px 0 14px;">Отдельный журнал ставок со своим названием — например, для конкретного каппера или проекта. Ставки личного дневника и остальных каналов сюда не попадают, это чистый лист.</div>
+      <div class="setup-row">
+        <div class="field">
+          <label for="newChannelName">Название канала</label>
+          <input id="newChannelName" type="text" placeholder="Например: Cybervalue PRO" autocomplete="off">
+        </div>
+        <button class="btn btn-primary" type="button" id="createChannelBtn" style="width:auto;">Создать</button>
+        <span class="form-status" id="newChannelStatus"></span>
+      </div>
+    </div>
+
     <div class="bet-form">
       <h3>Кого можно пригласить в «<span id="inviteChannelLabel">…</span>»</h3>
       <div class="section-note" style="margin:-4px 0 14px;">Доступ выдаётся автоматически той почте, что ты укажешь — как только человек зарегистрируется или войдёт в EDGE под ней. Роль можно поменять в любой момент ниже, в списке уже выданных доступов.</div>
@@ -109,7 +122,7 @@
 
 <script type="module">
   import { supabase, requireSession, isClvEnabled } from './supabase-client.js';
-  import { escapeHtml, preserveChannelInNav, initEmailPrivacyToggle, initNavDropdown, applyNavModes, getChannelParams, loadMyChannels, renderChannelSwitch } from './lib.js';
+  import { escapeHtml, preserveChannelInNav, initEmailPrivacyToggle, initNavDropdown, applyNavModes, getChannelParams, loadMyChannels, renderChannelSwitch, createChannel, channelHref } from './lib.js';
 
   const session = await requireSession();
   if (session) {
@@ -134,6 +147,36 @@
   // механизм, что и на app.html/dashboard.html и т.д.
   const { channel: activeChannel } = getChannelParams();
   preserveChannelInNav(activeChannel, myUserId, myUserId);
+
+  // 24.09.2026: "+ Новый канал" — пилюля в общем переключателе каналов
+  // (renderChannelSwitch, lib.js) ведёт сюда с ?new=1, чтобы форма сразу
+  // была в поле зрения, а не терялась среди остальных секций страницы.
+  if (new URLSearchParams(location.search).get('new') === '1') {
+    document.getElementById('newChannelBlock').scrollIntoView({ behavior: 'smooth', block: 'start' });
+    document.getElementById('newChannelName').focus();
+  }
+  document.getElementById('createChannelBtn').addEventListener('click', async () => {
+    const input = document.getElementById('newChannelName');
+    const status = document.getElementById('newChannelStatus');
+    const btn = document.getElementById('createChannelBtn');
+    const name = input.value.trim();
+    if (!name) { input.focus(); return; }
+    btn.disabled = true;
+    status.textContent = 'Создаю…';
+    const { error, channel, alreadyExisted } = await createChannel(supabase, myUserId, name);
+    btn.disabled = false;
+    if (error) {
+      status.textContent = 'Не удалось создать: ' + error.message;
+      return;
+    }
+    status.textContent = alreadyExisted ? 'Такой канал уже есть — переходим в него…' : 'Готово ✓ — переходим в новый канал…';
+    // Сразу переводим владельца в свежесозданный канал — создавать канал и
+    // потом ещё самому искать, как в него попасть, было бы лишним шагом.
+    window.location.href = channelHref('channel-team.html', channel, myUserId, myUserId);
+  });
+  document.getElementById('newChannelName').addEventListener('keydown', (e) => {
+    if (e.key === 'Enter') { e.preventDefault(); document.getElementById('createChannelBtn').click(); }
+  });
 
   loadMyChannels(supabase, myUserId).then(channels => {
     // Только СВОИ каналы (role:'owner' в терминах loadMyChannels — ярлык

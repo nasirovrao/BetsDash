@@ -872,6 +872,11 @@ table.clv-table tbody tr.clv-row:hover .clv-match{ color: var(--gold); }
 }
 .channel-pill:hover{ color: var(--ink); border-color: var(--ink-faint); }
 .channel-pill.active{ color: var(--gold-ink); background: var(--gold); border-color: var(--gold); }
+/* 24.09.2026: "+ Новый канал" — пунктир и золотой текст вместо сплошной
+   рамки/приглушённого цвета остальных пилюль, чтобы читаться как ДЕЙСТВИЕ
+   ("сделать что-то"), а не как ещё один пункт для переключения. */
+.channel-pill-add{ background:none; border-style:dashed; color: var(--gold); }
+.channel-pill-add:hover{ background: var(--bg-raised); border-color: var(--gold); color: var(--gold); }
 
 /* 01.09.2026: у всех текстовых полей формы outline:none на :focus заменён
    ТОЛЬКО сменой цвета границы на --gold (1px) — для клавиатурной навигации

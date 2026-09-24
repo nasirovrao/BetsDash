@@ -8,7 +8,7 @@
 <link rel="preconnect" href="https://fonts.googleapis.com">
 <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
 <link href="https://fonts.googleapis.com/css2?family=Unbounded:wght@600;700;800&family=Golos+Text:wght@400;500;600;700&family=JetBrains+Mono:wght@400;500;600&display=swap" rel="stylesheet">
-<link rel="stylesheet" href="styles.css?v=33">
+<link rel="stylesheet" href="styles.css?v=34">
 <!-- EDGE 2.0 — новая дизайн-система (палитра/типографика/фон), см. styles-edge2.css -->
 <link rel="stylesheet" href="styles-edge2.css?v=3">
 <link rel="stylesheet" href="styles-edge3.css?v=3">
@@ -125,6 +125,24 @@
 
     <div id="channelSwitch"></div>
 
+    <!-- 24.09.2026: "выбирать канал заранее, до загрузки файла" — пилюли
+         выше уже переключают канал (тот же паттерн, что и везде на сайте,
+         включая новую "+ Новый канал"), но она уводит на channel-team.html
+         создавать канал и приходится возвращаться на import.html вручную.
+         Здесь — то же самое действие (createChannel, lib.js), но БЕЗ ухода
+         со страницы: ввёл имя → сразу на import.html?channel=<имя>, готово
+         сразу загружать файл. -->
+    <div class="import-card" id="quickChannelCard" style="padding:18px 22px;">
+      <div class="setup-row" style="margin:0;">
+        <div class="field" style="max-width:320px;">
+          <label for="quickNewChannelName">Или создать новый канал для импорта</label>
+          <input id="quickNewChannelName" type="text" placeholder="Например: Cybervalue PRO" autocomplete="off">
+        </div>
+        <button class="btn btn-ghost" type="button" id="quickCreateChannelBtn" style="width:auto;">Создать и перейти</button>
+        <span class="form-status" id="quickChannelStatus"></span>
+      </div>
+    </div>
+
     <div class="import-card">
       <h3><span class="import-step-num">1</span>Файл</h3>
       <p style="margin-top:0;">Файл Excel (.xlsx/.xls) или CSV. Ведёшь историю в Google Таблицах? Ниже — как выгрузить её в подходящий файл за пару кликов.</p>
@@ -192,7 +210,7 @@
 
 <script type="module">
   import { supabase, requireSession, isClvEnabled } from './supabase-client.js';
-  import { escapeHtml, getChannelParams, loadMyChannels, renderChannelSwitch, preserveChannelInNav, initEmailPrivacyToggle, initNavDropdown, applyNavModes, channelHref } from './lib.js';
+  import { escapeHtml, getChannelParams, loadMyChannels, renderChannelSwitch, preserveChannelInNav, initEmailPrivacyToggle, initNavDropdown, applyNavModes, channelHref, createChannel } from './lib.js';
 
   const session = await requireSession();
   if (session) {
@@ -222,6 +240,29 @@
     if (found) { activeChannelLabel = found.label; document.getElementById('targetChannelLabel').textContent = activeChannelLabel; }
   });
   document.getElementById('targetChannelLabel').textContent = activeChannelLabel;
+
+  // Создать новый канал прямо со страницы импорта, без ухода на
+  // channel-team.html — единственное отличие от той же формы там: после
+  // успеха остаёмся на import.html, просто с новым ?channel=.
+  document.getElementById('quickCreateChannelBtn').addEventListener('click', async () => {
+    const input = document.getElementById('quickNewChannelName');
+    const status = document.getElementById('quickChannelStatus');
+    const btn = document.getElementById('quickCreateChannelBtn');
+    const name = input.value.trim();
+    if (!name) { input.focus(); return; }
+    btn.disabled = true;
+    status.textContent = 'Создаю…';
+    const { error, channel } = await createChannel(supabase, session.user.id, name);
+    btn.disabled = false;
+    if (error) {
+      status.textContent = 'Не удалось создать: ' + error.message;
+      return;
+    }
+    window.location.href = channelHref('import.html', channel, session.user.id, session.user.id);
+  });
+  document.getElementById('quickNewChannelName').addEventListener('keydown', (e) => {
+    if (e.key === 'Enter') { e.preventDefault(); document.getElementById('quickCreateChannelBtn').click(); }
+  });
 
   // ---- Поля bets и их синонимы для автосопоставления колонок. Порядок —
   // сперва обязательные (см. schema.sql: not null / check-ограничения),

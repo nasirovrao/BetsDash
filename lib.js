@@ -861,12 +861,20 @@ export function getChannelParams() {
 //   - любой другой канал, где у пользователя есть СВОИ ставки (он владелец);
 //   - каналы, куда его одобрили редактором (channel_members, status=approved).
 export async function loadMyChannels(supabase, myUserId) {
-  const [{ data: ownBets }, { data: memberRows }, { data: myProfile }] = await Promise.all([
+  const [{ data: ownBets }, { data: memberRows }, { data: myProfile }, { data: ownSettings }] = await Promise.all([
     supabase.from('bets').select('channel').eq('user_id', myUserId),
     supabase.from('channel_members').select('owner_user_id, channel, channel_label, status, role').eq('member_user_id', myUserId).eq('status', 'approved'),
     supabase.from('profiles').select('channel, display_name, username').eq('user_id', myUserId).maybeSingle(),
+    // 24.09.2026, кнопка "+ Новый канал" (createChannel ниже) — создание
+    // канала теперь не требует сразу ни одной ставки, только пустую строку
+    // settings под этим именем. Без этого запроса свежесозданный канал БЕЗ
+    // ставок был бы невидим в переключателе (ownBets его ещё не знает) до
+    // первой сохранённой ставки — то есть кнопка формально "создавала" бы
+    // канал, а сразу попасть в него можно было бы только руками через URL.
+    supabase.from('settings').select('channel').eq('user_id', myUserId),
   ]);
   const ownChannelSet = new Set((ownBets || []).map(b => b.channel || 'default'));
+  (ownSettings || []).forEach(s => ownChannelSet.add(s.channel || 'default'));
   ownChannelSet.add('default');
   // Свой публичный канал должен быть в переключателе, даже если в нём ещё
   // НЕТ ни одной ставки — иначе только что настроенный публичный профиль
@@ -892,10 +900,33 @@ export async function loadMyChannels(supabase, myUserId) {
   return [...own, ...shared];
 }
 
-// Рендерит пилюли переключателя каналов. Ничего не рисует, если у
-// пользователя ровно один канал (личный дневник) — переключать нечего.
+// Создаёт новый канал — по факту просто заводит пустую строку settings под
+// этим именем (24.09.2026, кнопка "+ Новый канал"). Ставок в нём при этом
+// ещё ноль, но он сразу появляется в переключателе (см. loadMyChannels
+// выше — теперь читает и settings, не только bets) и на него можно сразу
+// перейти, не вбивая ?channel= руками. name — как ввёл пользователь, без
+// нормализации (канал — просто текстовое значение, то же самое поле, что
+// уже везде в bets.channel/settings.channel, никакого отдельного справочника
+// имён нет). Дубликат (канал с таким именем уже есть) — settings.PK
+// (user_id, channel) отклонит вставку 23505, это не ошибка, а "уже есть,
+// просто переходим".
+export async function createChannel(supabase, myUserId, name) {
+  const channel = String(name || '').trim();
+  if (!channel) return { error: { message: 'Название канала не может быть пустым.' } };
+  if (channel.toLowerCase() === 'default') return { error: { message: '«default» зарезервировано под личный дневник — выбери другое название.' } };
+  const { error } = await supabase.from('settings').insert({ user_id: myUserId, channel });
+  if (error && error.code !== '23505') return { error };
+  return { error: null, channel, alreadyExisted: error?.code === '23505' };
+}
+
+// Рендерит пилюли переключателя каналов + пилюлю "+ Новый канал" в конце
+// (24.09.2026, по прямому запросу — раньше единственный способ завести
+// канал был руками вписать ?channel=... в адресную строку). Ведёт на
+// channel-team.html — там сама форма создания (см. секцию "Новый канал"
+// в channel-team.html). Показываем ряд ВСЕГДА, даже при одном канале —
+// иначе у свежего аккаунта кнопку "+" негде было бы увидеть вообще.
 export function renderChannelSwitch(channels, activeChannel, activeOwnerId, pageFile) {
-  if (!channels || channels.length <= 1) return '';
+  if (!channels || !channels.length) return '';
   const pills = channels.map(c => {
     const isActive = c.channel === activeChannel && c.ownerUserId === activeOwnerId;
     const params = new URLSearchParams();
@@ -909,7 +940,8 @@ export function renderChannelSwitch(channels, activeChannel, activeOwnerId, page
     const roleTag = c.role === 'editor' ? ` <span style="opacity:.6;font-weight:400;">· ${c.accessRole === 'viewer' ? 'просмотр' : 'редактор'}</span>` : '';
     return `<a class="channel-pill${isActive ? ' active' : ''}" href="${href}">${escapeHtml(c.label)}${roleTag}</a>`;
   }).join('');
-  return `<div class="channel-switch">${pills}</div>`;
+  const addPill = `<a class="channel-pill channel-pill-add" href="channel-team.html?new=1" title="Создать новый канал">+ Новый канал</a>`;
+  return `<div class="channel-switch">${pills}${addPill}</div>`;
 }
 
 // Дописывает ?channel=&owner= ко всем ссылкам топбара/нав-бара на текущей
